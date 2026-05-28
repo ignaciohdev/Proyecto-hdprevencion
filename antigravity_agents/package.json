@@ -1,0 +1,13 @@
+{
+  "name": "proyecto-hdprevencion-agente",
+  "version": "1.0.0",
+  "description": "Script para ejecutar el agente UX/UI de HD Prevención",
+  "main": "run_agent.js",
+  "scripts": {
+    "start": "node run_agent.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.4.2"
+  }
+}

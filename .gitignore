@@ -1,0 +1,17 @@
+# Entornos virtuales
+backend/venv/
+.venv/
+env/
+
+# Archivos de configuración local y claves
+.env
+backend/core/settings.py.local
+*.env
+
+# Base de datos local de juguete (por si quedó algún rastro)
+*.sqlite3
+
+# Archivos del sistema y caché de Python
+__pycache__/
+*.pyc
+.DS_Store

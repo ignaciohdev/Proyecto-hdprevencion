@@ -1,0 +1,11 @@
+{
+  "python.defaultInterpreterPath": "c:/Users/Ignac/.gemini/antigravity/scratch/Proyecto-hdprevencion/backend/venv/Scripts/python.exe",
+  "python.venvPath": "c:/Users/Ignac/.gemini/antigravity/scratch/Proyecto-hdprevencion/backend",
+  "python.venv": "venv",
+  "python.analysis.extraPaths": [
+    "./backend"
+  ],
+  "python.autoComplete.extraPaths": [
+    "./backend"
+  ]
+}
