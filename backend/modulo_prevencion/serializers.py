@@ -7,7 +7,7 @@ from .models import (
     Plan, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
-    ReporteRiesgo, PlantillaInspeccion, Inspeccion
+    ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente
 )
 
 Usuario = get_user_model()
@@ -212,4 +212,23 @@ class InspeccionSerializer(serializers.ModelSerializer):
             'usuario': {'required': False},
             'porcentaje_cumplimiento': {'required': False}
         }
+
+
+class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='usuario.username', read_only=True)
+
+    class Meta:
+        model = InvestigacionAccidente
+        fields = (
+            'id', 'usuario', 'username',
+            'nombre_afectado', 'rut_afectado', 'cargo_afectado', 'edad_afectado', 'antiguedad_afectado',
+            'tipo_evento', 'fecha_hora_evento', 'lugar_evento', 'descripcion_evento',
+            'tipo_lesion', 'parte_cuerpo_afectada',
+            'causas_inmediatas', 'causas_basicas', 'analisis_5_porques',
+            'plan_accion', 'fecha_creacion'
+        )
+        extra_kwargs = {
+            'usuario': {'required': False}
+        }
+
 

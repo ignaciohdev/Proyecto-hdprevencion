@@ -534,3 +534,85 @@ class Inspeccion(models.Model):
         return f"{self.plantilla.nombre} - {self.usuario.username} ({self.fecha.strftime('%d/%m/%Y')} - {self.porcentaje_cumplimiento}%)"
 
 
+class InvestigacionAccidente(models.Model):
+    """
+    Modelo para registrar la investigación detallada de un accidente o incidente de trabajo.
+    """
+    TIPO_TRABAJO = 'TRABAJO'
+    TIPO_TRAYECTO = 'TRAYECTO'
+    TIPO_INCIDENTE = 'INCIDENTE'
+
+    TIPO_EVENTO_CHOICES = [
+        (TIPO_TRABAJO, 'Accidente del Trabajo'),
+        (TIPO_TRAYECTO, 'Accidente de Trayecto'),
+        (TIPO_INCIDENTE, 'Incidente / Casi Accidente'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='investigaciones_accidentes',
+        verbose_name="Prevencionista Investigador"
+    )
+    
+    # Datos del Afectado
+    nombre_afectado = models.CharField(max_length=150, verbose_name="Nombre Completo del Afectado")
+    rut_afectado = models.CharField(max_length=15, verbose_name="RUT del Afectado")
+    cargo_afectado = models.CharField(max_length=100, verbose_name="Cargo / Puesto de Trabajo")
+    edad_afectado = models.PositiveIntegerField(verbose_name="Edad del Afectado")
+    antiguedad_afectado = models.CharField(max_length=50, verbose_name="Antigüedad en la Empresa")
+
+    # Datos del Evento
+    tipo_evento = models.CharField(
+        max_length=20,
+        choices=TIPO_EVENTO_CHOICES,
+        default=TIPO_TRABAJO,
+        verbose_name="Tipo de Evento"
+    )
+    fecha_hora_evento = models.DateTimeField(verbose_name="Fecha y Hora del Evento")
+    lugar_evento = models.CharField(max_length=255, verbose_name="Ubicación Física / Lugar del Suceso")
+    descripcion_evento = models.TextField(verbose_name="Descripción Cronológica del Accidente/Incidente")
+
+    # Evaluación Inicial de Lesiones
+    tipo_lesion = models.CharField(max_length=100, verbose_name="Tipo de Lesión")
+    parte_cuerpo_afectada = models.CharField(max_length=100, verbose_name="Parte del Cuerpo Afectada")
+
+    # Análisis de Causas
+    causas_inmediatas = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Causas Inmediatas (Actos y Condiciones)",
+        help_text="JSON conteniendo los actos y condiciones subestándar identificados."
+    )
+    causas_basicas = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Causas Básicas (Factores Personales y del Trabajo)",
+        help_text="JSON conteniendo los factores personales y del trabajo identificados."
+    )
+    analisis_5_porques = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Análisis de los 5 Porqués",
+        help_text="Lista de textos para la secuencia de los 5 porqués hasta la causa raíz."
+    )
+
+    # Plan de Acción
+    plan_accion = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Plan de Acción Correctiva",
+        help_text="Lista de objetos: [{'medida': '...', 'responsable': '...', 'fecha_limite': 'AAAA-MM-DD', 'estado': 'PENDIENTE|REALIZADO'}]."
+    )
+
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Registro")
+
+    class Meta:
+        verbose_name = "Investigación de Accidente"
+        verbose_name_plural = "Investigaciones de Accidentes"
+        ordering = ['-fecha_hora_evento']
+
+    def __str__(self) -> str:
+        return f"{self.get_tipo_evento_display()} - {self.nombre_afectado} ({self.fecha_hora_evento.strftime('%d/%m/%Y')})"
+
+

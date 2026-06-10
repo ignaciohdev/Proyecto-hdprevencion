@@ -14,13 +14,14 @@ from django.db import transaction
 from django.utils import timezone
 from .models import (
     PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
-    ReporteRiesgo, PlantillaInspeccion, Inspeccion
+    ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
     PlantillaMaestraSerializer, DocumentoUsuarioSerializer,
     NoticiaSerializer, MensajeContactoSerializer, ServicioSerializer,
-    ReporteRiesgoSerializer, PlantillaInspeccionSerializer, InspeccionSerializer
+    ReporteRiesgoSerializer, PlantillaInspeccionSerializer, InspeccionSerializer,
+    InvestigacionAccidenteSerializer
 )
 
 Usuario = get_user_model()
@@ -758,6 +759,21 @@ class InspeccionViewSet(viewsets.ModelViewSet):
         porcentaje = (aprobados / total_evaluados * 100) if total_evaluados > 0 else 0.00
         porcentaje = round(porcentaje, 2)
         serializer.save(usuario=self.request.user, porcentaje_cumplimiento=porcentaje)
+
+
+class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
+    serializer_class = InvestigacionAccidenteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+        return InvestigacionAccidente.objects.filter(usuario__in=usuarios_grupo)
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
 
 
 
