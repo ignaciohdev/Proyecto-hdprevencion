@@ -174,20 +174,20 @@ export default function ReportesRiesgoPage() {
 
       {/* Métricas Rápidas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 transition-all">
+        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 transition-all">
           <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">Total Registrados</p>
           <p className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">{totalRiesgos}</p>
-          <span className="text-xs text-slate-550">Hallazgos históricos</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Hallazgos históricos</span>
         </div>
-        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 transition-all">
+        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 transition-all">
           <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">Pendientes de Corrección</p>
           <p className="text-3xl font-extrabold text-amber-600 mt-1">{abiertos}</p>
-          <span className="text-xs text-slate-550">Requieren plan de acción</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Requieren plan de acción</span>
         </div>
-        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 transition-all">
+        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 transition-all">
           <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">Resueltos / Cerrados</p>
           <p className="text-3xl font-extrabold text-emerald-600 mt-1">{resueltos}</p>
-          <span className="text-xs text-slate-550">Condición segura restablecida</span>
+          <span className="text-xs text-slate-500 dark:text-slate-400">Condición segura restablecida</span>
         </div>
       </div>
 
@@ -371,7 +371,7 @@ export default function ReportesRiesgoPage() {
                     className={`py-3 rounded-xl font-bold text-xs border text-center transition-all ${
                       formCrear.tipo === "CONDICION"
                         ? "bg-orange-600 border-transparent text-white shadow-md"
-                        : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-355 hover:bg-slate-100"
+                        : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
                     🛠️ Condición Insegura
@@ -382,7 +382,7 @@ export default function ReportesRiesgoPage() {
                     className={`py-3 rounded-xl font-bold text-xs border text-center transition-all ${
                       formCrear.tipo === "ACTO"
                         ? "bg-orange-600 border-transparent text-white shadow-md"
-                        : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-355 hover:bg-slate-100"
+                        : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
                     👤 Acto Inseguro
@@ -397,7 +397,7 @@ export default function ReportesRiesgoPage() {
                   required
                   value={formCrear.lugar}
                   onChange={(e) => setFormCrear({ ...formCrear, lugar: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-850 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900 dark:text-white"
                   placeholder="ej. Bodega de herramientas / Andamio exterior piso 4"
                 />
               </div>
@@ -407,7 +407,7 @@ export default function ReportesRiesgoPage() {
                 <select
                   value={formCrear.gravedad}
                   onChange={(e) => setFormCrear({ ...formCrear, gravedad: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-850 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-700 dark:text-slate-300"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900 dark:text-white"
                 >
                   <option value="BAJO">Bajo</option>
                   <option value="MEDIO">Medio</option>
@@ -422,7 +422,7 @@ export default function ReportesRiesgoPage() {
                   rows={4}
                   value={formCrear.descripcion}
                   onChange={(e) => setFormCrear({ ...formCrear, descripcion: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-850 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none text-slate-900 dark:text-white"
                   placeholder="Describe detalladamente el riesgo observado, peligros asociados y posible consecuencia..."
                 />
               </div>

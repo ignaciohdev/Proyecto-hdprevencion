@@ -63,7 +63,7 @@ function IngresoInner() {
 
   return (
     <main className="min-h-screen bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 flex items-center justify-center py-12 px-4 transition-colors duration-300">
-      <div className="max-w-md w-full bg-white dark:bg-slate-955 p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 transition-colors duration-300">
+      <div className="max-w-md w-full bg-white dark:bg-slate-950 p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 transition-colors duration-300">
         
         {/* Header */}
         <div className="text-center mb-8 flex flex-col items-center">

@@ -335,23 +335,23 @@ export default function NuevaInvestigacionPage() {
                 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-450 mb-1">Actos Subestándar (Factores Humanos)</label>
+                    <label className="block text-[11px] font-semibold text-slate-450 dark:text-slate-400 mb-1">Actos Subestándar (Factores Humanos)</label>
                     <textarea
                       value={causasInmediatas.actos_subestandar}
                       onChange={(e) => setCausasInmediatas({ ...causasInmediatas, actos_subestandar: e.target.value })}
                       placeholder="Ej. No utilizar arnés de seguridad, operar equipo sin autorización..."
                       rows={2}
-                      className="w-full bg-slate-55 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none text-slate-900 dark:text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-450 mb-1">Condiciones Subestándar (Ambiente/Equipos)</label>
+                    <label className="block text-[11px] font-semibold text-slate-450 dark:text-slate-400 mb-1">Condiciones Subestándar (Ambiente/Equipos)</label>
                     <textarea
                       value={causasInmediatas.condiciones_subestandar}
                       onChange={(e) => setCausasInmediatas({ ...causasInmediatas, condiciones_subestandar: e.target.value })}
                       placeholder="Ej. Falta de barandas protectoras, derrame de aceite en el pasillo..."
                       rows={2}
-                      className="w-full bg-slate-55 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none text-slate-900 dark:text-white"
                     />
                   </div>
                 </div>
@@ -362,23 +362,23 @@ export default function NuevaInvestigacionPage() {
                 
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-450 mb-1">Factores Personales</label>
+                    <label className="block text-[11px] font-semibold text-slate-450 dark:text-slate-400 mb-1">Factores Personales</label>
                     <textarea
                       value={causasBasicas.factores_personales}
                       onChange={(e) => setCausasBasicas({ ...causasBasicas, factores_personales: e.target.value })}
                       placeholder="Ej. Falta de capacitación en el procedimiento, fatiga acumulada..."
                       rows={2}
-                      className="w-full bg-slate-55 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none text-slate-900 dark:text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-450 mb-1">Factores del Trabajo / Organización</label>
+                    <label className="block text-[11px] font-semibold text-slate-450 dark:text-slate-400 mb-1">Factores del Trabajo / Organización</label>
                     <textarea
                       value={causasBasicas.factores_trabajo}
                       onChange={(e) => setCausasBasicas({ ...causasBasicas, factores_trabajo: e.target.value })}
                       placeholder="Ej. Falta de inspecciones de seguridad preventivas, herramientas gastadas..."
                       rows={2}
-                      className="w-full bg-slate-55 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none"
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl p-2.5 text-xs focus:outline-none resize-none text-slate-900 dark:text-white"
                     />
                   </div>
                 </div>

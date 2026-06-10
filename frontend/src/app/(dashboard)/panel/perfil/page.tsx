@@ -313,7 +313,7 @@ export default function PerfilPanel() {
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold mb-2 text-slate-550 dark:text-slate-400">Nombre de Usuario (Razón Social)</label>
+                <label className="block text-xs font-semibold mb-2 text-slate-500 dark:text-slate-400">Nombre de Usuario (Razón Social)</label>
                 <input
                   type="text"
                   name="username"
@@ -325,7 +325,7 @@ export default function PerfilPanel() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold mb-2 text-slate-550 dark:text-slate-400">Correo Electrónico</label>
+                <label className="block text-xs font-semibold mb-2 text-slate-500 dark:text-slate-400">Correo Electrónico</label>
                 <input
                   type="email"
                   name="email"
@@ -347,7 +347,7 @@ export default function PerfilPanel() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold mb-2 text-slate-550 dark:text-slate-400">Nueva Contraseña</label>
+                <label className="block text-xs font-semibold mb-2 text-slate-500 dark:text-slate-400">Nueva Contraseña</label>
                 <input
                   type="password"
                   name="password"
@@ -359,7 +359,7 @@ export default function PerfilPanel() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold mb-2 text-slate-550 dark:text-slate-400">Confirmar Nueva Contraseña</label>
+                <label className="block text-xs font-semibold mb-2 text-slate-500 dark:text-slate-400">Confirmar Nueva Contraseña</label>
                 <input
                   type="password"
                   name="password_confirm"

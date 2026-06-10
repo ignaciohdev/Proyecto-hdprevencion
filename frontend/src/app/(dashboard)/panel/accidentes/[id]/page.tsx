@@ -118,10 +118,10 @@ export default function DetalleAccidentePage() {
     <div className="space-y-6 print:space-y-0 print:p-0">
       
       {/* Barra de herramientas superior - Se oculta al imprimir */}
-      <div className="flex justify-between items-center print:hidden bg-white dark:bg-slate-955 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+      <div className="flex justify-between items-center print:hidden bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
         <button
           onClick={() => router.push("/panel/accidentes")}
-          className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-350 font-semibold text-sm flex items-center space-x-1 cursor-pointer"
+          className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold text-sm flex items-center space-x-1 cursor-pointer"
         >
           <span>← Volver al Historial</span>
         </button>

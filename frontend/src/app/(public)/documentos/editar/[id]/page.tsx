@@ -319,7 +319,7 @@ function DocumentoEditorInner() {
       
       <main className="container mx-auto px-4 py-8 space-y-6">
         {/* Botones de acción superior - Se ocultan al imprimir */}
-        <div className="flex justify-between items-center print:hidden bg-white dark:bg-slate-955 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+        <div className="flex justify-between items-center print:hidden bg-white dark:bg-slate-950 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
           <button
             onClick={() => router.push("/documentos")}
             className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 font-semibold text-sm flex items-center space-x-1 cursor-pointer"

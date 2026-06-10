@@ -274,7 +274,7 @@ export default function ClientePanel() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* GRÁFICO 1: Donut (Riesgos por Gravedad) */}
-        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex flex-col justify-between relative">
+        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex flex-col justify-between relative">
           <div>
             <h3 className="font-bold text-sm text-slate-900 dark:text-white">Gravedad de Riesgos Reportados</h3>
             <p className="text-xs text-slate-400 mt-1">Distribución de hallazgos por severidad</p>
@@ -282,14 +282,14 @@ export default function ClientePanel() {
 
           <div className="flex items-center justify-center py-6 relative">
             {rTotal === 0 ? (
-              <div className="h-44 flex items-center justify-center text-xs text-slate-450 italic">
+              <div className="h-44 flex items-center justify-center text-xs text-slate-400 italic">
                 Sin datos de riesgos registrados.
               </div>
             ) : (
               <div className="relative w-44 h-44">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
                   {/* Círculo base gris */}
-                  <circle cx="50" cy="50" r={radius} fill="transparent" stroke="#E2E8F0" className="dark:stroke-slate-900" strokeWidth="10" />
+                  <circle cx="50" cy="50" r={radius} fill="transparent" stroke="currentColor" className="text-slate-200 dark:text-slate-800" strokeWidth="10" />
 
                   {/* Segmento Bajo (Verde) */}
                   {strokeBajo > 0 && (
@@ -383,7 +383,7 @@ export default function ClientePanel() {
         </div>
 
         {/* GRÁFICO 2: Barras (Tipos de Accidentes e Incidentes) */}
-        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="font-bold text-sm text-slate-900 dark:text-white">Siniestralidad por Tipología</h3>
             <p className="text-xs text-slate-400 mt-1">Comparativa de accidentes e incidentes</p>
@@ -395,7 +395,7 @@ export default function ClientePanel() {
                 Sin accidentes registrados en el historial.
               </div>
             ) : (
-              <div className="relative w-full max-w-[280px] h-[140px] flex justify-around items-end border-b border-slate-250 dark:border-slate-800">
+              <div className="relative w-full max-w-[280px] h-[140px] flex justify-around items-end border-b border-slate-200 dark:border-slate-800">
                 {/* Barra Trabajo (Rojo) */}
                 <div className="flex flex-col items-center group relative w-12">
                   {hoveredBarra === "trabajo" && (
@@ -453,7 +453,7 @@ export default function ClientePanel() {
         </div>
 
         {/* GRÁFICO 3: Línea de Tendencia (Evolución de Inspecciones) */}
-        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex flex-col justify-between">
+        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="font-bold text-sm text-slate-900 dark:text-white">Tendencia de Cumplimiento</h3>
             <p className="text-xs text-slate-400 mt-1">Evolución de auditorías (Últimas 5 realizadas)</p>
@@ -461,7 +461,7 @@ export default function ClientePanel() {
 
           <div className="flex items-center justify-center py-4 relative h-48">
             {historialOrdenado.length === 0 ? (
-              <div className="text-xs text-slate-450 italic">
+              <div className="text-xs text-slate-400 italic">
                 Sin inspecciones suficientes para graficar.
               </div>
             ) : (
@@ -476,9 +476,9 @@ export default function ClientePanel() {
                   </defs>
 
                   {/* Líneas horizontales de guía */}
-                  <line x1="0" y1="0" x2={widthLine} y2="0" stroke="#E2E8F0" className="dark:stroke-slate-900" strokeWidth="1" strokeDasharray="3 3" />
-                  <line x1="0" y1={heightLine / 2} x2={widthLine} y2={heightLine / 2} stroke="#E2E8F0" className="dark:stroke-slate-900" strokeWidth="1" strokeDasharray="3 3" />
-                  <line x1="0" y1={heightLine} x2={widthLine} y2={heightLine} stroke="#CBD5E1" className="dark:stroke-slate-800" strokeWidth="1" />
+                  <line x1="0" y1="0" x2={widthLine} y2="0" stroke="currentColor" className="text-slate-200 dark:text-slate-800" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="0" y1={heightLine / 2} x2={widthLine} y2={heightLine / 2} stroke="currentColor" className="text-slate-200 dark:text-slate-800" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="0" y1={heightLine} x2={widthLine} y2={heightLine} stroke="currentColor" className="text-slate-300 dark:text-slate-700" strokeWidth="1" />
 
                   {/* Relleno del área bajo la curva */}
                   {areaPointsStr && <polygon points={areaPointsStr} fill="url(#areaGrad)" />}

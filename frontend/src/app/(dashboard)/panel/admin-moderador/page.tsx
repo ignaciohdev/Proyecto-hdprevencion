@@ -39,7 +39,7 @@ export default function ModeradorPanel() {
         {/* Sección 1: Formatos de Prevención (Plantillas Maestras) */}
         <div className="bg-white dark:bg-slate-950 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col justify-between">
           <div>
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-55 dark:bg-slate-900/50">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
               <h3 className="font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <span>📁</span>
                 <span>Plantillas de Formatos</span>
@@ -51,7 +51,7 @@ export default function ModeradorPanel() {
             
             <div className="p-4 space-y-3">
               {/* Item 1 */}
-              <div className="flex justify-between items-center bg-slate-55 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div>
                   <p className="font-bold text-sm">Matriz de Riesgo IPER Base</p>
                   <p className="text-xs text-slate-500">Tipo: IPER | Actualizado: Hace 2 días</p>
@@ -60,7 +60,7 @@ export default function ModeradorPanel() {
               </div>
 
               {/* Item 2 */}
-              <div className="flex justify-between items-center bg-slate-55 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div>
                   <p className="font-bold text-sm">Protocolo TMERT Paso a Paso</p>
                   <p className="text-xs text-slate-500">Tipo: DOCX | Actualizado: Hace 1 semana</p>
@@ -69,7 +69,7 @@ export default function ModeradorPanel() {
               </div>
 
               {/* Item 3 */}
-              <div className="flex justify-between items-center bg-slate-55 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div>
                   <p className="font-bold text-sm">Plan de Emergencia Pyme</p>
                   <p className="text-xs text-slate-500">Tipo: PDF | Actualizado: 26/05/2026</p>
@@ -86,7 +86,7 @@ export default function ModeradorPanel() {
         {/* Sección 2: Noticias del Sector */}
         <div className="bg-white dark:bg-slate-950 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col justify-between">
           <div>
-            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-55 dark:bg-slate-900/50">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
               <h3 className="font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <span>📰</span>
                 <span>Noticias Publicadas</span>
