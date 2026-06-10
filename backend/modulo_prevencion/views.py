@@ -2,6 +2,7 @@ from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -773,6 +774,113 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(usuario=self.request.user)
+
+
+class DashboardStatsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+
+        # 1. Riesgos
+        riesgos_qs = ReporteRiesgo.objects.filter(usuario__in=usuarios_grupo)
+        total_riesgos = riesgos_qs.count()
+        abiertos_riesgos = riesgos_qs.filter(estado='ABIERTO').count()
+        proceso_riesgos = riesgos_qs.filter(estado='PROCESO').count()
+        resueltos_riesgos = riesgos_qs.filter(estado='RESUELTO').count()
+
+        bajo_riesgos = riesgos_qs.filter(gravedad='BAJO').count()
+        medio_riesgos = riesgos_qs.filter(gravedad='MEDIO').count()
+        alto_riesgos = riesgos_qs.filter(gravedad='ALTO').count()
+
+        acto_riesgos = riesgos_qs.filter(tipo='ACTO').count()
+        condicion_riesgos = riesgos_qs.filter(tipo='CONDICION').count()
+
+        # 2. Inspecciones
+        inspecciones_qs = Inspeccion.objects.filter(usuario__in=usuarios_grupo)
+        total_inspecciones = inspecciones_qs.count()
+        
+        # Promedio general de cumplimiento
+        from django.db.models import Avg
+        avg_cumplimiento = inspecciones_qs.aggregate(Avg('porcentaje_cumplimiento'))['porcentaje_cumplimiento__avg'] or 0.00
+        avg_cumplimiento = float(round(avg_cumplimiento, 2))
+
+        # Historial de las últimas 5 inspecciones
+        historial_inspecciones = []
+        for insp in inspecciones_qs.order_by('-fecha')[:5]:
+            historial_inspecciones.append({
+                "id": insp.id,
+                "plantilla_nombre": insp.plantilla.nombre,
+                "fecha": insp.fecha,
+                "porcentaje": float(insp.porcentaje_cumplimiento),
+                "inspector": insp.usuario.username
+            })
+
+        # 3. Accidentes
+        accidentes_qs = InvestigacionAccidente.objects.filter(usuario__in=usuarios_grupo)
+        total_accidentes = accidentes_qs.count()
+        trabajo_accidentes = accidentes_qs.filter(tipo_evento='TRABAJO').count()
+        trayecto_accidentes = accidentes_qs.filter(tipo_evento='TRAYECTO').count()
+        incidente_accidentes = accidentes_qs.filter(tipo_evento='INCIDENTE').count()
+
+        # 4. Descargas y límites
+        sub = owner.suscripciones.filter(estado=Suscripcion.ESTADO_ACTIVA).first()
+        limite_semanal = sub.plan.limite_semanal if sub else 5
+        
+        contador, _ = ContadorDescargas.objects.get_or_create(usuario=owner)
+        descargas_semanales = contador.descargas_semanales
+        
+        # Validar reinicio de descargas si cambió de semana en isocalendar
+        now = timezone.now()
+        if contador.fecha_ultima_descarga:
+            if now.isocalendar()[1] != contador.fecha_ultima_descarga.isocalendar()[1] or now.isocalendar()[0] != contador.fecha_ultima_descarga.isocalendar()[0]:
+                descargas_semanales = 0
+
+        # Últimos accidentes reportados (últimos 5)
+        historial_accidentes = []
+        for acc in accidentes_qs.order_by('-fecha_hora_evento')[:5]:
+            historial_accidentes.append({
+                "id": acc.id,
+                "nombre_afectado": acc.nombre_afectado,
+                "tipo_evento": acc.tipo_evento,
+                "fecha": acc.fecha_hora_evento,
+                "lugar": acc.lugar_evento,
+                "lesion": acc.tipo_lesion
+            })
+
+        return Response({
+            "riesgos": {
+                "total": total_riesgos,
+                "abiertos": abiertos_riesgos,
+                "proceso": proceso_riesgos,
+                "resueltos": resueltos_riesgos,
+                "bajo": bajo_riesgos,
+                "medio": medio_riesgos,
+                "alto": alto_riesgos,
+                "acto": acto_riesgos,
+                "condicion": condicion_riesgos
+            },
+            "inspecciones": {
+                "total": total_inspecciones,
+                "promedio_cumplimiento": avg_cumplimiento,
+                "historial": historial_inspecciones
+            },
+            "accidentes": {
+                "total": total_accidentes,
+                "trabajo": trabajo_accidentes,
+                "trayecto": trayecto_accidentes,
+                "incidente": incidente_accidentes,
+                "historial": historial_accidentes
+            },
+            "descargas": {
+                "utilizadas": descargas_semanales,
+                "limite": limite_semanal,
+                "plan_nombre": sub.plan.nombre if sub else "Plan Básico"
+            }
+        })
+
 
 
 

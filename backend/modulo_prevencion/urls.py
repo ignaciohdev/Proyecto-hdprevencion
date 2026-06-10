@@ -7,7 +7,7 @@ from .views import (
     NoticiaViewSet, MensajeContactoViewSet, ServicioViewSet,
     UsuarioViewSet, PlanViewSet,
     ReporteRiesgoViewSet, PlantillaInspeccionViewSet, InspeccionViewSet,
-    InvestigacionAccidenteViewSet
+    InvestigacionAccidenteViewSet, DashboardStatsView
 )
 
 router = DefaultRouter()
@@ -28,6 +28,9 @@ urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='auth_register'),
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # Endpoint de estadísticas del dashboard
+    path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard_stats'),
     
     # Endpoints de la API generados por el router
     path('', include(router.urls)),
