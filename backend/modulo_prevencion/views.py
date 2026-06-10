@@ -12,11 +12,15 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from django.db import transaction
 from django.utils import timezone
-from .models import PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas
+from .models import (
+    PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
+    ReporteRiesgo, PlantillaInspeccion, Inspeccion
+)
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
     PlantillaMaestraSerializer, DocumentoUsuarioSerializer,
-    NoticiaSerializer, MensajeContactoSerializer, ServicioSerializer
+    NoticiaSerializer, MensajeContactoSerializer, ServicioSerializer,
+    ReporteRiesgoSerializer, PlantillaInspeccionSerializer, InspeccionSerializer
 )
 
 Usuario = get_user_model()
@@ -703,5 +707,57 @@ class UsuarioViewSet(viewsets.ModelViewSet):
             "message": f"Suscripción al plan {plan.nombre} activada con éxito.",
             "user": serializer.data
         })
+
+
+class ReporteRiesgoViewSet(viewsets.ModelViewSet):
+    serializer_class = ReporteRiesgoSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+        return ReporteRiesgo.objects.filter(usuario__in=usuarios_grupo)
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
+
+class PlantillaInspeccionViewSet(viewsets.ModelViewSet):
+    serializer_class = PlantillaInspeccionSerializer
+    permission_classes = [IsAdminOrReadOnly]
+
+    def get_queryset(self):
+        if self.request.user.is_staff or self.request.user.is_superuser:
+            return PlantillaInspeccion.objects.all()
+        return PlantillaInspeccion.objects.filter(activo=True)
+
+
+class InspeccionViewSet(viewsets.ModelViewSet):
+    serializer_class = InspeccionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+        return Inspeccion.objects.filter(usuario__in=usuarios_grupo)
+
+    def perform_create(self, serializer):
+        respuestas = self.request.data.get('respuestas', [])
+        aprobados = 0
+        total_evaluados = 0
+        for r in respuestas:
+            estado = r.get('estado')
+            if estado == 'SI':
+                aprobados += 1
+                total_evaluados += 1
+            elif estado == 'NO':
+                total_evaluados += 1
+        
+        porcentaje = (aprobados / total_evaluados * 100) if total_evaluados > 0 else 0.00
+        porcentaje = round(porcentaje, 2)
+        serializer.save(usuario=self.request.user, porcentaje_cumplimiento=porcentaje)
+
 
 

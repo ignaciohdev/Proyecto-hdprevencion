@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../utils/api";
+import { getApiUrl } from "../../utils/api";
 
 export default function Registro() {
   const router = useRouter();

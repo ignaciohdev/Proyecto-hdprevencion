@@ -4,7 +4,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
-from modulo_prevencion.models import PlantillaMaestra, Servicio, Noticia, Plan
+from modulo_prevencion.models import PlantillaMaestra, Servicio, Noticia, Plan, PlantillaInspeccion
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -150,7 +150,7 @@ def seed():
              "INNOVACION"),
             ("Uso Obligatorio de Elementos de Protección Personal", 
              "Guía rápida para la selección correcta de cascos y calzado de seguridad", 
-             "Recordamos a todas las empresas adheridas que el Decreto Supremo 594 exige que todo elemento de protección personal (EPP) entregado a los trabajadores cuente con la certificación del ISP o ente autorizado.", 
+             "Recordamos a todas las empresas adheridas que el Decreto Supremo 594 exige que todo elemento de protección personal (EPP) entregado a los trabajadores cuente con la certificación del ISP o ente autorizador.", 
              "CONSEJO")
         ]
         
@@ -171,6 +171,61 @@ def seed():
                 print(f"Noticia '{titulo}' ya existe.")
     else:
         print("No se encontró ningún superusuario para asignar como autor de las noticias. Por favor, crea un superusuario primero.")
+
+    # 5. Plantillas de Inspección (Fase 1)
+    plantillas_inspeccion_data = [
+        {
+            'nombre': 'Inspección de Extintores',
+            'descripcion': 'Control mensual de estado y operatividad de extintores portátiles (DS 594).',
+            'preguntas': [
+                '¿El extintor se encuentra en la ubicación asignada y señalizada?',
+                '¿El acceso al extintor se encuentra totalmente despejado?',
+                '¿El manómetro indica presión correcta (aguja en zona verde)?',
+                '¿El pasador de seguridad y el sello de plástico están intactos?',
+                '¿La manguera y la boquilla están en buen estado y libres de obstrucciones?',
+                '¿La etiqueta de mantención y recarga anual está vigente?',
+                '¿El cilindro no presenta abolladuras, corrosión ni daños visibles?'
+            ]
+        },
+        {
+            'nombre': 'Inspección de Orden y Aseo (5S)',
+            'descripcion': 'Evaluación periódica de las condiciones de limpieza, orden y despeje de áreas.',
+            'preguntas': [
+                '¿Los pasillos de tránsito y salidas de emergencia se encuentran despejados?',
+                '¿La iluminación del área es suficiente y se encuentra operativa?',
+                '¿Las herramientas y materiales se guardan ordenadamente al terminar la jornada?',
+                '¿Los residuos están segregados y depositados en sus respectivos contenedores?',
+                '¿Los cables eléctricos se encuentran canalizados o protegidos de pisadas/tránsito?',
+                '¿Los pisos se encuentran limpios, secos y libres de derrames o aceite?'
+            ]
+        },
+        {
+            'nombre': 'Inspección de Uso de EPP',
+            'descripcion': 'Verificación de la utilización obligatoria y estado de los Elementos de Protección Personal.',
+            'preguntas': [
+                '¿Los trabajadores utilizan calzado de seguridad con puntera de acero en el área?',
+                '¿Se utilizan antiparras/lentes de seguridad en tareas con riesgo de proyección de partículas?',
+                '¿Los trabajadores usan guantes de protección adecuados según el tipo de riesgo expuesto?',
+                '¿Se utiliza casco de seguridad en zonas de izaje de cargas o caída de objetos?',
+                '¿Se utiliza protección auditiva (tapones/copas) en áreas con nivel de ruido superior a 85 dB?',
+                '¿Los EPP se encuentran limpios, en buen estado y son almacenados correctamente?'
+            ]
+        }
+    ]
+
+    for pi_info in plantillas_inspeccion_data:
+        pi, created = PlantillaInspeccion.objects.update_or_create(
+            nombre=pi_info['nombre'],
+            defaults={
+                'descripcion': pi_info['descripcion'],
+                'preguntas': pi_info['preguntas'],
+                'activo': True
+            }
+        )
+        if created:
+            print(f"Plantilla de Inspección '{pi.nombre}' creada.")
+        else:
+            print(f"Plantilla de Inspección '{pi.nombre}' actualizada.")
 
     print("Sembrado finalizado con éxito.")
 

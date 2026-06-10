@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Header from "../components/Header";
-import { getApiUrl } from "../utils/api";
+import { getApiUrl } from "../../utils/api";
 
 interface Servicio {
   id: number;
@@ -76,10 +75,7 @@ export default function ServiciosPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 transition-colors duration-300">
-      <Header />
-      
-      <main className="container mx-auto px-4 py-8 space-y-6">
+    <main className="container mx-auto px-4 py-8 space-y-6">
         {/* Encabezado */}
         <div className="bg-slate-900 text-white p-8 rounded-2xl shadow-lg border border-slate-800">
           <span className="bg-orange-600 text-white text-xs font-bold uppercase px-3 py-1 rounded-full">
@@ -134,6 +130,5 @@ export default function ServiciosPage() {
           </div>
         )}
       </main>
-    </div>
   );
 }

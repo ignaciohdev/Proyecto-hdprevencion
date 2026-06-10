@@ -396,3 +396,141 @@ class Servicio(models.Model):
     def __str__(self) -> str:
         return self.nombre
 
+
+class ReporteRiesgo(models.Model):
+    """
+    Bitácora de hallazgos (Actos o Condiciones Inseguras) registrados por el prevencionista.
+    """
+    TIPO_ACTO = 'ACTO'
+    TIPO_CONDICION = 'CONDICION'
+    TIPO_CHOICES = [
+        (TIPO_ACTO, 'Acto Inseguro'),
+        (TIPO_CONDICION, 'Condición Insegura'),
+    ]
+
+    GRAVEDAD_BAJA = 'BAJO'
+    GRAVEDAD_MEDIA = 'MEDIO'
+    GRAVEDAD_ALTA = 'ALTO'
+    GRAVEDAD_CHOICES = [
+        (GRAVEDAD_BAJA, 'Bajo'),
+        (GRAVEDAD_MEDIA, 'Medio'),
+        (GRAVEDAD_ALTA, 'Alto'),
+    ]
+
+    ESTADO_ABIERTO = 'ABIERTO'
+    ESTADO_PROCESO = 'EN_PROCESO'
+    ESTADO_RESUELTO = 'RESUELTO'
+    ESTADO_CHOICES = [
+        (ESTADO_ABIERTO, 'Abierto'),
+        (ESTADO_PROCESO, 'En Proceso'),
+        (ESTADO_RESUELTO, 'Resuelto'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='reportes_riesgo',
+        verbose_name="Prevencionista"
+    )
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES,
+        default=TIPO_CONDICION,
+        verbose_name="Clasificación"
+    )
+    descripcion = models.TextField(verbose_name="Descripción del Hallazgo")
+    lugar = models.CharField(max_length=255, verbose_name="Ubicación Física")
+    gravedad = models.CharField(
+        max_length=10,
+        choices=GRAVEDAD_CHOICES,
+        default=GRAVEDAD_MEDIA,
+        verbose_name="Gravedad Estimada"
+    )
+    estado = models.CharField(
+        max_length=15,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_ABIERTO,
+        verbose_name="Estado"
+    )
+    medida_correctiva = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Medida Correctiva / Resolución"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Reporte"
+    )
+
+    class Meta:
+        verbose_name = "Reporte de Riesgo"
+        verbose_name_plural = "Reportes de Riesgos"
+        ordering = ['-fecha_creacion']
+
+    def __str__(self) -> str:
+        return f"{self.tipo} ({self.gravedad}) - {self.lugar} [{self.estado}]"
+
+
+class PlantillaInspeccion(models.Model):
+    """
+    Estructura de las listas de verificación (checklists) de inspección predefinidas.
+    """
+    nombre = models.CharField(max_length=150, unique=True, verbose_name="Nombre de Inspección")
+    descripcion = models.TextField(blank=True, verbose_name="Descripción")
+    preguntas = models.JSONField(
+        verbose_name="Preguntas de la Plantilla",
+        help_text="Lista de textos para evaluar (ej. ['¿El manómetro indica presión correcta?', '¿Tiene señalización?'])."
+    )
+    activo = models.BooleanField(default=True, verbose_name="Activo")
+
+    class Meta:
+        verbose_name = "Plantilla de Inspección"
+        verbose_name_plural = "Plantillas de Inspección"
+        ordering = ['nombre']
+
+    def __str__(self) -> str:
+        return self.nombre
+
+
+class Inspeccion(models.Model):
+    """
+    Registros de las inspecciones ejecutadas por el prevencionista de riesgos.
+    """
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='inspecciones',
+        verbose_name="Inspector (Prevencionista)"
+    )
+    plantilla = models.ForeignKey(
+        PlantillaInspeccion,
+        on_delete=models.PROTECT,
+        related_name='inspecciones_realizadas',
+        verbose_name="Plantilla de Inspección"
+    )
+    fecha = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Ejecución"
+    )
+    respuestas = models.JSONField(
+        verbose_name="Respuestas del Checklist",
+        help_text="Respuestas en formato JSON conteniendo: [{'pregunta': 'Texto', 'estado': 'SI|NO|NA', 'observacion': 'Detalle'}]."
+    )
+    porcentaje_cumplimiento = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="Porcentaje de Cumplimiento"
+    )
+    firma_nombre = models.CharField(max_length=150, verbose_name="Nombre del Firma")
+    firma_rut = models.CharField(max_length=15, verbose_name="RUT de Firma")
+
+    class Meta:
+        verbose_name = "Inspección Ejecutada"
+        verbose_name_plural = "Inspecciones Ejecutadas"
+        ordering = ['-fecha']
+
+    def __str__(self) -> str:
+        return f"{self.plantilla.nombre} - {self.usuario.username} ({self.fecha.strftime('%d/%m/%Y')} - {self.porcentaje_cumplimiento}%)"
+
+

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import Header from "./components/Header";
 
 export default function Home() {
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
@@ -43,7 +42,6 @@ export default function Home() {
 
   return (
     <>
-      <Header />
 
       {/* 2) Hero principal con frase de impacto */}
       <section className="bg-slate-200 dark:bg-slate-800 py-16 md:py-24 text-center border-b border-slate-300 dark:border-slate-700 transition-colors duration-300">

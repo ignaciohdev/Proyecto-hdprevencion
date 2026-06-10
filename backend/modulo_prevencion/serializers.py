@@ -6,7 +6,8 @@ from django.utils import timezone
 from .models import (
     Plan, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
-    Noticia, MensajeContacto, Servicio
+    Noticia, MensajeContacto, Servicio,
+    ReporteRiesgo, PlantillaInspeccion, Inspeccion
 )
 
 Usuario = get_user_model()
@@ -181,4 +182,34 @@ class ServicioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Servicio
         fields = '__all__'
+
+
+class ReporteRiesgoSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='usuario.username', read_only=True)
+
+    class Meta:
+        model = ReporteRiesgo
+        fields = ('id', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad', 'estado', 'medida_correctiva', 'fecha_creacion')
+        extra_kwargs = {
+            'usuario': {'required': False}
+        }
+
+
+class PlantillaInspeccionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PlantillaInspeccion
+        fields = '__all__'
+
+
+class InspeccionSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='usuario.username', read_only=True)
+    plantilla_nombre = serializers.CharField(source='plantilla.nombre', read_only=True)
+
+    class Meta:
+        model = Inspeccion
+        fields = ('id', 'usuario', 'username', 'plantilla', 'plantilla_nombre', 'fecha', 'respuestas', 'porcentaje_cumplimiento', 'firma_nombre', 'firma_rut')
+        extra_kwargs = {
+            'usuario': {'required': False},
+            'porcentaje_cumplimiento': {'required': False}
+        }
 

@@ -5,7 +5,8 @@ from .views import (
     RegisterView, CustomTokenObtainPairView,
     PlantillaMaestraViewSet, DocumentoUsuarioViewSet,
     NoticiaViewSet, MensajeContactoViewSet, ServicioViewSet,
-    UsuarioViewSet, PlanViewSet
+    UsuarioViewSet, PlanViewSet,
+    ReporteRiesgoViewSet, PlantillaInspeccionViewSet, InspeccionViewSet
 )
 
 router = DefaultRouter()
@@ -16,6 +17,9 @@ router.register(r'contacto', MensajeContactoViewSet, basename='mensajecontacto')
 router.register(r'servicios', ServicioViewSet, basename='servicio')
 router.register(r'usuarios', UsuarioViewSet, basename='usuario')
 router.register(r'planes', PlanViewSet, basename='plan')
+router.register(r'reportes-riesgo', ReporteRiesgoViewSet, basename='reporteriesgo')
+router.register(r'plantillas-inspeccion', PlantillaInspeccionViewSet, basename='plantillainspeccion')
+router.register(r'inspecciones', InspeccionViewSet, basename='inspeccion')
 
 urlpatterns = [
     # Endpoints de autenticación y registro con JWT

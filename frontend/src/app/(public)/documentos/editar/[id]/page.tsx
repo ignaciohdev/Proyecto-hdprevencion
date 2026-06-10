@@ -2,8 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Header from "../../../components/Header";
-import { getApiUrl } from "../../../utils/api";
+import { getApiUrl } from "../../../../utils/api";
 
 interface FilaIPER {
   id: number;
@@ -317,7 +316,6 @@ function DocumentoEditorInner() {
 
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 transition-colors duration-300 print:p-0 print:m-0">
-      <Header />
       
       <main className="container mx-auto px-4 py-8 space-y-6">
         {/* Botones de acción superior - Se ocultan al imprimir */}

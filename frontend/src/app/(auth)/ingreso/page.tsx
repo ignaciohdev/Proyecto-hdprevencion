@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getApiUrl } from "../utils/api";
+import { getApiUrl } from "../../utils/api";
 
 function IngresoInner() {
   const router = useRouter();
