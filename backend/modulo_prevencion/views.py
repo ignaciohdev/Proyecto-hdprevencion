@@ -15,14 +15,16 @@ from django.db import transaction
 from django.utils import timezone
 from .models import (
     PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
-    ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente
+    ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
+    TemaCapacitacion, RegistroCapacitacion
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
     PlantillaMaestraSerializer, DocumentoUsuarioSerializer,
     NoticiaSerializer, MensajeContactoSerializer, ServicioSerializer,
     ReporteRiesgoSerializer, PlantillaInspeccionSerializer, InspeccionSerializer,
-    InvestigacionAccidenteSerializer
+    InvestigacionAccidenteSerializer,
+    TemaCapacitacionSerializer, RegistroCapacitacionSerializer
 )
 
 Usuario = get_user_model()
@@ -776,6 +778,56 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
         serializer.save(usuario=self.request.user)
 
 
+class TemaCapacitacionViewSet(viewsets.ModelViewSet):
+    serializer_class = TemaCapacitacionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+        return TemaCapacitacion.objects.filter(usuario__in=usuarios_grupo)
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
+
+class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
+    serializer_class = RegistroCapacitacionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+        return RegistroCapacitacion.objects.filter(usuario__in=usuarios_grupo)
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
+    @action(detail=True, methods=['patch'], url_path='finalizar')
+    def finalizar(self, request, pk=None):
+        """
+        Finaliza una sesión de capacitación programada, guardando la lista de firmas de asistencia y comentarios.
+        """
+        capacitacion = self.get_object()
+        if capacitacion.estado != RegistroCapacitacion.ESTADO_PROGRAMADA:
+            return Response({"error": "Solo se pueden finalizar capacitaciones en estado PROGRAMADA."}, status=status.HTTP_400_BAD_REQUEST)
+
+        asistentes = request.data.get('asistentes', [])
+        observaciones = request.data.get('observaciones', '')
+
+        capacitacion.estado = RegistroCapacitacion.ESTADO_REALIZADA
+        capacitacion.fecha_realizacion = timezone.now()
+        capacitacion.asistentes = asistentes
+        capacitacion.observaciones = observaciones
+        capacitacion.save()
+
+        serializer = self.get_serializer(capacitacion)
+        return Response(serializer.data)
+
+
+
 class DashboardStatsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -850,6 +902,31 @@ class DashboardStatsView(APIView):
                 "lesion": acc.tipo_lesion
             })
 
+        # 5. Capacitaciones (PAC)
+        capacitaciones_qs = RegistroCapacitacion.objects.filter(usuario__in=usuarios_grupo)
+        total_capacitaciones = capacitaciones_qs.count()
+        realizadas_capacitaciones = capacitaciones_qs.filter(estado='REALIZADA').count()
+        programadas_capacitaciones = capacitaciones_qs.filter(estado='PROGRAMADA').count()
+        
+        asistentes_alcanzados = 0
+        for cap in capacitaciones_qs.filter(estado='REALIZADA'):
+            if isinstance(cap.asistentes, list):
+                asistentes_alcanzados += len(cap.asistentes)
+
+        pct_cumplimiento_pac = (realizadas_capacitaciones / total_capacitaciones * 100) if total_capacitaciones > 0 else 0.00
+        pct_cumplimiento_pac = float(round(pct_cumplimiento_pac, 2))
+
+        historial_capacitaciones = []
+        for cap in capacitaciones_qs.order_by('-fecha_programada')[:5]:
+            historial_capacitaciones.append({
+                "id": cap.id,
+                "tema_titulo": cap.tema.titulo,
+                "estado": cap.estado,
+                "fecha_programada": cap.fecha_programada,
+                "lugar": cap.lugar,
+                "asistentes_count": len(cap.asistentes) if isinstance(cap.asistentes, list) else 0
+            })
+
         return Response({
             "riesgos": {
                 "total": total_riesgos,
@@ -878,8 +955,17 @@ class DashboardStatsView(APIView):
                 "utilizadas": descargas_semanales,
                 "limite": limite_semanal,
                 "plan_nombre": sub.plan.nombre if sub else "Plan Básico"
+            },
+            "capacitaciones": {
+                "total": total_capacitaciones,
+                "realizadas": realizadas_capacitaciones,
+                "programadas": programadas_capacitaciones,
+                "asistentes_alcanzados": asistentes_alcanzados,
+                "cumplimiento_pac": pct_cumplimiento_pac,
+                "historial": historial_capacitaciones
             }
         })
+
 
 
 

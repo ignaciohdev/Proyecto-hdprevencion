@@ -52,11 +52,30 @@ interface DownloadStats {
   plan_nombre: string;
 }
 
+interface CapacitacionHist {
+  id: number;
+  tema_titulo: string;
+  estado: "PROGRAMADA" | "REALIZADA" | "CANCELADA";
+  fecha_programada: string;
+  lugar: string;
+  asistentes_count: number;
+}
+
+interface CapacitacionStats {
+  total: number;
+  realizadas: number;
+  programadas: number;
+  asistentes_alcanzados: number;
+  cumplimiento_pac: number;
+  historial: CapacitacionHist[];
+}
+
 interface DashboardData {
   riesgos: RiskStats;
   inspecciones: InspectionStats;
   accidentes: AccidentStats;
   descargas: DownloadStats;
+  capacitaciones: CapacitacionStats;
 }
 
 export default function ClientePanel() {
@@ -204,7 +223,7 @@ export default function ClientePanel() {
       </div>
 
       {/* Grid de Tarjetas de Indicadores Clave (KPIs) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         
         {/* KPI 1: Accidentes */}
         <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex items-center justify-between transition-all transform hover:scale-[1.02] hover:shadow-md">
@@ -239,20 +258,38 @@ export default function ClientePanel() {
         </div>
 
         {/* KPI 3: Riesgos Activos */}
-        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex items-center justify-between transition-all transform hover:scale-[1.02] hover:shadow-md">
+        <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex items-center justify-between transition-all transform hover:scale-[1.02] hover:shadow-md">
           <div>
             <span className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Peligros Activos</span>
             <h3 className="text-3xl font-black text-slate-800 dark:text-white mt-2">
               {data.riesgos.abiertos + data.riesgos.proceso}
             </h3>
-            <p className="text-xs text-slate-450 mt-1">Riesgos abiertos/en proceso</p>
+            <p className="text-xs text-slate-450 mt-1 font-semibold">Riesgos abiertos/en proceso</p>
           </div>
           <div className="text-3xl bg-slate-50 dark:bg-slate-900/60 text-slate-400 p-3 rounded-2xl">
             ⚠️
           </div>
         </div>
 
-        {/* KPI 4: Descargas del Plan */}
+        {/* KPI 4: Capacitaciones (PAC) */}
+        <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex items-center justify-between transition-all transform hover:scale-[1.02] hover:shadow-md">
+          <div>
+            <span className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Cumplimiento PAC</span>
+            <h3 className={`text-3xl font-black mt-2 ${
+              data.capacitaciones.cumplimiento_pac >= 85 ? "text-emerald-500" : data.capacitaciones.cumplimiento_pac >= 50 ? "text-amber-500" : "text-red-500"
+            }`}>
+              {data.capacitaciones.cumplimiento_pac}%
+            </h3>
+            <p className="text-xs text-slate-450 mt-1 font-semibold">Avance charlas del año</p>
+          </div>
+          <div className={`text-3xl p-3 rounded-2xl ${
+            data.capacitaciones.cumplimiento_pac >= 85 ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500" : data.capacitaciones.cumplimiento_pac >= 50 ? "bg-amber-50 dark:bg-amber-950/20 text-amber-500" : "bg-red-50 dark:bg-red-950/20 text-red-500"
+          }`}>
+            🎓
+          </div>
+        </div>
+
+        {/* KPI 5: Descargas del Plan */}
         <div className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800/80 shadow-sm flex items-center justify-between transition-all transform hover:scale-[1.02] hover:shadow-md">
           <div>
             <span className="text-slate-400 dark:text-slate-500 text-xs font-bold uppercase tracking-wider">Cupo de Descargas</span>
@@ -261,7 +298,7 @@ export default function ClientePanel() {
                 ? `${data.descargas.utilizadas} / ∞`
                 : `${data.descargas.utilizadas} de ${data.descargas.limite}`}
             </h3>
-            <p className="text-xs text-slate-450 mt-1">Consumido en la semana</p>
+            <p className="text-xs text-slate-450 mt-1 font-semibold">Consumido en la semana</p>
           </div>
           <div className="text-3xl bg-slate-50 dark:bg-slate-900/60 text-slate-400 p-3 rounded-2xl">
             💾
@@ -551,10 +588,10 @@ export default function ClientePanel() {
       </div>
 
       {/* SECCIÓN DOCUMENTOS RECIENTES Y ACTIVIDAD */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Historial de Inspecciones */}
-        <div className="bg-white dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800/80 overflow-hidden shadow-sm">
+        <div className="bg-white dark:bg-slate-955 rounded-2xl border border-slate-200 dark:border-slate-800/80 overflow-hidden shadow-sm">
           <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
             <h3 className="font-bold text-sm text-slate-900 dark:text-white">Últimas Auditorías Realizadas</h3>
             <a href="/panel/inspecciones" className="text-xs font-semibold text-orange-655 hover:underline">Ver todas →</a>
@@ -570,7 +607,7 @@ export default function ClientePanel() {
                 <div key={insp.id} className="p-4 flex justify-between items-center hover:bg-slate-50/20 dark:hover:bg-slate-900/10 transition-colors">
                   <div className="space-y-1">
                     <p className="text-xs font-bold text-slate-850 dark:text-white">{insp.plantilla_nombre}</p>
-                    <p className="text-[10px] text-slate-450">Inspector: {insp.inspector} | {new Date(insp.fecha).toLocaleDateString()}</p>
+                    <p className="text-[10px] text-slate-455">Inspector: {insp.inspector} | {new Date(insp.fecha).toLocaleDateString()}</p>
                   </div>
                   <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full font-mono ${
                     insp.porcentaje >= 85 
@@ -588,7 +625,7 @@ export default function ClientePanel() {
         </div>
 
         {/* Historial de Accidentes */}
-        <div className="bg-white dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800/80 overflow-hidden shadow-sm">
+        <div className="bg-white dark:bg-slate-955 rounded-2xl border border-slate-200 dark:border-slate-800/80 overflow-hidden shadow-sm">
           <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
             <h3 className="font-bold text-sm text-slate-900 dark:text-white">Últimos Casos Reportados</h3>
             <a href="/panel/accidentes" className="text-xs font-semibold text-orange-655 hover:underline">Ver todos →</a>
@@ -604,7 +641,7 @@ export default function ClientePanel() {
                 <div key={acc.id} className="p-4 flex justify-between items-center hover:bg-slate-50/20 dark:hover:bg-slate-900/10 transition-colors">
                   <div className="space-y-1">
                     <p className="text-xs font-bold text-slate-850 dark:text-white">{acc.nombre_afectado}</p>
-                    <p className="text-[10px] text-slate-450">Lugar: {acc.lugar} | Lesión: {acc.lesion}</p>
+                    <p className="text-[10px] text-slate-455">Lugar: {acc.lugar} | Lesión: {acc.lesion}</p>
                   </div>
                   <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded border uppercase font-mono ${
                     acc.tipo_evento === "TRABAJO" 
@@ -614,6 +651,38 @@ export default function ClientePanel() {
                       : "bg-blue-100 text-blue-700 dark:bg-blue-950/20 dark:text-blue-450 border-blue-200"
                   }`}>
                     {acc.tipo_evento === "TRABAJO" ? "Trabajo" : acc.tipo_evento === "TRAYECTO" ? "Trayecto" : "Incidente"}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Historial de Capacitaciones (PAC) */}
+        <div className="bg-white dark:bg-slate-955 rounded-2xl border border-slate-200 dark:border-slate-800/80 overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40">
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Capacitaciones Recientes</h3>
+            <a href="/panel/capacitaciones" className="text-xs font-semibold text-orange-655 hover:underline">Ver todas →</a>
+          </div>
+
+          <div className="divide-y divide-slate-150 dark:divide-slate-850">
+            {data.capacitaciones.historial.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-450 italic">
+                No hay capacitaciones programadas ni ejecutadas.
+              </div>
+            ) : (
+              data.capacitaciones.historial.map((cap) => (
+                <div key={cap.id} className="p-4 flex justify-between items-center hover:bg-slate-50/20 dark:hover:bg-slate-900/10 transition-colors">
+                  <div className="space-y-1 overflow-hidden mr-2">
+                    <p className="text-xs font-bold text-slate-850 dark:text-white truncate">{cap.tema_titulo}</p>
+                    <p className="text-[10px] text-slate-455 truncate">Lugar: {cap.lugar} | Fecha: {new Date(cap.fecha_programada + "T00:00:00").toLocaleDateString()}</p>
+                  </div>
+                  <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded border uppercase font-mono shrink-0 ${
+                    cap.estado === "REALIZADA" 
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-450 border-emerald-250" 
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-950/20 dark:text-amber-450 border-amber-250"
+                  }`}>
+                    {cap.estado === "REALIZADA" ? `Realizada (${cap.asistentes_count})` : "Pendiente"}
                   </span>
                 </div>
               ))

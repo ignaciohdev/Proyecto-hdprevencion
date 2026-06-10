@@ -4,7 +4,8 @@ from django.utils.html import format_html
 from .models import (
     Plan, Usuario, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
-    Noticia, MensajeContacto, Servicio
+    Noticia, MensajeContacto, Servicio,
+    TemaCapacitacion, RegistroCapacitacion
 )
 
 @admin.register(Usuario)
@@ -213,4 +214,22 @@ class ServicioAdmin(admin.ModelAdmin):
     list_display = ('nombre', 'icono', 'activo')
     list_filter = ('activo',)
     search_fields = ('nombre', 'descripcion')
+
+
+@admin.register(TemaCapacitacion)
+class TemaCapacitacionAdmin(admin.ModelAdmin):
+    list_display = ('titulo', 'categoria', 'duracion_minutos', 'usuario', 'fecha_creacion')
+    list_filter = ('categoria', 'fecha_creacion')
+    search_fields = ('titulo', 'descripcion', 'usuario__username')
+    raw_id_fields = ('usuario',)
+
+
+@admin.register(RegistroCapacitacion)
+class RegistroCapacitacionAdmin(admin.ModelAdmin):
+    list_display = ('tema', 'usuario', 'estado', 'fecha_programada', 'fecha_realizacion', 'lugar')
+    list_filter = ('estado', 'fecha_programada', 'fecha_realizacion')
+    search_fields = ('tema__titulo', 'usuario__username', 'lugar')
+    raw_id_fields = ('usuario', 'tema')
+    date_hierarchy = 'fecha_programada'
+
 

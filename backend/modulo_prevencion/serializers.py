@@ -7,7 +7,8 @@ from .models import (
     Plan, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
-    ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente
+    ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
+    TemaCapacitacion, RegistroCapacitacion
 )
 
 Usuario = get_user_model()
@@ -230,5 +231,34 @@ class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'usuario': {'required': False}
         }
+
+
+class TemaCapacitacionSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='usuario.username', read_only=True)
+
+    class Meta:
+        model = TemaCapacitacion
+        fields = ('id', 'usuario', 'username', 'titulo', 'descripcion', 'categoria', 'duracion_minutos', 'contenido_clave', 'fecha_creacion')
+        extra_kwargs = {
+            'usuario': {'required': False}
+        }
+
+
+class RegistroCapacitacionSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='usuario.username', read_only=True)
+    tema_titulo = serializers.CharField(source='tema.titulo', read_only=True)
+    tema_detalle = TemaCapacitacionSerializer(source='tema', read_only=True)
+
+    class Meta:
+        model = RegistroCapacitacion
+        fields = (
+            'id', 'usuario', 'username', 'tema', 'tema_titulo', 'tema_detalle',
+            'estado', 'fecha_programada', 'fecha_realizacion', 'lugar',
+            'asistentes', 'observaciones', 'fecha_creacion'
+        )
+        extra_kwargs = {
+            'usuario': {'required': False}
+        }
+
 
 

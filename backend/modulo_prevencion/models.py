@@ -616,3 +616,113 @@ class InvestigacionAccidente(models.Model):
         return f"{self.get_tipo_evento_display()} - {self.nombre_afectado} ({self.fecha_hora_evento.strftime('%d/%m/%Y')})"
 
 
+class TemaCapacitacion(models.Model):
+    """
+    Define los temas y contenidos base para las capacitaciones de prevención.
+    """
+    CATEGORIA_CHARLA = 'CHARLA_5_MIN'
+    CATEGORIA_ODI = 'INDUCCION_ODI'
+    CATEGORIA_TEORICO = 'CURSO_TEORICO'
+    CATEGORIA_PRACTICO = 'CURSO_PRACTICO'
+
+    CATEGORIA_CHOICES = [
+        (CATEGORIA_CHARLA, 'Charla de 5 Minutos'),
+        (CATEGORIA_ODI, 'Inducción de Obligación de Informar (ODI/DAS)'),
+        (CATEGORIA_TEORICO, 'Capacitación Teórica'),
+        (CATEGORIA_PRACTICO, 'Capacitación Práctica / Simulacro'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='temas_capacitacion',
+        verbose_name="Prevencionista Creador"
+    )
+    titulo = models.CharField(max_length=200, verbose_name="Título de la Capacitación")
+    descripcion = models.TextField(verbose_name="Descripción o Resumen del Contenido")
+    categoria = models.CharField(
+        max_length=30,
+        choices=CATEGORIA_CHOICES,
+        default=CATEGORIA_CHARLA,
+        verbose_name="Categoría de Capacitación"
+    )
+    duracion_minutos = models.PositiveIntegerField(default=5, verbose_name="Duración Estimada (Minutos)")
+    contenido_clave = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Puntos Clave del Contenido",
+        help_text="Lista de puntos esenciales a tratar durante la charla."
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación")
+
+    class Meta:
+        verbose_name = "Tema de Capacitación"
+        verbose_name_plural = "Temas de Capacitaciones"
+        ordering = ['titulo']
+
+    def __str__(self) -> str:
+        return f"{self.titulo} ({self.get_categoria_display()})"
+
+
+class RegistroCapacitacion(models.Model):
+    """
+    Registra las capacitaciones planificadas y realizadas con su respectiva asistencia de firmas.
+    """
+    ESTADO_PROGRAMADA = 'PROGRAMADA'
+    ESTADO_REALIZADA = 'REALIZADA'
+    ESTADO_CANCELADA = 'CANCELADA'
+
+    ESTADO_CHOICES = [
+        (ESTADO_PROGRAMADA, 'Programada'),
+        (ESTADO_REALIZADA, 'Realizada'),
+        (ESTADO_CANCELADA, 'Cancelada'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='capacitaciones_registradas',
+        verbose_name="Prevencionista Relator"
+    )
+    tema = models.ForeignKey(
+        TemaCapacitacion,
+        on_delete=models.PROTECT,
+        related_name='sesiones_ejecutadas',
+        verbose_name="Tema a Impartir"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_PROGRAMADA,
+        verbose_name="Estado de la Sesión"
+    )
+    fecha_programada = models.DateField(verbose_name="Fecha Programada")
+    fecha_realizacion = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha y Hora de Realización"
+    )
+    lugar = models.CharField(max_length=255, verbose_name="Ubicación Física / Lugar")
+    asistentes = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Listado de Asistentes y Firmas",
+        help_text="Lista de objetos: [{'nombre': '...', 'rut': '...', 'firma': '...'}]"
+    )
+    observaciones = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Observaciones / Comentarios"
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Registro")
+
+    class Meta:
+        verbose_name = "Registro de Capacitación"
+        verbose_name_plural = "Registros de Capacitaciones"
+        ordering = ['-fecha_programada']
+
+    def __str__(self) -> str:
+        return f"{self.tema.titulo} - {self.fecha_programada} [{self.estado}]"
+
+
+

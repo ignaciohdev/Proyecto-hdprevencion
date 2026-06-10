@@ -4,7 +4,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
-from modulo_prevencion.models import PlantillaMaestra, Servicio, Noticia, Plan, PlantillaInspeccion
+from modulo_prevencion.models import PlantillaMaestra, Servicio, Noticia, Plan, PlantillaInspeccion, TemaCapacitacion
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -226,6 +226,81 @@ def seed():
             print(f"Plantilla de Inspección '{pi.nombre}' creada.")
         else:
             print(f"Plantilla de Inspección '{pi.nombre}' actualizada.")
+
+    # 6. Temas de Capacitación por Defecto (Módulo de Capacitaciones)
+    admin_user = Usuario.objects.filter(is_superuser=True).first()
+    if not admin_user:
+        admin_user = Usuario.objects.first()
+
+    if admin_user:
+        temas_capacitacion_data = [
+            {
+                'titulo': 'Uso Correcto y Cuidado de EPP',
+                'descripcion': 'Instruir al personal sobre la selección, postura, limpieza y reposición de Elementos de Protección Personal.',
+                'categoria': 'CHARLA_5_MIN',
+                'duracion_minutos': 5,
+                'contenido_clave': [
+                    'Identificar los riesgos específicos de la tarea.',
+                    'Inspeccionar el EPP antes de cada uso (casco, lentes, guantes).',
+                    'Almacenar el EPP en lugares limpios y secos.',
+                    'Solicitar recambio inmediato en caso de daño o desgaste.'
+                ]
+            },
+            {
+                'titulo': 'Obligación de Informar (ODI) / Derecho a Saber (DAS)',
+                'descripcion': 'Charla de inducción obligatoria para nuevos trabajadores sobre los riesgos de la faena y medidas preventivas según DS 40.',
+                'categoria': 'INDUCCION_ODI',
+                'duracion_minutos': 60,
+                'contenido_clave': [
+                    'Riesgos generales del rubro y de la instalación.',
+                    'Procedimiento de emergencia y evacuación.',
+                    'Uso seguro de herramientas y maquinarias.',
+                    'Uso obligatorio de EPP y canales de reporte de incidentes.'
+                ]
+            },
+            {
+                'titulo': 'Prevención de Incendios y Uso de Extintores',
+                'descripcion': 'Capacitación práctica y teórica sobre la química del fuego, clasificación y técnicas de extinción con extintores portátiles.',
+                'categoria': 'CURSO_PRACTICO',
+                'duracion_minutos': 30,
+                'contenido_clave': [
+                    'El triángulo y tetraedro del fuego.',
+                    'Clases de fuego (A, B, C, D, K) y agentes de extinción.',
+                    'Técnica PASS (Tirar, Apuntar, Presionar, Abanicar).',
+                    'Ubicación física y despeje de los extintores.'
+                ]
+            },
+            {
+                'titulo': 'Primeros Auxilios Básicos en Obra/Taller',
+                'descripcion': 'Conceptos teóricos sobre la conducta PAS (Proteger, Alertar, Socorrer) y reanimación básica ante emergencias médicas comunes.',
+                'categoria': 'CURSO_TEORICO',
+                'duracion_minutos': 45,
+                'contenido_clave': [
+                    'Conducta PAS y cómo llamar a emergencias médicas.',
+                    'Evaluación primaria del accidentado (conciencia y respiración).',
+                    'Tratamiento inicial de heridas, quemaduras y fracturas simples.',
+                    'Maniobras ante atragantamientos (Heimlich) y hemorragias.'
+                ]
+            }
+        ]
+
+        for tc_info in temas_capacitacion_data:
+            tc, created = TemaCapacitacion.objects.update_or_create(
+                titulo=tc_info['titulo'],
+                defaults={
+                    'descripcion': tc_info['descripcion'],
+                    'categoria': tc_info['categoria'],
+                    'duracion_minutos': tc_info['duracion_minutos'],
+                    'contenido_clave': tc_info['contenido_clave'],
+                    'usuario': admin_user
+                }
+            )
+            if created:
+                print(f"Tema de capacitación '{tc.titulo}' creado.")
+            else:
+                print(f"Tema de capacitación '{tc.titulo}' actualizado.")
+    else:
+        print("No se encontró ningún usuario en el sistema para asociar los temas de capacitación por defecto.")
 
     print("Sembrado finalizado con éxito.")
 
