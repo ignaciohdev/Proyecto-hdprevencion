@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { getApiUrl } from "../../../utils/api";
 
 export default function PerfilPanel() {
   const [username, setUsername] = useState("");
@@ -30,7 +31,7 @@ export default function PerfilPanel() {
     if (!token) return;
 
     try {
-      const res = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -151,7 +152,7 @@ export default function PerfilPanel() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,

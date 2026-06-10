@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getApiUrl } from "../../../utils/api";
 
 interface DescargaLog {
   id: number;
@@ -26,7 +27,7 @@ export default function ClientePanel() {
     if (!token) return;
 
     try {
-      const res = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -77,8 +78,8 @@ export default function ClientePanel() {
             <div className="flex justify-between text-sm">
               <span className="text-slate-500 dark:text-slate-450 font-semibold">Descargas Disponibles (Semana Actual)</span>
               <span className="font-bold text-orange-500">
-                {descargasLimite > 10000 
-                  ? `${descargasSemanales} descargas (Ilimitadas)` 
+                {descargasLimite > 10000
+                  ? `${descargasSemanales} descargas (Ilimitadas)`
                   : `${descargasSemanales} de ${descargasLimite} descargas`}
               </span>
             </div>

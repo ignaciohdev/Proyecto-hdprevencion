@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Header from "../components/Header";
+import { getApiUrl } from "../utils/api";
 
 function ContactoPageInner() {
   const searchParams = useSearchParams();
@@ -57,7 +58,7 @@ function ContactoPageInner() {
     const token = localStorage.getItem("access_token");
 
     try {
-      const res = await fetch("http://localhost:8000/api/contacto/", {
+      const res = await fetch(getApiUrl("/api/contacto/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

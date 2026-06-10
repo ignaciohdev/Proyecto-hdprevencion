@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getApiUrl } from "../../../utils/api";
 
 export default function ModeradorPanel() {
   const [username, setUsername] = useState("");
@@ -24,16 +25,16 @@ export default function ModeradorPanel() {
             Editor de Contenidos
           </span>
           <h1 className="text-3xl font-extrabold text-white mt-3 leading-tight">
-            Moderador: <span className="text-orange-500">{username || "Administrador"}</span>
+            Panel de Moderación
           </h1>
-          <p className="text-slate-400 mt-2 text-sm max-w-xl">
-            Este panel simplificado está diseñado para la gestión diaria del portal. Aquí puedes subir nuevos formatos de prevención de riesgos oficiales y redactar/editar las noticias que ven los clientes.
+          <p className="text-slate-450 mt-2 text-sm max-w-xl">
+            Hola {username}, gestiona los formatos de descarga y las noticias informativas de prevención.
           </p>
         </div>
       </div>
 
       {/* Grid de Secciones de Control */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Sección 1: Formatos de Prevención (Plantillas Maestras) */}
         <div className="bg-white dark:bg-slate-950 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col justify-between">
@@ -41,25 +42,25 @@ export default function ModeradorPanel() {
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-55 dark:bg-slate-900/50">
               <h3 className="font-bold text-slate-900 dark:text-white flex items-center space-x-2">
                 <span>📁</span>
-                <span>Formatos Oficiales (Plantillas Maestras)</span>
+                <span>Plantillas de Formatos</span>
               </h3>
               <button className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-1 px-3 rounded-lg text-xs transition-all cursor-pointer">
-                + Subir Formato
+                + Nueva Plantilla
               </button>
             </div>
             
             <div className="p-4 space-y-3">
               {/* Item 1 */}
-              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center bg-slate-55 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div>
-                  <p className="font-bold text-sm">Matriz IPER General</p>
-                  <p className="text-xs text-slate-500">Tipo: XLSX | Actualizado: Hace 3 días</p>
+                  <p className="font-bold text-sm">Matriz de Riesgo IPER Base</p>
+                  <p className="text-xs text-slate-500">Tipo: IPER | Actualizado: Hace 2 días</p>
                 </div>
                 <button className="text-orange-600 hover:text-orange-500 font-semibold text-xs cursor-pointer">Actualizar</button>
               </div>
 
               {/* Item 2 */}
-              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center bg-slate-55 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div>
                   <p className="font-bold text-sm">Protocolo TMERT Paso a Paso</p>
                   <p className="text-xs text-slate-500">Tipo: DOCX | Actualizado: Hace 1 semana</p>
@@ -68,7 +69,7 @@ export default function ModeradorPanel() {
               </div>
 
               {/* Item 3 */}
-              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+              <div className="flex justify-between items-center bg-slate-55 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                 <div>
                   <p className="font-bold text-sm">Plan de Emergencia Pyme</p>
                   <p className="text-xs text-slate-500">Tipo: PDF | Actualizado: 26/05/2026</p>
@@ -78,7 +79,7 @@ export default function ModeradorPanel() {
             </div>
           </div>
           <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-900 text-center">
-            <a href="http://localhost:8000/admin/modulo_prevencion/plantillamaestra/" target="_blank" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 underline">Ver todas en Django Admin</a>
+            <a href={getApiUrl("/admin/modulo_prevencion/plantillamaestra/")} target="_blank" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 underline">Ver todas en Django Admin</a>
           </div>
         </div>
 

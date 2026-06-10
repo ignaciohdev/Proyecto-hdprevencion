@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getApiUrl } from "../utils/api";
 
 interface PlanInfo {
   id: number;
@@ -29,14 +30,14 @@ export default function PlanesView() {
     const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     try {
       // 1. Cargar planes disponibles
-      const resPlanes = await fetch("http://localhost:8000/api/planes/");
+      const resPlanes = await fetch(getApiUrl("/api/planes/"));
       if (!resPlanes.ok) throw new Error("Error al cargar los planes.");
       const dataPlanes = await resPlanes.json();
       setPlanes(dataPlanes);
 
       // 2. Cargar perfil de usuario actual (si está autenticado)
       if (token) {
-        const resUser = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
           headers: { Authorization: `Bearer ${token}` }
         });
         if (resUser.ok) {
@@ -70,7 +71,7 @@ export default function PlanesView() {
 
     setActionLoading(planCodigo);
     try {
-      const res = await fetch("http://localhost:8000/api/usuarios/cambiar-plan/", {
+      const res = await fetch(getApiUrl("/api/usuarios/cambiar-plan/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

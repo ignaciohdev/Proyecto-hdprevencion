@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Header from "../components/Header";
+import { getApiUrl } from "../utils/api";
 
 interface Noticia {
   id: number;
@@ -38,7 +39,7 @@ export default function NoticiasPage() {
     setLoading(true);
     const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch("http://localhost:8000/api/noticias/", {
+      const res = await fetch(getApiUrl("/api/noticias/"), {
         headers: {
           Authorization: token ? `Bearer ${token}` : "",
         },
@@ -95,8 +96,8 @@ export default function NoticiasPage() {
     const token = localStorage.getItem("access_token");
     const method = editingNoticia ? "PUT" : "POST";
     const url = editingNoticia
-      ? `http://localhost:8000/api/noticias/${editingNoticia.id}/`
-      : "http://localhost:8000/api/noticias/";
+      ? getApiUrl(`/api/noticias/${editingNoticia.id}/`)
+      : getApiUrl("/api/noticias/");
 
     try {
       const res = await fetch(url, {
@@ -122,7 +123,7 @@ export default function NoticiasPage() {
     const token = localStorage.getItem("access_token");
 
     try {
-      const res = await fetch(`http://localhost:8000/api/noticias/${id}/`, {
+      const res = await fetch(getApiUrl(`/api/noticias/${id}/`), {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,

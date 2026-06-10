@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../components/Header";
+import { getApiUrl } from "../utils/api";
 
 interface PlantillaMaestra {
   id: number;
@@ -52,7 +53,7 @@ export default function DocumentosPage() {
     const token = localStorage.getItem("access_token");
     try {
       // 1. Obtener plantillas
-      const resPlantillas = await fetch("http://localhost:8000/api/plantillas-maestras/", {
+      const resPlantillas = await fetch(getApiUrl("/api/plantillas-maestras/"), {
         headers: { Authorization: token ? `Bearer ${token}` : "" },
       });
       let dataPlantillas = [];
@@ -72,7 +73,7 @@ export default function DocumentosPage() {
 
       // 2. Obtener documentos guardados
       if (token) {
-        const resDocs = await fetch("http://localhost:8000/api/documentos-usuario/", {
+        const resDocs = await fetch(getApiUrl("/api/documentos-usuario/"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (resDocs.ok) {
@@ -83,7 +84,7 @@ export default function DocumentosPage() {
 
       // 3. Obtener perfil del usuario
       if (token) {
-        const resUser = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (resUser.ok) {
@@ -129,7 +130,7 @@ export default function DocumentosPage() {
     }
 
     try {
-      const res = await fetch("http://localhost:8000/api/documentos-usuario/", {
+      const res = await fetch(getApiUrl("/api/documentos-usuario/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -165,7 +166,7 @@ export default function DocumentosPage() {
     formData.append("archivo_fuente", selectedFile);
 
     try {
-      const res = await fetch("http://localhost:8000/api/plantillas-maestras/", {
+      const res = await fetch(getApiUrl("/api/plantillas-maestras/"), {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -191,7 +192,7 @@ export default function DocumentosPage() {
     if (!confirm("¿Deseas eliminar esta copia guardada? Esta acción no se puede deshacer.")) return;
     const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(`http://localhost:8000/api/documentos-usuario/${id}/`, {
+      const res = await fetch(getApiUrl(`/api/documentos-usuario/${id}/`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -205,7 +206,7 @@ export default function DocumentosPage() {
   const handleDescargarArchivo = async (id: number, type: "XLSX" | "DOCX", docName: string) => {
     const token = localStorage.getItem("access_token");
     const endpoint = type === 'XLSX' ? 'descargar-excel' : 'descargar-docx';
-    const url = `http://localhost:8000/api/documentos-usuario/${id}/${endpoint}/`;
+    const url = getApiUrl(`/api/documentos-usuario/${id}/${endpoint}/`);
     
     try {
       const res = await fetch(url, {
@@ -239,7 +240,7 @@ export default function DocumentosPage() {
     setPreviewData(null);
     const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(`http://localhost:8000/api/plantillas-maestras/${plantilla.id}/preview/`, {
+      const res = await fetch(getApiUrl(`/api/plantillas-maestras/${plantilla.id}/preview/`), {
         headers: { Authorization: token ? `Bearer ${token}` : "" },
       });
       if (!res.ok) throw new Error("No se pudo obtener la vista previa del archivo.");

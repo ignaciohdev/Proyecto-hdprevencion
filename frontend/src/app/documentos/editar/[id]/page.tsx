@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Header from "../../../components/Header";
+import { getApiUrl } from "../../../utils/api";
 
 interface FilaIPER {
   id: number;
@@ -109,7 +110,7 @@ function DocumentoEditorInner() {
 
       try {
         // Verificar si el plan del usuario permite la edición en la nube
-        const resUser = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (resUser.ok) {
@@ -121,7 +122,7 @@ function DocumentoEditorInner() {
           }
         }
 
-        const res = await fetch(`http://localhost:8000/api/documentos-usuario/${docId}/`, {
+        const res = await fetch(getApiUrl(`/api/documentos-usuario/${docId}/`), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!res.ok) throw new Error("Error al obtener el documento.");
@@ -236,7 +237,7 @@ function DocumentoEditorInner() {
       return true;
     }
 
-    const res = await fetch(`http://localhost:8000/api/documentos-usuario/${docId}/`, {
+    const res = await fetch(getApiUrl(`/api/documentos-usuario/${docId}/`), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -282,7 +283,7 @@ function DocumentoEditorInner() {
       }
 
       const token = localStorage.getItem("access_token");
-      const url = `http://localhost:8000/api/documentos-usuario/${docId}/descargar-docx/`;
+      const url = getApiUrl(`/api/documentos-usuario/${docId}/descargar-docx/`);
       
       const res = await fetch(url, {
         headers: {

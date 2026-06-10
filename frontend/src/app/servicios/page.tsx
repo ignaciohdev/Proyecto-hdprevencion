@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "../components/Header";
+import { getApiUrl } from "../utils/api";
 
 interface Servicio {
   id: number;
@@ -22,7 +23,7 @@ export default function ServiciosPage() {
     const fetchServicios = async () => {
       const token = localStorage.getItem("access_token");
       try {
-        const res = await fetch("http://localhost:8000/api/servicios/", {
+        const res = await fetch(getApiUrl("/api/servicios/"), {
           headers: {
             Authorization: token ? `Bearer ${token}` : "",
           },

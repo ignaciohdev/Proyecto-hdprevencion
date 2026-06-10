@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { getApiUrl } from "../utils/api";
 
 export default function Registro() {
   const router = useRouter();
@@ -48,7 +49,7 @@ export default function Registro() {
         cuenta_padre: formData.tipo_usuario === "CORPORATIVO" && formData.cuenta_padre ? parseInt(formData.cuenta_padre) : null,
       };
 
-      const response = await fetch("http://localhost:8000/api/auth/register/", {
+      const response = await fetch(getApiUrl("/api/auth/register/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

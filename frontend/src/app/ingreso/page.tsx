@@ -2,6 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getApiUrl } from "../utils/api";
 
 function IngresoInner() {
   const router = useRouter();
@@ -31,7 +32,7 @@ function IngresoInner() {
     setError(null);
 
     try {
-      const response = await fetch("http://localhost:8000/api/auth/login/", {
+      const response = await fetch(getApiUrl("/api/auth/login/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

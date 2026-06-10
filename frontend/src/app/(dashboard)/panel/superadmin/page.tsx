@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getApiUrl } from "../../../utils/api";
 
 export default function SuperadminPanel() {
   const [username, setUsername] = useState("");
@@ -32,7 +33,7 @@ export default function SuperadminPanel() {
         </div>
         <div className="mt-4 md:mt-0">
           <a
-            href="http://localhost:8000/admin/"
+            href={getApiUrl("/admin/")}
             target="_blank"
             rel="noopener noreferrer"
             className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all inline-block text-sm cursor-pointer"
@@ -100,7 +101,7 @@ export default function SuperadminPanel() {
                 </td>
                 <td className="px-6 py-4 font-semibold text-slate-400">—</td>
                 <td className="px-6 py-4 text-right">
-                  <a href="http://localhost:8000/admin/modulo_prevencion/usuario/" target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Editar</a>
+                  <a href={getApiUrl("/admin/modulo_prevencion/usuario/")} target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Editar</a>
                 </td>
               </tr>
               <tr>
@@ -113,7 +114,7 @@ export default function SuperadminPanel() {
                 </td>
                 <td className="px-6 py-4 font-semibold text-slate-400">—</td>
                 <td className="px-6 py-4 text-right">
-                  <a href="http://localhost:8000/admin/modulo_prevencion/usuario/" target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Editar</a>
+                  <a href={getApiUrl("/admin/modulo_prevencion/usuario/")} target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Editar</a>
                 </td>
               </tr>
               <tr>
@@ -124,7 +125,7 @@ export default function SuperadminPanel() {
                   <span className="text-emerald-600 font-semibold">Activa (Consultora)</span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <a href="http://localhost:8000/admin/modulo_prevencion/suscripcion/" target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Ver Suscr.</a>
+                  <a href={getApiUrl("/admin/modulo_prevencion/suscripcion/")} target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Ver Suscr.</a>
                 </td>
               </tr>
               <tr>
@@ -135,7 +136,7 @@ export default function SuperadminPanel() {
                   <span className="text-emerald-600 font-semibold">Activa (Básico)</span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <a href="http://localhost:8000/admin/modulo_prevencion/suscripcion/" target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Ver Suscr.</a>
+                  <a href={getApiUrl("/admin/modulo_prevencion/suscripcion/")} target="_blank" className="text-orange-600 hover:text-orange-500 font-semibold">Ver Suscr.</a>
                 </td>
               </tr>
             </tbody>

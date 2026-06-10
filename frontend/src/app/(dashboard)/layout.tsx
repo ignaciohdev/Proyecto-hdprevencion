@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getApiUrl } from "../utils/api";
 
 export default function DashboardLayout({
   children,
@@ -15,7 +16,7 @@ export default function DashboardLayout({
 
   const fetchPerfil = async (token: string) => {
     try {
-      const res = await fetch("http://localhost:8000/api/usuarios/perfil/", {
+      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) throw new Error("Token vencido o inválido.");
