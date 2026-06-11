@@ -457,6 +457,30 @@ class ReporteRiesgo(models.Model):
         null=True,
         verbose_name="Medida Correctiva / Resolución"
     )
+    # Campos para reportes recibidos desde el portal público de trabajadores (QR)
+    reportado_por_externo = models.BooleanField(
+        default=False,
+        verbose_name="Reportado por Trabajador (Externo)",
+        help_text="Indica si este reporte fue enviado desde el portal público de participación mediante código QR."
+    )
+    nombre_reportante = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Nombre del Reportante"
+    )
+    rut_reportante = models.CharField(
+        max_length=15,
+        blank=True,
+        null=True,
+        verbose_name="RUT del Reportante"
+    )
+    contacto_reportante = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Contacto del Reportante (Email/Teléfono)"
+    )
     fecha_creacion = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Fecha de Reporte"
@@ -468,7 +492,8 @@ class ReporteRiesgo(models.Model):
         ordering = ['-fecha_creacion']
 
     def __str__(self) -> str:
-        return f"{self.tipo} ({self.gravedad}) - {self.lugar} [{self.estado}]"
+        origen = " [Trabajador]" if self.reportado_por_externo else ""
+        return f"{self.tipo} ({self.gravedad}) - {self.lugar} [{self.estado}]{origen}"
 
 
 class PlantillaInspeccion(models.Model):
@@ -725,4 +750,73 @@ class RegistroCapacitacion(models.Model):
         return f"{self.tema.titulo} - {self.fecha_programada} [{self.estado}]"
 
 
+class SugerenciaConsulta(models.Model):
+    """
+    Buzón digital de sugerencias y consultas enviadas por los trabajadores
+    desde el portal público de participación (código QR), sin necesidad de cuenta.
+    El prevencionista receptor puede leerlas y registrar una respuesta o acción tomada.
+    """
+    TIPO_SUGERENCIA = 'SUGERENCIA'
+    TIPO_CONSULTA = 'CONSULTA'
 
+    TIPO_CHOICES = [
+        (TIPO_SUGERENCIA, 'Sugerencia Preventiva'),
+        (TIPO_CONSULTA, 'Consulta de Seguridad'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='sugerencias_consultas',
+        verbose_name="Prevencionista Receptor"
+    )
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES,
+        default=TIPO_SUGERENCIA,
+        verbose_name="Tipo de Mensaje"
+    )
+    mensaje = models.TextField(verbose_name="Mensaje del Trabajador")
+    anonimo = models.BooleanField(
+        default=True,
+        verbose_name="Enviado Anónimamente"
+    )
+    nombre_remitente = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Nombre del Remitente"
+    )
+    contacto_remitente = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Contacto del Remitente (Email/Teléfono)"
+    )
+    leido = models.BooleanField(
+        default=False,
+        verbose_name="Leído por el Prevencionista"
+    )
+    respuesta = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Respuesta / Acción Tomada por el Prevencionista"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Envío"
+    )
+    fecha_respuesta = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Fecha de Respuesta"
+    )
+
+    class Meta:
+        verbose_name = "Sugerencia / Consulta"
+        verbose_name_plural = "Sugerencias y Consultas"
+        ordering = ['-fecha_creacion']
+
+    def __str__(self) -> str:
+        remitente = self.nombre_remitente if not self.anonimo and self.nombre_remitente else "Anónimo"
+        return f"{self.get_tipo_display()} de {remitente} ({self.fecha_creacion.strftime('%d/%m/%Y')})"

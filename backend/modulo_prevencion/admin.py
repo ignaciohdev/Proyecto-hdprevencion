@@ -5,7 +5,8 @@ from .models import (
     Plan, Usuario, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
-    TemaCapacitacion, RegistroCapacitacion
+    TemaCapacitacion, RegistroCapacitacion,
+    SugerenciaConsulta
 )
 
 @admin.register(Usuario)
@@ -233,3 +234,26 @@ class RegistroCapacitacionAdmin(admin.ModelAdmin):
     date_hierarchy = 'fecha_programada'
 
 
+@admin.register(SugerenciaConsulta)
+class SugerenciaConsultaAdmin(admin.ModelAdmin):
+    """
+    Gestión del Buzón Digital de sugerencias y consultas de trabajadores.
+    """
+    list_display = (
+        'tipo', 'usuario', 'estado_lectura', 'anonimo', 'nombre_remitente', 'fecha_creacion'
+    )
+    list_filter = ('tipo', 'leido', 'anonimo', 'fecha_creacion')
+    search_fields = ('mensaje', 'nombre_remitente', 'usuario__username')
+    readonly_fields = ('fecha_creacion',)
+    date_hierarchy = 'fecha_creacion'
+    raw_id_fields = ('usuario',)
+
+    @admin.display(description="Estado", ordering="leido")
+    def estado_lectura(self, obj):
+        if obj.leido:
+            return format_html(
+                '<span style="background-color:#d1fae5;color:#047857;padding:3px 8px;border-radius:4px;font-size:0.82rem;font-weight:600;">Respondido</span>'
+            )
+        return format_html(
+            '<span style="background-color:#fef3c7;color:#92400e;padding:3px 8px;border-radius:4px;font-size:0.82rem;font-weight:600;">Pendiente</span>'
+        )

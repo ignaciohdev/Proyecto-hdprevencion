@@ -13,6 +13,10 @@ interface ReporteRiesgo {
   medida_correctiva: string | null;
   fecha_creacion: string;
   username: string;
+  reportado_por_externo: boolean;
+  nombre_reportante: string | null;
+  rut_reportante: string | null;
+  contacto_reportante: string | null;
 }
 
 export default function ReportesRiesgoPage() {
@@ -317,15 +321,29 @@ export default function ReportesRiesgoPage() {
                   {reporte.descripcion}
                 </p>
 
-                {reporte.estado === "RESUELTO" && (
+                  {reporte.estado === "RESUELTO" && (
                   <div className="bg-emerald-50/50 dark:bg-emerald-950/10 p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/30 mt-2 text-xs">
                     <span className="font-bold text-emerald-700 dark:text-emerald-400 block mb-0.5">✅ Medida Correctiva Aplicada:</span>
                     <p className="text-slate-600 dark:text-slate-350 italic">{reporte.medida_correctiva}</p>
                   </div>
                 )}
-                
+
+                {/* Distintivo y datos del reportante externo (trabajador) */}
+                {reporte.reportado_por_externo && (
+                  <div className="bg-amber-50/60 dark:bg-amber-950/20 p-3 rounded-xl border border-amber-200 dark:border-amber-800/40 mt-2">
+                    <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider block mb-1">
+                      🏗️ Reportado por Trabajador (Portal QR)
+                    </span>
+                    <div className="text-xs text-slate-600 dark:text-slate-400 space-y-0.5">
+                      {reporte.nombre_reportante && <span className="block">👤 {reporte.nombre_reportante}{reporte.rut_reportante ? ` — ${reporte.rut_reportante}` : ""}</span>}
+                      {reporte.contacto_reportante && <span className="block">📧 {reporte.contacto_reportante}</span>}
+                      {!reporte.nombre_reportante && <span className="italic text-slate-500">Identidad no proporcionada</span>}
+                    </div>
+                  </div>
+                )}
+
                 <div className="text-[10px] text-slate-450 dark:text-slate-400 flex space-x-3 pt-1">
-                  <span>Registrado por: {reporte.username}</span>
+                  <span>{reporte.reportado_por_externo ? "Recibido via QR" : `Registrado por: ${reporte.username}`}</span>
                   <span>•</span>
                   <span>Fecha: {new Date(reporte.fecha_creacion).toLocaleString()}</span>
                 </div>

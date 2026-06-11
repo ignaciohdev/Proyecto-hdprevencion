@@ -8,7 +8,7 @@ from .models import (
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
-    TemaCapacitacion, RegistroCapacitacion
+    TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta
 )
 
 Usuario = get_user_model()
@@ -190,9 +190,13 @@ class ReporteRiesgoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReporteRiesgo
-        fields = ('id', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad', 'estado', 'medida_correctiva', 'fecha_creacion')
+        fields = (
+            'id', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad',
+            'estado', 'medida_correctiva', 'fecha_creacion',
+            'reportado_por_externo', 'nombre_reportante', 'rut_reportante', 'contacto_reportante'
+        )
         extra_kwargs = {
-            'usuario': {'required': False}
+            'usuario': {'required': False, 'allow_null': True}
         }
 
 
@@ -260,5 +264,23 @@ class RegistroCapacitacionSerializer(serializers.ModelSerializer):
             'usuario': {'required': False}
         }
 
+class SugerenciaConsultaSerializer(serializers.ModelSerializer):
+    """
+    Serializer para el Buzón Digital de participación y consulta de trabajadores.
+    Soporta tanto la creación pública (trabajador sin cuenta) como la lectura y
+    actualización por parte del prevencionista desde su panel privado.
+    """
+    username = serializers.CharField(source='usuario.username', read_only=True)
 
-
+    class Meta:
+        model = SugerenciaConsulta
+        fields = (
+            'id', 'usuario', 'username', 'tipo', 'mensaje', 'anonimo',
+            'nombre_remitente', 'contacto_remitente',
+            'leido', 'respuesta', 'fecha_creacion', 'fecha_respuesta'
+        )
+        extra_kwargs = {
+            'usuario': {'required': False, 'allow_null': True},
+            'leido': {'read_only': False},
+            'respuesta': {'read_only': False},
+        }

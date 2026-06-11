@@ -8,7 +8,9 @@ from .views import (
     UsuarioViewSet, PlanViewSet,
     ReporteRiesgoViewSet, PlantillaInspeccionViewSet, InspeccionViewSet,
     InvestigacionAccidenteViewSet, DashboardStatsView,
-    TemaCapacitacionViewSet, RegistroCapacitacionViewSet
+    TemaCapacitacionViewSet, RegistroCapacitacionViewSet,
+    SugerenciaConsultaViewSet,
+    ReporteRiesgoPublicoCreateView, SugerenciaConsultaPublicaCreateView
 )
 
 router = DefaultRouter()
@@ -25,6 +27,7 @@ router.register(r'inspecciones', InspeccionViewSet, basename='inspeccion')
 router.register(r'accidentes', InvestigacionAccidenteViewSet, basename='investigacionaccidente')
 router.register(r'temas-capacitacion', TemaCapacitacionViewSet, basename='temacapacitacion')
 router.register(r'registro-capacitacion', RegistroCapacitacionViewSet, basename='registrocapacitacion')
+router.register(r'buzon', SugerenciaConsultaViewSet, basename='sugerenciaconsulta')
 
 urlpatterns = [
     # Endpoints de autenticación y registro con JWT
@@ -34,7 +37,19 @@ urlpatterns = [
     
     # Endpoint de estadísticas del dashboard
     path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard_stats'),
-    
+
+    # Endpoints públicos del portal de participación (acceso via código QR, sin login)
+    path(
+        'publico/<int:prevencionista_pk>/reportar-riesgo/',
+        ReporteRiesgoPublicoCreateView.as_view(),
+        name='reportar_riesgo_publico'
+    ),
+    path(
+        'publico/<int:prevencionista_pk>/buzon/',
+        SugerenciaConsultaPublicaCreateView.as_view(),
+        name='buzon_publico'
+    ),
+
     # Endpoints de la API generados por el router
     path('', include(router.urls)),
 ]

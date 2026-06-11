@@ -16,7 +16,7 @@ from django.utils import timezone
 from .models import (
     PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
-    TemaCapacitacion, RegistroCapacitacion
+    TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -24,7 +24,8 @@ from .serializers import (
     NoticiaSerializer, MensajeContactoSerializer, ServicioSerializer,
     ReporteRiesgoSerializer, PlantillaInspeccionSerializer, InspeccionSerializer,
     InvestigacionAccidenteSerializer,
-    TemaCapacitacionSerializer, RegistroCapacitacionSerializer
+    TemaCapacitacionSerializer, RegistroCapacitacionSerializer,
+    SugerenciaConsultaSerializer
 )
 
 Usuario = get_user_model()
@@ -1016,8 +1017,103 @@ class DashboardStatsView(APIView):
             }
         })
 
+class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
+    """
+    Endpoint público (sin autenticación) para que los trabajadores reporten
+    condiciones o actos inseguros escaneando un código QR.
+    El campo `usuario` es el prevencionista receptor identificado por su `pk` en la URL.
+    """
+    serializer_class = ReporteRiesgoSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        prevencionista_pk = self.kwargs.get('prevencionista_pk')
+        try:
+            prevencionista = Usuario.objects.get(pk=prevencionista_pk)
+        except Usuario.DoesNotExist:
+            return Response(
+                {"error": "El código QR no corresponde a un prevencionista válido."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(
+            usuario=prevencionista,
+            tipo=ReporteRiesgo.TIPO_CONDICION,
+            reportado_por_externo=True,
+            estado=ReporteRiesgo.ESTADO_ABIERTO,
+            gravedad=ReporteRiesgo.GRAVEDAD_MEDIA  # El prevencionista la clasifica luego
+        )
+        return Response(
+            {"mensaje": "¡Reporte enviado con éxito! El prevencionista de tu empresa lo revisará pronto."},
+            status=status.HTTP_201_CREATED
+        )
 
 
+class SugerenciaConsultaViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet que gestiona el Buzón Digital de Participación y Consulta.
+    - Listado / Detalle / PATCH (responder): requiere autenticación (prevencionista).
+    - CREATE (`enviar`): endpoint público sin autenticación para trabajadores.
+    """
+    serializer_class = SugerenciaConsultaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return SugerenciaConsulta.objects.filter(usuario=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
+    @action(
+        detail=True,
+        methods=['patch'],
+        permission_classes=[permissions.IsAuthenticated],
+        url_path='responder'
+    )
+    def responder(self, request, pk=None):
+        """
+        Permite al prevencionista marcar como leído y agregar una respuesta
+        o acción tomada ante una sugerencia o consulta.
+        """
+        sugerencia = self.get_object()
+        respuesta = request.data.get('respuesta', '').strip()
+
+        sugerencia.leido = True
+        if respuesta:
+            sugerencia.respuesta = respuesta
+            sugerencia.fecha_respuesta = timezone.now()
+        sugerencia.save()
+
+        return Response(
+            SugerenciaConsultaSerializer(sugerencia).data,
+            status=status.HTTP_200_OK
+        )
 
 
+class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
+    """
+    Endpoint público (sin autenticación) para que los trabajadores envíen
+    sugerencias o consultas al prevencionista de su empresa via código QR.
+    """
+    serializer_class = SugerenciaConsultaSerializer
+    permission_classes = [permissions.AllowAny]
 
+    def create(self, request, *args, **kwargs):
+        prevencionista_pk = self.kwargs.get('prevencionista_pk')
+        try:
+            prevencionista = Usuario.objects.get(pk=prevencionista_pk)
+        except Usuario.DoesNotExist:
+            return Response(
+                {"error": "El código QR no corresponde a un prevencionista válido."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(usuario=prevencionista)
+        return Response(
+            {"mensaje": "Mensaje recibido. El prevencionista de tu empresa lo revisará a la brevedad."},
+            status=status.HTTP_201_CREATED
+        )
