@@ -22,12 +22,24 @@ load_dotenv(BASE_DIR.parent / '.env')
 load_dotenv(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-7rmmxw%yz$h&e&tygo=3l&8mo$l%40h+9s0=-gyb*qo7@x#$43')
+SECRET_KEY = os.environ.get('SECRET_KEY', os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-7rmmxw%yz$h&e&tygo=3l&8mo$l%40h+9s0=-gyb*qo7@x#$43'))
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+DEBUG = 'RENDER' not in os.environ and os.environ.get('DJANGO_DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '.onrender.com',
+]
+
+# Si se provee una lista de hosts autorizados en las variables de entorno
+env_allowed_hosts = os.environ.get('ALLOWED_HOSTS')
+if env_allowed_hosts:
+    ALLOWED_HOSTS.extend([h.strip() for h in env_allowed_hosts.split(',')])
+elif DEBUG:
+    ALLOWED_HOSTS = ['*']
+
 
 
 # Application definition
@@ -54,6 +66,7 @@ AUTH_USER_MODEL = 'modulo_prevencion.Usuario'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # WhiteNoise para servir estáticos de forma eficiente
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -87,15 +100,14 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+import dj_database_url
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'prevencion_hd_db'),
-        'USER': os.environ.get('DB_USER', 'postgres'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'Borderlands123.'),
-        'HOST': os.environ.get('DB_HOST', 'localhost'),
-        'PORT': os.environ.get('DB_PORT', '5432'),
-    }
+    'default': dj_database_url.config(
+        default=f"postgresql://{os.environ.get('DB_USER', 'postgres')}:{os.environ.get('DB_PASSWORD', 'Borderlands123.')}@{os.environ.get('DB_HOST', 'localhost')}:{os.environ.get('DB_PORT', '5432')}/{os.environ.get('DB_NAME', 'prevencion_hd_db')}",
+        conn_max_age=600,
+        ssl_require='RENDER' in os.environ  # Render requiere SSL para conectar a Supabase
+    )
 }
 
 
@@ -135,6 +147,17 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Soporte de WhiteNoise para almacenamiento de estáticos optimizados y comprimidos
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -165,12 +188,27 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# Configuración de CORS
+# Configuración de CORS y orígenes permitidos
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
 else:
+    CORS_ALLOW_ALL_ORIGINS = False
     CORS_ALLOWED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+    frontend_url = os.environ.get('FRONTEND_URL')
+    if frontend_url:
+        if frontend_url.endswith('/'):
+            frontend_url = frontend_url[:-1]
+        CORS_ALLOWED_ORIGINS.append(frontend_url)
+        
+    # Configuración de CSRF Trusted Origins para producción
+    CSRF_TRUSTED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    if frontend_url:
+        CSRF_TRUSTED_ORIGINS.append(frontend_url)
+
 
