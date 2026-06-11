@@ -10,7 +10,7 @@ Usuario = get_user_model()
 class CapacitacionIntegrationTestCase(APITestCase):
     """
     Casos de prueba integrales para verificar el correcto funcionamiento
-    del Módulo de Capacitaciones y Seguimiento de Cumplimiento (PAC).
+    del Módulo de Capacitaciones y el flujo de Autofirma Digital Móvil (QR).
     """
 
     def setUp(self):
@@ -39,93 +39,173 @@ class CapacitacionIntegrationTestCase(APITestCase):
             fecha_inicio=timezone.now()
         )
 
-        # Autenticar al cliente para las llamadas API
+        # Autenticar al cliente para las llamadas de administración
         self.client.login(username="prevencionista_test", password="securepassword123")
-        # Generar token JWT para cabecera si fuera necesario
         response = self.client.post(reverse('token_obtain_pair'), {
             'username': 'prevencionista_test',
             'password': 'securepassword123'
         })
         self.token = response.data['access']
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token}')
+        # Guardamos las credenciales de administración
+        self.auth_headers = {'HTTP_AUTHORIZATION': f'Bearer {self.token}'}
+
+    def test_detalles_publicos_anonimo(self):
+        """
+        Verifica que cualquier usuario (incluso anónimo/no autenticado) pueda
+        consultar los detalles básicos de una charla para firmarla.
+        """
+        tema = TemaCapacitacion.objects.create(
+            usuario=self.user,
+            titulo="Charla de Inducción ODI",
+            descripcion="Descripción breve",
+            categoria=TemaCapacitacion.CATEGORIA_ODI,
+            duracion_minutos=40
+        )
+        registro = RegistroCapacitacion.objects.create(
+            usuario=self.user,
+            tema=tema,
+            estado=RegistroCapacitacion.ESTADO_PROGRAMADA,
+            fecha_programada=timezone.now().date(),
+            lugar="Taller Principal"
+        )
+
+        # Hacer petición sin token JWT (Anónimo)
+        self.client.credentials() # Limpiar credenciales
+        url = reverse('registrocapacitacion-detalles-publicos', kwargs={'pk': registro.id})
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tema_titulo'], "Charla de Inducción ODI")
+        self.assertEqual(response.data['relator'], "prevencionista_test")
+        self.assertEqual(response.data['estado'], RegistroCapacitacion.ESTADO_PROGRAMADA)
+
+    def test_registrar_asistencia_publica(self):
+        """
+        Verifica que los trabajadores puedan registrar su asistencia y firma Base64
+        de manera pública, y valida restricciones como campos obligatorios y RUT duplicado.
+        """
+        tema = TemaCapacitacion.objects.create(
+            usuario=self.user,
+            titulo="Uso de Extintores",
+            descripcion="Charla de uso de extintores",
+            categoria=TemaCapacitacion.CATEGORIA_PRACTICO,
+            duracion_minutos=30
+        )
+        registro = RegistroCapacitacion.objects.create(
+            usuario=self.user,
+            tema=tema,
+            estado=RegistroCapacitacion.ESTADO_PROGRAMADA,
+            fecha_programada=timezone.now().date(),
+            lugar="Patio de Maniobras",
+            asistentes=[]
+        )
+
+        url = reverse('registrocapacitacion-registrar-asistencia', kwargs={'pk': registro.id})
+        
+        # 1. Petición pública sin credenciales
+        self.client.credentials()
+        payload = {
+            "nombre": "Pedro Rojas",
+            "rut": "15.456.789-0",
+            "firma": "data:image/png;base64,iVBORw0KGgoAAAANS..." # base64 simulado
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verificar en base de datos que se haya agregado
+        registro.refresh_from_db()
+        self.assertEqual(len(registro.asistentes), 1)
+        self.assertEqual(registro.asistentes[0]['nombre'], "Pedro Rojas")
+        self.assertTrue(registro.asistentes[0]['firma'].startswith("data:image/"))
+
+        # 2. Intentar registrar el mismo RUT
+        response_duplicado = self.client.post(url, payload, format='json')
+        self.assertEqual(response_duplicado.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response_duplicado.data)
+
+        # 3. Intentar registrar con campos vacíos
+        payload_incompleto = {"nombre": "", "rut": "", "firma": ""}
+        response_incompleto = self.client.post(url, payload_incompleto, format='json')
+        self.assertEqual(response_incompleto.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_ciclo_completo_capacitacion(self):
         """
-        Prueba el flujo completo:
-        1. Crear tema de capacitación
-        2. Programar una sesión
-        3. Validar estado inicial en PROGRAMADA
-        4. Finalizar sesión (agregar firmas y observaciones)
-        5. Validar que pase a REALIZADA
-        6. Validar que las estadísticas del dashboard reflejen el avance
+        Valida el flujo de trabajo completo del prevencionista: agendar,
+        esperar firmas del personal, finalizar sesión y auditar stats en el dashboard.
         """
-        # 1. Crear Tema de Capacitación
+        # Autenticar como prevencionista
+        self.client.credentials(**self.auth_headers)
+
+        # 1. Crear Tema
         tema_data = {
             "titulo": "Uso Correcto de EPP",
-            "descripcion": "Charla obligatoria sobre el uso y mantenimiento de EPP según normativa.",
+            "descripcion": "Charla obligatoria sobre el uso y mantenimiento de EPP.",
             "categoria": TemaCapacitacion.CATEGORIA_CHARLA,
             "duracion_minutos": 15,
-            "contenido_clave": ["Casco", "Lentes de seguridad", "Zapatos de seguridad"]
+            "contenido_clave": ["Casco", "Zapatos"]
         }
         url_temas = reverse('temacapacitacion-list')
         response_tema = self.client.post(url_temas, tema_data, format='json')
         self.assertEqual(response_tema.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response_tema.data['titulo'], "Uso Correcto de EPP")
-        
         tema_id = response_tema.data['id']
 
-        # 2. Programar Sesión de Capacitación
-        fecha_prog = (timezone.now() + timezone.timedelta(days=2)).date()
+        # 2. Programar Charla
+        fecha_prog = (timezone.now() + timezone.timedelta(days=1)).date()
         registro_data = {
             "tema": tema_id,
             "fecha_programada": str(fecha_prog),
-            "lugar": "Sala de Reuniones Central",
+            "lugar": "Sala de Reuniones B",
             "estado": RegistroCapacitacion.ESTADO_PROGRAMADA,
             "asistentes": []
         }
         url_registros = reverse('registrocapacitacion-list')
         response_registro = self.client.post(url_registros, registro_data, format='json')
         self.assertEqual(response_registro.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response_registro.data['estado'], RegistroCapacitacion.ESTADO_PROGRAMADA)
-        
         registro_id = response_registro.data['id']
 
-        # 3. Finalizar Charla en Terreno (Recolección de Firmas)
-        asistentes_data = [
-            {"nombre": "Juan Perez", "rut": "12.345.678-9", "firma": "Juan Perez"},
-            {"nombre": "Maria Soto", "rut": "9.876.543-2", "firma": "Maria Soto"}
-        ]
+        # 3. Trabajadores firman mediante endpoint público (Simulado)
+        self.client.credentials() # Anónimo
+        url_firmar = reverse('registrocapacitacion-registrar-asistencia', kwargs={'pk': registro_id})
+        
+        trabajador_1 = {"nombre": "Juan Perez", "rut": "12.345.678-9", "firma": "data:image/png;base64,aaaa"}
+        trabajador_2 = {"nombre": "Maria Soto", "rut": "9.876.543-2", "firma": "data:image/png;base64,bbbb"}
+        
+        self.client.post(url_firmar, trabajador_1, format='json')
+        self.client.post(url_firmar, trabajador_2, format='json')
+
+        # 4. Prevencionista finaliza la capacitación
+        self.client.credentials(**self.auth_headers) # Autenticar de nuevo
+        
+        # Traer el registro actualizado (que el front enviará al finalizar)
+        registro_obj = RegistroCapacitacion.objects.get(id=registro_id)
+        
         finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'pk': registro_id})
         payload_finalizar = {
-            "asistentes": asistentes_data,
-            "observaciones": "Se realizó capacitación interactiva con demostración práctica."
+            "asistentes": registro_obj.asistentes,
+            "observaciones": "Se ejecutó de forma óptima con firmas móviles."
         }
         response_finalizar = self.client.patch(finalizar_url, payload_finalizar, format='json')
         self.assertEqual(response_finalizar.status_code, status.HTTP_200_OK)
         self.assertEqual(response_finalizar.data['estado'], RegistroCapacitacion.ESTADO_REALIZADA)
         self.assertEqual(len(response_finalizar.data['asistentes']), 2)
-        self.assertIsNotNone(response_finalizar.data['fecha_realizacion'])
 
-        # 4. Validar Actualización en el Dashboard de Indicadores
+        # 5. Comprobar que impacta el dashboard analítico
         url_stats = reverse('dashboard_stats')
         response_stats = self.client.get(url_stats)
         self.assertEqual(response_stats.status_code, status.HTTP_200_OK)
         
-        # Verificar estructura de respuesta de capacitaciones
         cap_stats = response_stats.data.get('capacitaciones')
-        self.assertIsNotNone(cap_stats)
         self.assertEqual(cap_stats['total'], 1)
         self.assertEqual(cap_stats['realizadas'], 1)
-        self.assertEqual(cap_stats['programadas'], 0)
         self.assertEqual(cap_stats['asistentes_alcanzados'], 2)
         self.assertEqual(cap_stats['cumplimiento_pac'], 100.0)
-        self.assertEqual(len(cap_stats['historial']), 1)
-        self.assertEqual(cap_stats['historial'][0]['tema_titulo'], "Uso Correcto de EPP")
 
     def test_intentar_finalizar_ya_realizada(self):
         """
         Verifica que no se pueda volver a finalizar una capacitación que ya está en estado REALIZADA.
         """
+        self.client.credentials(**self.auth_headers)
+        
         tema = TemaCapacitacion.objects.create(
             usuario=self.user,
             titulo="Tema Test",

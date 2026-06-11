@@ -40,6 +40,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
   const [userPlan, setUserPlan] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [origin, setOrigin] = useState("");
 
   // Formulario de Asistentes
   const [asistentesLocales, setAsistentesLocales] = useState<Asistente[]>([]);
@@ -89,6 +90,38 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
   useEffect(() => {
     loadCapacitacion();
   }, [capacitacionId]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
+  // Polling para actualizar asistentes si la sesión está PROGRAMADA
+  useEffect(() => {
+    if (!capacitacion || capacitacion.estado !== "PROGRAMADA") return;
+
+    const interval = setInterval(() => {
+      const token = localStorage.getItem("access_token");
+      fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/`), {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : "",
+        },
+      })
+        .then((res) => {
+          if (res.ok) return res.json();
+        })
+        .then((data) => {
+          if (data) {
+            setCapacitacion(data);
+            setAsistentesLocales(data.asistentes || []);
+          }
+        })
+        .catch(() => {});
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [capacitacionId, capacitacion?.estado]);
 
   const handleAddAsistente = (e: React.FormEvent) => {
     e.preventDefault();
@@ -232,6 +265,29 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
               </div>
             )}
           </div>
+
+          {/* Tarjeta del Código QR de Asistencia */}
+          {capacitacion.estado === "PROGRAMADA" && origin && (
+            <div className="bg-white dark:bg-slate-955 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 text-center flex flex-col items-center space-y-4">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Escanear para Firmar en Terreno</h4>
+              <p className="text-[10px] text-slate-450 leading-normal">
+                Muestra este código QR a los trabajadores para que firmen la charla con su dedo desde sus celulares.
+              </p>
+              <div className="bg-white p-3.5 rounded-xl shadow border border-slate-200">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                    `${origin}/capacitaciones/firmar/${capacitacionId}`
+                  )}`}
+                  alt="Código QR de Asistencia"
+                  className="w-44 h-44 mx-auto"
+                />
+              </div>
+              <div className="text-[10px] bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-250 dark:border-slate-850 font-mono select-all break-all w-full text-slate-550 text-left">
+                <strong className="block text-[8px] uppercase text-slate-400 font-sans mb-0.5">Enlace de Firma:</strong>
+                {`${origin}/capacitaciones/firmar/${capacitacionId}`}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Lado Derecho: Flujo de Firma / Acta de Asistencia */}
@@ -313,7 +369,17 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
                           <tr key={idx} className="hover:bg-slate-50/10 transition-colors">
                             <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{asistente.nombre}</td>
                             <td className="p-3 text-slate-500 dark:text-slate-400 font-mono">{asistente.rut}</td>
-                            <td className="p-3 text-orange-600 dark:text-orange-500 italic font-mono">{asistente.firma}</td>
+                            <td className="p-3">
+                              {asistente.firma.startsWith("data:image/") ? (
+                                <img
+                                  src={asistente.firma}
+                                  alt="Firma"
+                                  className="h-8 max-w-[120px] object-contain dark:bg-white dark:p-1 dark:rounded"
+                                />
+                              ) : (
+                                <span className="text-orange-600 dark:text-orange-500 italic font-mono">{asistente.firma}</span>
+                              )}
+                            </td>
                             <td className="p-3 text-center">
                               <button
                                 type="button"
@@ -440,7 +506,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
                       <tr>
                         <th className="p-2.5">Nombre Trabajador</th>
                         <th className="p-2.5">RUT</th>
-                        <th className="p-2.5">Firma de Conformidad (Texto)</th>
+                        <th className="p-2.5">Firma de Conformidad</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-150 dark:divide-slate-850">
@@ -453,7 +519,17 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
                           <tr key={idx}>
                             <td className="p-2.5 font-bold text-slate-800 dark:text-slate-200">{asistente.nombre}</td>
                             <td className="p-2.5 font-mono text-slate-500">{asistente.rut}</td>
-                            <td className="p-2.5 text-orange-655 font-mono italic">{asistente.firma}</td>
+                            <td className="p-2.5 text-center">
+                              {asistente.firma.startsWith("data:image/") ? (
+                                <img
+                                  src={asistente.firma}
+                                  alt="Firma"
+                                  className="h-9 max-w-[140px] object-contain mx-auto print:brightness-95"
+                                />
+                              ) : (
+                                <span className="text-orange-655 font-mono italic text-[11px]">{asistente.firma}</span>
+                              )}
+                            </td>
                           </tr>
                         ))
                       )}

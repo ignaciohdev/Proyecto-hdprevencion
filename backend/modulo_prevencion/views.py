@@ -798,6 +798,8 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user or user.is_anonymous:
+            return RegistroCapacitacion.objects.all()
         owner = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return RegistroCapacitacion.objects.filter(usuario__in=usuarios_grupo)
@@ -825,6 +827,54 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(capacitacion)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get'], url_path='detalles-publicos', permission_classes=[permissions.AllowAny])
+    def detalles_publicos(self, request, pk=None):
+        """
+        Retorna la información básica de la capacitación para mostrarla públicamente en la firma.
+        """
+        capacitacion = self.get_object()
+        return Response({
+            "id": capacitacion.id,
+            "tema_titulo": capacitacion.tema.titulo,
+            "tema_descripcion": capacitacion.tema.descripcion,
+            "fecha_programada": capacitacion.fecha_programada,
+            "lugar": capacitacion.lugar,
+            "relator": capacitacion.usuario.username,
+            "estado": capacitacion.estado
+        })
+
+    @action(detail=True, methods=['post'], url_path='registrar-asistencia', permission_classes=[permissions.AllowAny])
+    def registrar_asistencia(self, request, pk=None):
+        """
+        Permite a un trabajador registrar su asistencia y firma digital (Base64) de forma pública.
+        """
+        capacitacion = self.get_object()
+        if capacitacion.estado != RegistroCapacitacion.ESTADO_PROGRAMADA:
+            return Response({"error": "No se pueden registrar firmas en una capacitación que no esté en estado PROGRAMADA."}, status=status.HTTP_400_BAD_REQUEST)
+
+        nombre = request.data.get('nombre', '').strip()
+        rut = request.data.get('rut', '').strip()
+        firma = request.data.get('firma', '').strip()
+
+        if not nombre or not rut or not firma:
+            return Response({"error": "Todos los campos (nombre, rut, firma) son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Evitar duplicidad de RUT en la misma charla
+        if any(a.get('rut') == rut for a in capacitacion.asistentes):
+            return Response({"error": "Este RUT ya se encuentra registrado en esta capacitación."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not isinstance(capacitacion.asistentes, list):
+            capacitacion.asistentes = []
+
+        capacitacion.asistentes.append({
+            "nombre": nombre,
+            "rut": rut,
+            "firma": firma
+        })
+        capacitacion.save()
+
+        return Response({"message": "Asistencia y firma registradas correctamente."}, status=status.HTTP_200_OK)
 
 
 
