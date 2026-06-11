@@ -16,7 +16,8 @@ from django.utils import timezone
 from .models import (
     PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
-    TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta
+    TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta,
+    Contratista, DocumentoContratista, TrabajadorSubcontratado
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -25,7 +26,9 @@ from .serializers import (
     ReporteRiesgoSerializer, PlantillaInspeccionSerializer, InspeccionSerializer,
     InvestigacionAccidenteSerializer,
     TemaCapacitacionSerializer, RegistroCapacitacionSerializer,
-    SugerenciaConsultaSerializer
+    SugerenciaConsultaSerializer,
+    ContratistaSerializer, ContratistaResumenSerializer,
+    DocumentoContratistaSerializer, TrabajadorSubcontratadoSerializer
 )
 
 Usuario = get_user_model()
@@ -1117,3 +1120,125 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
             {"mensaje": "Mensaje recibido. El prevencionista de tu empresa lo revisará a la brevedad."},
             status=status.HTTP_201_CREATED
         )
+
+
+class ContratistaViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestionar contratistas y proveedores.
+    """
+    serializer_class = ContratistaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Contratista.objects.filter(usuario=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(usuario=self.request.user)
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ContratistaResumenSerializer
+        return ContratistaSerializer
+
+    @action(detail=False, methods=['get'])
+    def dashboard(self, request):
+        """
+        Devuelve estadísticas rápidas de cumplimiento de contratistas para el prevencionista.
+        """
+        queryset = self.get_queryset()
+        total_contratistas = queryset.count()
+        contratistas_al_dia = 0
+        contratistas_por_vencer = 0
+        contratistas_criticos = 0
+        contratistas_sin_docs = 0
+
+        for con in queryset:
+            estado = con.estado_cumplimiento
+            if estado == 'AL_DIA':
+                contratistas_al_dia += 1
+            elif estado == 'POR_VENCER':
+                contratistas_por_vencer += 1
+            elif estado == 'CRITICO':
+                contratistas_criticos += 1
+            elif estado == 'SIN_DOCUMENTOS':
+                contratistas_sin_docs += 1
+
+        # Estadísticas de documentos
+        from datetime import date
+        hoy = date.today()
+        docs = DocumentoContratista.objects.filter(contratista__usuario=request.user)
+        total_docs = docs.count()
+        docs_vencidos = 0
+        docs_por_vencer = 0
+        docs_vigentes = 0
+
+        for doc in docs:
+            est = doc.estado_calculado
+            if est == 'VENCIDO':
+                docs_vencidos += 1
+            elif est == 'POR_VENCER':
+                docs_por_vencer += 1
+            elif est == 'VIGENTE':
+                docs_vigentes += 1
+
+        # Trabajadores totales activos
+        total_trabajadores = TrabajadorSubcontratado.objects.filter(
+            contratista__usuario=request.user,
+            activo=True
+        ).count()
+
+        return Response({
+            'total_contratistas': total_contratistas,
+            'contratistas_al_dia': contratistas_al_dia,
+            'contratistas_por_vencer': contratistas_por_vencer,
+            'contratistas_criticos': contratistas_criticos,
+            'contratistas_sin_docs': contratistas_sin_docs,
+            'total_documentos': total_docs,
+            'documentos_vencidos': docs_vencidos,
+            'documentos_por_vencer': docs_por_vencer,
+            'documentos_vigentes': docs_vigentes,
+            'total_trabajadores': total_trabajadores
+        })
+
+
+class DocumentoContratistaViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la documentación legal de contratistas.
+    """
+    serializer_class = DocumentoContratistaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = DocumentoContratista.objects.filter(contratista__usuario=self.request.user)
+        contratista_id = self.request.query_params.get('contratista')
+        if contratista_id:
+            queryset = queryset.filter(contratista_id=contratista_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        contratista = serializer.validated_data.get('contratista')
+        if contratista.usuario != self.request.user:
+            raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
+        serializer.save()
+
+
+class TrabajadorSubcontratadoViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gestionar la nómina de trabajadores subcontratados.
+    """
+    serializer_class = TrabajadorSubcontratadoSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = TrabajadorSubcontratado.objects.filter(contratista__usuario=self.request.user)
+        contratista_id = self.request.query_params.get('contratista')
+        if contratista_id:
+            queryset = queryset.filter(contratista_id=contratista_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        contratista = serializer.validated_data.get('contratista')
+        if contratista.usuario != self.request.user:
+            raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
+        serializer.save()
+

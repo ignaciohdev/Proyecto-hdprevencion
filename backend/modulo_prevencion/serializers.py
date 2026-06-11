@@ -8,7 +8,8 @@ from .models import (
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
-    TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta
+    TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta,
+    Contratista, DocumentoContratista, TrabajadorSubcontratado
 )
 
 Usuario = get_user_model()
@@ -284,3 +285,59 @@ class SugerenciaConsultaSerializer(serializers.ModelSerializer):
             'leido': {'read_only': False},
             'respuesta': {'read_only': False},
         }
+
+
+class TrabajadorSubcontratadoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TrabajadorSubcontratado
+        fields = '__all__'
+
+
+class DocumentoContratistaSerializer(serializers.ModelSerializer):
+    estado_calculado = serializers.ReadOnlyField()
+
+    class Meta:
+        model = DocumentoContratista
+        fields = (
+            'id', 'contratista', 'tipo', 'nombre_personalizado',
+            'fecha_emision', 'fecha_vencimiento', 'archivo',
+            'notas', 'fecha_carga', 'estado_calculado'
+        )
+
+
+class ContratistaSerializer(serializers.ModelSerializer):
+    documentos = DocumentoContratistaSerializer(many=True, read_only=True)
+    trabajadores = TrabajadorSubcontratadoSerializer(many=True, read_only=True)
+    estado_cumplimiento = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Contratista
+        fields = (
+            'id', 'usuario', 'razon_social', 'rut', 'tipo', 'giro',
+            'nombre_representante', 'email_contacto', 'telefono_contacto',
+            'activo', 'fecha_ingreso', 'observaciones', 'fecha_creacion',
+            'documentos', 'trabajadores', 'estado_cumplimiento'
+        )
+        extra_kwargs = {
+            'usuario': {'required': False, 'read_only': True}
+        }
+
+
+class ContratistaResumenSerializer(serializers.ModelSerializer):
+    estado_cumplimiento = serializers.ReadOnlyField()
+    cant_trabajadores = serializers.SerializerMethodField()
+    cant_documentos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Contratista
+        fields = (
+            'id', 'razon_social', 'rut', 'tipo', 'activo', 'fecha_ingreso',
+            'estado_cumplimiento', 'cant_trabajadores', 'cant_documentos'
+        )
+
+    def get_cant_trabajadores(self, obj):
+        return obj.trabajadores.filter(activo=True).count()
+
+    def get_cant_documentos(self, obj):
+        return obj.documentos.count()
+

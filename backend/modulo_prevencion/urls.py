@@ -10,7 +10,8 @@ from .views import (
     InvestigacionAccidenteViewSet, DashboardStatsView,
     TemaCapacitacionViewSet, RegistroCapacitacionViewSet,
     SugerenciaConsultaViewSet,
-    ReporteRiesgoPublicoCreateView, SugerenciaConsultaPublicaCreateView
+    ReporteRiesgoPublicoCreateView, SugerenciaConsultaPublicaCreateView,
+    ContratistaViewSet, DocumentoContratistaViewSet, TrabajadorSubcontratadoViewSet
 )
 
 router = DefaultRouter()
@@ -28,6 +29,9 @@ router.register(r'accidentes', InvestigacionAccidenteViewSet, basename='investig
 router.register(r'temas-capacitacion', TemaCapacitacionViewSet, basename='temacapacitacion')
 router.register(r'registro-capacitacion', RegistroCapacitacionViewSet, basename='registrocapacitacion')
 router.register(r'buzon', SugerenciaConsultaViewSet, basename='sugerenciaconsulta')
+router.register(r'contratistas', ContratistaViewSet, basename='contratista')
+router.register(r'documentos-contratista', DocumentoContratistaViewSet, basename='documentocontratista')
+router.register(r'trabajadores-subcontratados', TrabajadorSubcontratadoViewSet, basename='trabajadorsubcontratado')
 
 urlpatterns = [
     # Endpoints de autenticación y registro con JWT

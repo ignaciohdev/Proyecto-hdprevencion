@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from datetime import date
+
 
 class Plan(models.Model):
     """
@@ -820,3 +822,177 @@ class SugerenciaConsulta(models.Model):
     def __str__(self) -> str:
         remitente = self.nombre_remitente if not self.anonimo and self.nombre_remitente else "Anónimo"
         return f"{self.get_tipo_display()} de {remitente} ({self.fecha_creacion.strftime('%d/%m/%Y')})"
+
+
+class Contratista(models.Model):
+    """
+    Empresa contratista o proveedora que opera bajo la Ley de Subcontratación 20.123.
+    """
+    TIPO_CONTRATISTA = 'CONTRATISTA'
+    TIPO_PROVEEDOR = 'PROVEEDOR'
+    TIPO_CHOICES = [
+        (TIPO_CONTRATISTA, 'Contratista'),
+        (TIPO_PROVEEDOR, 'Proveedor'),
+    ]
+
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES,
+        default=TIPO_CONTRATISTA,
+        verbose_name="Tipo de Empresa"
+    )
+
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='contratistas',
+        verbose_name="Prevencionista de Riesgos"
+    )
+    razon_social = models.CharField(max_length=200, verbose_name="Razón Social")
+    rut = models.CharField(max_length=15, verbose_name="RUT de la Empresa")
+    giro = models.CharField(max_length=200, blank=True, verbose_name="Giro / Actividad Económica")
+    nombre_representante = models.CharField(max_length=150, blank=True, verbose_name="Nombre Representante")
+    email_contacto = models.EmailField(blank=True, verbose_name="Correo de Contacto")
+    telefono_contacto = models.CharField(max_length=50, blank=True, verbose_name="Teléfono de Contacto")
+    activo = models.BooleanField(default=True, verbose_name="Activo")
+    fecha_ingreso = models.DateField(default=date.today, verbose_name="Fecha de Ingreso")
+    observaciones = models.TextField(blank=True, null=True, verbose_name="Observaciones")
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Registro")
+
+    class Meta:
+        verbose_name = "Contratista"
+        verbose_name_plural = "Contratistas"
+        ordering = ['razon_social']
+        unique_together = ('usuario', 'rut')
+
+    def __str__(self) -> str:
+        return f"{self.razon_social} ({self.rut})"
+
+    @property
+    def estado_cumplimiento(self) -> str:
+        """
+        Determina el estado general de cumplimiento de la contratista basándose en sus documentos.
+        """
+        docs = self.documentos.all()
+        if not docs.exists():
+            return 'SIN_DOCUMENTOS'
+        
+        estados = [doc.estado_calculado for doc in docs]
+        if 'VENCIDO' in estados:
+            return 'CRITICO'
+        if 'POR_VENCER' in estados:
+            return 'POR_VENCER'
+        return 'AL_DIA'
+
+
+class DocumentoContratista(models.Model):
+    """
+    Documentación legal de cumplimiento laboral, previsional y de seguridad para contratistas.
+    """
+    TIPO_F30 = 'F30'
+    TIPO_F30_1 = 'F30_1'
+    TIPO_SEGURO = 'SEGURO_ACCIDENTE'
+    TIPO_CONTRATO = 'CONTRATO_TRABAJO'
+    TIPO_ODI = 'ODI'
+    TIPO_REGLAMENTO = 'REGLAMENTO_INTERNO'
+    TIPO_OTRO = 'OTRO'
+
+    TIPO_CHOICES = [
+        (TIPO_F30, 'Certificado F30 (Antecedentes Laborales/Previsionales)'),
+        (TIPO_F30_1, 'Certificado F30-1 (Detalle de Deuda y Cumplimiento)'),
+        (TIPO_SEGURO, 'Certificado Seguro Accidentes (Ley 16.744)'),
+        (TIPO_CONTRATO, 'Contrato de Trabajo del Personal'),
+        (TIPO_ODI, 'Obligación de Informar (ODI / DAS)'),
+        (TIPO_REGLAMENTO, 'Reglamento Interno de Higiene y Seguridad'),
+        (TIPO_OTRO, 'Otro Documento'),
+    ]
+
+    contratista = models.ForeignKey(
+        Contratista,
+        on_delete=models.CASCADE,
+        related_name='documentos',
+        verbose_name="Empresa Contratista"
+    )
+    tipo = models.CharField(
+        max_length=30,
+        choices=TIPO_CHOICES,
+        default=TIPO_F30,
+        verbose_name="Tipo de Documento"
+    )
+    nombre_personalizado = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Nombre Personalizado (Solo si es 'Otro')"
+    )
+    fecha_emision = models.DateField(verbose_name="Fecha de Emisión")
+    fecha_vencimiento = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name="Fecha de Vencimiento"
+    )
+    archivo = models.FileField(
+        upload_to='documentos_contratistas/',
+        blank=True,
+        null=True,
+        verbose_name="Archivo del Documento (PDF)"
+    )
+    notas = models.TextField(blank=True, null=True, verbose_name="Notas / Comentarios")
+    fecha_carga = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Carga")
+
+    class Meta:
+        verbose_name = "Documento de Contratista"
+        verbose_name_plural = "Documentos de Contratistas"
+        ordering = ['-fecha_carga']
+
+    def __str__(self) -> str:
+        nombre_doc = self.nombre_personalizado if self.tipo == self.TIPO_OTRO and self.nombre_personalizado else self.get_tipo_display()
+        return f"{nombre_doc} - {self.contratista.razon_social}"
+
+    @property
+    def estado_calculado(self) -> str:
+        """
+        Calcula el estado del documento en base a su fecha de vencimiento.
+        """
+        if not self.fecha_vencimiento:
+            return 'SIN_VENCIMIENTO'
+        hoy = date.today()
+        delta = (self.fecha_vencimiento - hoy).days
+        if delta < 0:
+            return 'VENCIDO'
+        elif delta <= 30:
+            return 'POR_VENCER'
+        else:
+            return 'VIGENTE'
+
+
+class TrabajadorSubcontratado(models.Model):
+    """
+    Nómina plana de trabajadores que pertenecen a una empresa contratista.
+    """
+    contratista = models.ForeignKey(
+        Contratista,
+        on_delete=models.CASCADE,
+        related_name='trabajadores',
+        verbose_name="Empresa Contratista"
+    )
+    nombre_completo = models.CharField(max_length=150, verbose_name="Nombre Completo")
+    rut = models.CharField(max_length=15, verbose_name="RUT")
+    cargo = models.CharField(max_length=100, verbose_name="Cargo / Función")
+    fecha_ingreso_obra = models.DateField(verbose_name="Fecha de Ingreso a Obra")
+    fecha_egreso_obra = models.DateField(
+        blank=True,
+        null=True,
+        verbose_name="Fecha de Egreso de Obra"
+    )
+    activo = models.BooleanField(default=True, verbose_name="Activo en Faena")
+
+    class Meta:
+        verbose_name = "Trabajador Subcontratado"
+        verbose_name_plural = "Trabajadores Subcontratados"
+        ordering = ['nombre_completo']
+
+    def __str__(self) -> str:
+        return f"{self.nombre_completo} ({self.rut}) - {self.contratista.razon_social}"
+
