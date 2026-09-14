@@ -104,7 +104,7 @@ Pasos obligatorios:
 """
 
 chat = client.chats.create(
-    model="gemini-2.5-flash",
+    model="gemini-3.8-flash",
     config=types.GenerateContentConfig(
         system_instruction=prompt_sistema,
         tools=[listar_archivos, leer_archivo, comando_git],
@@ -113,7 +113,7 @@ chat = client.chats.create(
 )
 
 if __name__ == "__main__":
-    print("🔍 Iniciando auditoría de tu monorepositorio con Gemini 2.5 Flash...")
+    print("🔍 Iniciando auditoría de tu monorepositorio con Gemini 3.8 Flash...")
     respuesta = chat.send_message("Comienza la inspección de backend, frontend y el historial reciente.")
     print("\n" + "="*50)
     print(respuesta.text)

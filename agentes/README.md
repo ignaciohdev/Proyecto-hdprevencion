@@ -1,6 +1,6 @@
 # 🔍 Agente Auditor - HD Prevención
 
-Este módulo contiene el **Agente Auditor** del monorepositorio, desarrollado con el SDK oficial de **Google Gemini (`google-genai`)** utilizando el modelo **`gemini-2.5-flash`**.
+Este módulo contiene el **Agente Auditor** del monorepositorio, desarrollado con el SDK oficial de **Google Gemini (`google-genai`)** utilizando el modelo **`gemini-3.8-flash`**.
 
 ---
 

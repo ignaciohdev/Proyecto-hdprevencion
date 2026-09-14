@@ -8,7 +8,7 @@ Portal web moderno y plataforma integral para la gestión de seguridad y salud e
 
 - **Frontend**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4.
 - **Backend**: Python 3.12, Django 4.2 LTS, Django REST Framework, JWT, PostgreSQL.
-- **Agente de IA**: Python 3.12, `google-genai`, Gemini 2.5 Flash.
+- **Agente de IA**: Python 3.12, `google-genai`, Gemini 3.8 Flash.
 
 Consulta todos los detalles técnicos en [TECNOLOGIAS.md](file:///c:/Users/Ignacio/Documents/Proyectos/Proyecto-hdprevencion/TECNOLOGIAS.md).
 

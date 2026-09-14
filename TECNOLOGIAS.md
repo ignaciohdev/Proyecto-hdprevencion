@@ -22,7 +22,7 @@ El frontend está diseñado como una aplicación web moderna, rápida y altament
 El proyecto incluye un **Agente Auditor** en Python para inspeccionar la coherencia del monorepositorio de manera autónoma:
 
 *   **SDK Oficial**: `google-genai` (v2.23+) con `python-dotenv`.
-*   **Modelo**: `gemini-2.5-flash` (la versión más avanzada y rápida de Gemini Flash con soporte nativo de Function Calling).
+*   **Modelo**: `gemini-3.8-flash` (la versión más avanzada y rápida de Gemini Flash con soporte nativo de Function Calling).
 *   **Herramientas Autónomas (Function Calling)**:
     *   `listar_archivos`: Exploración de la estructura del proyecto.
     *   `leer_archivo`: Inspección de archivos de configuración y dependencias.
