@@ -1,37 +1,45 @@
-# Agente Diseñador UI/UX & Frontend - Antigravity Prevención
+# HD Prevención - Sistema Integral de Prevención de Riesgos
 
-Este proyecto te permite ejecutar el agente definido en [agent_designer.json](file:///c:/Users/Ignac/.gemini/antigravity/scratch/Proyecto-hdprevencion/agent_designer.json) interactuando con él desde la consola de comandos de Node.js. El script utiliza el SDK oficial de **Gemini** (`@google/generative-ai`) para simular la personalidad, el rol, la historia de fondo y los objetivos configurados.
+Portal web moderno y plataforma integral para la gestión de seguridad y salud en el trabajo, con módulo de prevención, backend en Django REST Framework, interfaz en Next.js y un agente de asistencia de diseño con Gemini.
 
-## Características Soportadas
+---
 
-1. **Personalidad y Rol**: Se configuran como `systemInstruction` en Gemini para asegurar que el agente actúe como tu Diseñador Web Principal y Desarrollador Frontend experto en Tailwind CSS.
-2. **Herramientas (Tools)**:
-   - **Intérprete de Código (`code_interpreter`)**: Habilita la ejecución de código nativa de Gemini (`codeExecution`), permitiéndole simular y estructurar lógica de layouts o componentes.
-   - **Búsqueda de Archivos (`file_search`)**: Se implementa mediante *Function Calling* nativo para que el agente pueda explorar y leer archivos del proyecto usando las funciones personalizadas `listarArchivos` y `leerArchivo`.
+## 🛠️ Stack Tecnológico Rápido
 
-## Requisitos Previos
+- **Frontend**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS v4.
+- **Backend**: Python 3.12, Django 4.2 LTS, Django REST Framework, JWT, PostgreSQL.
+- **Agente de IA**: Python 3.12, `google-genai`, Gemini 2.5 Flash.
 
-- Tener instalado **Node.js** (versión 18 o superior recomendada).
-- Configurar tu API Key de Gemini en el archivo `.env` (ya hemos copiado el de tu otro proyecto).
+Consulta todos los detalles técnicos en [TECNOLOGIAS.md](file:///c:/Users/Ignacio/Documents/Proyectos/Proyecto-hdprevencion/TECNOLOGIAS.md).
 
-## Cómo Ejecutar el Agente
+---
 
-1. **Instalar Dependencias**:
-   Abre una terminal en esta carpeta (`c:/Users/Ignac/.gemini/antigravity/scratch/Proyecto-hdprevencion`) y ejecuta:
-   ```bash
-   npm install
-   ```
+## 🚀 Inicio Rápido
 
-2. **Iniciar el Agente**:
-   Ejecuta el siguiente comando para iniciar el chat interactivo en consola:
-   ```bash
-   npm start
-   ```
+### 1. Variables de Entorno
+Copia el archivo de ejemplo o edita tu `.env` en la raíz del proyecto:
+```bash
+cp .env.example .env
+```
 
-3. **Interactuar con el Agente**:
-   Una vez iniciado, escribe tus instrucciones o preguntas directamente en la terminal. Para salir del chat, escribe `exit` o `salir`.
+### 2. Frontend (Next.js)
+```bash
+cd frontend
+npm install   # ya instalado
+npm run dev
+```
+Accede a [http://localhost:3000](http://localhost:3000).
 
-### Ejemplo de interacción:
-- *Tú:* "¿Puedes listar los archivos del proyecto para ver qué especificaciones tenemos?"
-- *Agente:* (Automáticamente ejecutará la herramienta `listarArchivos`, verá la estructura de carpetas y te la describirá en base a su rol).
-- *Tú:* "¿Cómo diseñarías el layout del portal público de Antigravity Prevención usando Tailwind?"
+### 3. Backend (Django API)
+```bash
+cd backend
+.\venv\Scripts\Activate.ps1
+python manage.py runserver
+```
+Accede a la API en [http://127.0.0.1:8000](http://127.0.0.1:8000).
+
+### 4. Agente Auditor (Gemini)
+```bash
+python agentes/auditor.py
+```
+

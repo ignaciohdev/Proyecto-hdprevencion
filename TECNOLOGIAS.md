@@ -17,23 +17,33 @@ El frontend está diseñado como una aplicación web moderna, rápida y altament
 
 ---
 
-## 🤖 Agente de Inteligencia Artificial (Antigravity Agents)
+## 🤖 Agente Auditor de Inteligencia Artificial (`agentes/`)
 
-El proyecto incluye un agente interactivo integrado que asiste en el diseño UX/UI y desarrollo frontend utilizando la API de Gemini:
+El proyecto incluye un **Agente Auditor** en Python para inspeccionar la coherencia del monorepositorio de manera autónoma:
 
-*   **Node.js**: Entorno de ejecución para JavaScript en el servidor que ejecuta el script del agente.
-*   **SDK de Gemini (`@google/generative-ai` v0.24.1)**: Biblioteca oficial para interactuar con los modelos de lenguaje generativo de Google.
-*   **dotenv (v17.4.2)**: Módulo para cargar variables de entorno desde un archivo `.env` de forma segura (por ejemplo, claves de API).
-*   **Funcionalidades del Agente**:
-    *   *System Instructions*: Define el rol del agente como Diseñador Web Principal y Desarrollador Frontend experto en Tailwind CSS.
-    *   *Code Interpreter (Ejecución de código)*: Permite al agente procesar y estructurar lógica dinámica.
-    *   *File Search (Function Calling)*: Herramientas personalizadas para listar y leer archivos dentro del proyecto.
+*   **SDK Oficial**: `google-genai` (v2.23+) con `python-dotenv`.
+*   **Modelo**: `gemini-2.5-flash` (la versión más avanzada y rápida de Gemini Flash con soporte nativo de Function Calling).
+*   **Herramientas Autónomas (Function Calling)**:
+    *   `listar_archivos`: Exploración de la estructura del proyecto.
+    *   `leer_archivo`: Inspección de archivos de configuración y dependencias.
+    *   `comando_git`: Análisis del historial y estado con Git (`status`, `log`, `diff`).
+
 
 ---
 
-## 🗄️ Backend
+## 🗄️ Backend (API REST y Lógica de Negocio)
 
-*   **Estado Actual**: Directorio `/backend` preparado como estructura base para albergar las APIs y la lógica del lado del servidor en futuras fases del proyecto.
+El backend está construido con Python y Django, proporcionando una API REST completa para la gestión de prevención de riesgos:
+
+*   **Python (v3.12.x)**: Entorno de ejecución con entorno virtual dedicado (`backend/venv`).
+*   **Django (v4.2.30 LTS)**: Framework web robusto para backend que gestiona los modelos ORM, autenticación de usuarios y administración.
+*   **Django REST Framework (v3.16.1)**: Toolkit potente para la construcción de la API REST que conecta con el frontend.
+*   **Simple JWT (`djangorestframework_simplejwt` v5.5.1)**: Autenticación de endpoints basada en tokens JSON Web Token (JWT).
+*   **PostgreSQL (`psycopg2-binary` v2.9.12 & `dj-database-url` v3.0.1)**: Motor de base de datos relacional para entornos de desarrollo y producción (compatible con Supabase y Render).
+*   **WhiteNoise (v6.11.0)**: Servidor optimizado para la entrega de archivos estáticos en producción.
+*   **Django CORS Headers (v4.9.0)**: Gestión de políticas de intercambio de recursos entre orígenes para la comunicación con Next.js (`http://localhost:3000`).
+*   **Procesamiento de Archivos**: `openpyxl` (v3.1.5) para manipulación de planillas Excel (IPER) y `pillow` (v11.3.0) para imágenes.
+*   **Gunicorn (v23.0.0)**: Servidor HTTP WSGI para despliegue en entornos de producción.
 
 ---
 
@@ -41,15 +51,41 @@ El proyecto incluye un agente interactivo integrado que asiste en el diseño UX/
 
 ```text
 Proyecto-hdprevencion/
-├── backend/                  # Estructura para servicios del lado del servidor
-├── frontend/                 # Aplicación Next.js (App Router, Tailwind CSS, TS)
+├── backend/                  # API REST Django 4.2 + DRF
+│   ├── core/                 # Configuración principal de Django (settings, urls, wsgi)
+│   ├── modulo_prevencion/    # Modelos, vistas, serializers y lógica de negocio
+│   ├── venv/                 # Entorno virtual de Python 3.12
+│   ├── manage.py             # CLI de administración de Django
+│   ├── requirements.txt      # Dependencias de Python
+│   └── seed.py               # Script de inicialización de datos de prueba
+├── frontend/                 # Aplicación Next.js 16 (App Router, React 19, Tailwind CSS v4, TS)
 │   ├── src/
 │   │   └── app/              # Páginas y layouts principales
 │   ├── package.json
 │   └── tsconfig.json
-├── antigravity_agents/       # Scripts y configuración del agente de IA
-│   ├── agent_designer.json   # Definición del perfil del agente
-│   └── run_agent.js          # Consola interactiva del agente de Gemini
-├── .env                      # Variables de entorno (API Keys, etc.)
+├── plantillas_maestras/      # Documentos base y plantillas de prevención
+├── .env                      # Variables de entorno locales (API Keys, DB)
+├── .env.example              # Plantilla documentada de variables de entorno
 └── README.md                 # Instrucciones principales de inicio rápido
 ```
+
+---
+
+## 🚀 Comandos Rápidos de Ejecución
+
+### 1. Iniciar Frontend (Next.js)
+```bash
+cd frontend
+npm run dev
+# Disponible en: http://localhost:3000
+```
+
+### 2. Iniciar Backend (Django API)
+```bash
+cd backend
+.\venv\Scripts\Activate.ps1
+python manage.py runserver
+# Disponible en: http://127.0.0.1:8000
+```
+
+
