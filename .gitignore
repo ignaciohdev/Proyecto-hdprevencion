@@ -18,4 +18,10 @@ backend/core/settings.py.local
 # Archivos del sistema y caché de Python
 __pycache__/
 *.pyc
-.DS_Store
+.DS_Store
+staticfiles/
+backend/staticfiles/
+media/
+backend/media/
+
+

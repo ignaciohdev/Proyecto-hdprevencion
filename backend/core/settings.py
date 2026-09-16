@@ -33,12 +33,17 @@ ALLOWED_HOSTS = [
     '.onrender.com',
 ]
 
+render_external_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if render_external_hostname:
+    ALLOWED_HOSTS.append(render_external_hostname)
+
 # Si se provee una lista de hosts autorizados en las variables de entorno
 env_allowed_hosts = os.environ.get('ALLOWED_HOSTS')
 if env_allowed_hosts:
     ALLOWED_HOSTS.extend([h.strip() for h in env_allowed_hosts.split(',')])
 elif DEBUG:
     ALLOWED_HOSTS = ['*']
+
 
 
 
@@ -102,13 +107,34 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 import dj_database_url
 
+# Determinación inteligente de SSL para la base de datos:
+# Supabase/remotos externos en Render requieren SSL, pero la red interna de Render (dpg-...) no usa SSL.
+is_render = 'RENDER' in os.environ
+database_url = os.environ.get('DATABASE_URL', '')
+is_internal_render_db = 'dpg-' in database_url and '.render.com' not in database_url
+
+if 'DB_SSL_REQUIRE' in os.environ:
+    ssl_require = os.environ.get('DB_SSL_REQUIRE', '').lower() in ('true', '1')
+elif is_render and not is_internal_render_db and not database_url.startswith('sqlite'):
+    ssl_require = True
+else:
+    ssl_require = False
+
 DATABASES = {
     'default': dj_database_url.config(
         default=f"postgresql://{os.environ.get('DB_USER', 'postgres')}:{os.environ.get('DB_PASSWORD', 'Borderlands123.')}@{os.environ.get('DB_HOST', 'localhost')}:{os.environ.get('DB_PORT', '5432')}/{os.environ.get('DB_NAME', 'prevencion_hd_db')}",
         conn_max_age=600,
-        ssl_require='RENDER' in os.environ  # Render requiere SSL para conectar a Supabase
+        ssl_require=ssl_require
     )
 }
+
+# Si el motor es SQLite y la ruta es relativa, aseguramos que quede dentro de BASE_DIR
+if DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3':
+    db_name = DATABASES['default'].get('NAME')
+    if db_name and not os.path.isabs(db_name):
+        DATABASES['default']['NAME'] = str(BASE_DIR / db_name)
+
+
 
 
 
@@ -207,8 +233,16 @@ else:
     CSRF_TRUSTED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "https://*.onrender.com",
     ]
+    render_external_url = os.environ.get('RENDER_EXTERNAL_URL')
+    if render_external_url:
+        if render_external_url.endswith('/'):
+            render_external_url = render_external_url[:-1]
+        CSRF_TRUSTED_ORIGINS.append(render_external_url)
+
     if frontend_url:
         CSRF_TRUSTED_ORIGINS.append(frontend_url)
+
 
 

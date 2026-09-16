@@ -3,9 +3,13 @@
   "python.venvPath": "${workspaceFolder}/backend",
   "python.venv": "venv",
   "python.analysis.extraPaths": [
-    "./backend"
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/agentes",
+    "${workspaceFolder}/backend/venv/Lib/site-packages"
   ],
   "python.autoComplete.extraPaths": [
-    "./backend"
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/agentes",
+    "${workspaceFolder}/backend/venv/Lib/site-packages"
   ]
 }

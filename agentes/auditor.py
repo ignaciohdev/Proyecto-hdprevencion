@@ -5,16 +5,15 @@ import subprocess
 from dotenv import load_dotenv
 
 # Asegurar compatibilidad de salida UTF-8 en consola de Windows
-if sys.stdout.encoding != "utf-8":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
-if sys.stderr.encoding != "utf-8":
-    try:
-        sys.stderr.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+for stream_name in ("stdout", "stderr"):
+    stream = getattr(sys, stream_name, None)
+    if stream and getattr(stream, "encoding", "").lower() != "utf-8":
+        reconfigure_fn = getattr(stream, "reconfigure", None)
+        if callable(reconfigure_fn):
+            try:
+                reconfigure_fn(encoding="utf-8")
+            except Exception:
+                pass
 
 from google import genai
 from google.genai import types
