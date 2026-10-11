@@ -24,7 +24,5 @@ backend/staticfiles/
 media/
 backend/media/
 
-#Resultados de los agentes
-agentes/resultados/
-agentes\resultados\.gitkeep
-
+# Subsistema de agentes IA (uso local exclusivo)
+agentes/
