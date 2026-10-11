@@ -1,3 +1,4 @@
+from typing import Any
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from django.contrib.auth import get_user_model
@@ -116,7 +117,8 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
             
             # Si no es un usuario hijo/asiento, le asignamos la suscripción básica de forma automática
-            if not usuario.cuenta_padre:
+            user_obj: Any = usuario
+            if not user_obj.cuenta_padre:
                 plan_basico, _ = Plan.objects.get_or_create(
                     codigo='basico',
                     defaults={
@@ -194,7 +196,10 @@ class ReporteRiesgoSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad',
             'estado', 'medida_correctiva', 'fecha_creacion',
-            'reportado_por_externo', 'nombre_reportante', 'rut_reportante', 'contacto_reportante'
+            'reportado_por_externo', 'nombre_reportante', 'rut_reportante', 'contacto_reportante',
+            'empresa_faena', 'area_puesto', 'clasificacion_peligro', 'norma_infringida',
+            'probabilidad', 'severidad', 'nivel_riesgo_calculado', 'jerarquia_control',
+            'responsable', 'fecha_limite', 'foto_evidencia', 'fecha_resolucion'
         )
         extra_kwargs = {
             'usuario': {'required': False, 'allow_null': True}

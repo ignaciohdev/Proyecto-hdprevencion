@@ -1,17 +1,17 @@
+from datetime import timedelta
+from typing import Any
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
-from django.contrib.auth import get_user_model
-from .models import TemaCapacitacion, RegistroCapacitacion, Plan, Suscripcion
-
-Usuario = get_user_model()
+from .models import TemaCapacitacion, RegistroCapacitacion, Plan, Suscripcion, Usuario
 
 class CapacitacionIntegrationTestCase(APITestCase):
     """
     Casos de prueba integrales para verificar el correcto funcionamiento
     del Módulo de Capacitaciones y el flujo de Autofirma Digital Móvil (QR).
     """
+    client: Any
 
     def setUp(self):
         # Crear un plan de prueba
@@ -71,7 +71,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
 
         # Hacer petición sin token JWT (Anónimo)
         self.client.credentials() # Limpiar credenciales
-        url = reverse('registrocapacitacion-detalles-publicos', kwargs={'pk': registro.id})
+        url = reverse('registrocapacitacion-detalles-publicos', kwargs={'pk': registro.pk})
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -100,7 +100,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
             asistentes=[]
         )
 
-        url = reverse('registrocapacitacion-registrar-asistencia', kwargs={'pk': registro.id})
+        url = reverse('registrocapacitacion-registrar-asistencia', kwargs={'pk': registro.pk})
         
         # 1. Petición pública sin credenciales
         self.client.credentials()
@@ -150,7 +150,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
         tema_id = response_tema.data['id']
 
         # 2. Programar Charla
-        fecha_prog = (timezone.now() + timezone.timedelta(days=1)).date()
+        fecha_prog = (timezone.now() + timedelta(days=1)).date()
         registro_data = {
             "tema": tema_id,
             "fecha_programada": str(fecha_prog),
@@ -223,7 +223,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
             asistentes=[]
         )
 
-        finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'pk': registro.id})
+        finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'pk': registro.pk})
         response = self.client.patch(finalizar_url, {"asistentes": []}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)

@@ -1,6 +1,8 @@
+from typing import Any, ClassVar
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 from .models import (
     Plan, Usuario, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
@@ -37,7 +39,7 @@ class UsuarioCustomAdmin(UserAdmin):
     )
     
     # Organizar campos en secciones claras en el formulario de edición
-    fieldsets = UserAdmin.fieldsets + (
+    fieldsets: ClassVar[Any] = tuple(UserAdmin.fieldsets or ()) + (
         ('Información SaaS (Prevención HD)', {
             'fields': ('tipo_usuario', 'cuenta_padre'),
             'description': 'Campos específicos de la jerarquía de suscripciones y tipos de cuentas corporativas o individuales.'
@@ -45,7 +47,7 @@ class UsuarioCustomAdmin(UserAdmin):
     )
     
     # Organizar campos para el formulario de creación rápida
-    add_fieldsets = UserAdmin.add_fieldsets + (
+    add_fieldsets: ClassVar[Any] = tuple(UserAdmin.add_fieldsets or ()) + (
         ('Información SaaS (Prevención HD)', {
             'classes': ('wide',),
             'fields': ('tipo_usuario', 'cuenta_padre'),
@@ -184,10 +186,10 @@ class DocumentoUsuarioAdmin(admin.ModelAdmin):
         Muestra visualmente si el documento del usuario está desactualizado respecto a la plantilla original.
         """
         if obj.esta_desactualizado:
-            return format_html(
+            return mark_safe(
                 '<span style="background-color: #fee2e2; color: #b91c1c; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;">Desactualizado</span>'
             )
-        return format_html(
+        return mark_safe(
             '<span style="background-color: #d1fae5; color: #047857; padding: 3px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;">Al Día</span>'
         )
 
@@ -251,9 +253,9 @@ class SugerenciaConsultaAdmin(admin.ModelAdmin):
     @admin.display(description="Estado", ordering="leido")
     def estado_lectura(self, obj):
         if obj.leido:
-            return format_html(
+            return mark_safe(
                 '<span style="background-color:#d1fae5;color:#047857;padding:3px 8px;border-radius:4px;font-size:0.82rem;font-weight:600;">Respondido</span>'
             )
-        return format_html(
+        return mark_safe(
             '<span style="background-color:#fef3c7;color:#92400e;padding:3px 8px;border-radius:4px;font-size:0.82rem;font-weight:600;">Pendiente</span>'
         )

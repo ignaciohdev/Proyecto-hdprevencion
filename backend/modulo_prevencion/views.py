@@ -1,3 +1,4 @@
+from typing import Any
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -31,7 +32,7 @@ from .serializers import (
     DocumentoContratistaSerializer, TrabajadorSubcontratadoSerializer
 )
 
-Usuario = get_user_model()
+Usuario: Any = get_user_model()
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
@@ -96,9 +97,10 @@ class IsAdminOrReadOnly(permissions.BasePermission):
     únicamente a administradores (superuser o staff).
     """
     def has_permission(self, request, view):
+        user: Any = request.user
         if request.method in permissions.SAFE_METHODS:
-            return request.user and request.user.is_authenticated
-        return request.user and (request.user.is_staff or request.user.is_superuser)
+            return user and user.is_authenticated
+        return user and (user.is_staff or user.is_superuser)
 
 
 class ContactoPermission(permissions.BasePermission):
@@ -107,9 +109,10 @@ class ContactoPermission(permissions.BasePermission):
     pero solo los administradores pueden leer el listado.
     """
     def has_permission(self, request, view):
+        user: Any = request.user
         if request.method == 'POST':
-            return request.user and request.user.is_authenticated
-        return request.user and (request.user.is_staff or request.user.is_superuser)
+            return user and user.is_authenticated
+        return user and (user.is_staff or user.is_superuser)
 
 
 # ViewSets
@@ -141,19 +144,20 @@ class PlantillaMaestraViewSet(viewsets.ModelViewSet):
             try:
                 import openpyxl
                 wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-                sheet = wb.active
+                sheet: Any = wb.active
                 rows_data = []
-                for row in sheet.iter_rows(max_row=20, max_col=10):
-                    row_cells = []
-                    for cell in row:
-                        val = cell.value
-                        if val is None:
-                            row_cells.append("")
-                        elif isinstance(val, (int, float)):
-                            row_cells.append(val)
-                        else:
-                            row_cells.append(str(val))
-                    rows_data.append(row_cells)
+                if sheet is not None:
+                    for row in sheet.iter_rows(max_row=20, max_col=10):
+                        row_cells = []
+                        for cell in row:
+                            val = cell.value
+                            if val is None:
+                                row_cells.append("")
+                            elif isinstance(val, (int, float)):
+                                row_cells.append(val)
+                            else:
+                                row_cells.append(str(val))
+                        rows_data.append(row_cells)
                 return Response({
                     "tipo": "XLSX",
                     "data": {
@@ -293,17 +297,18 @@ class PlantillaMaestraViewSet(viewsets.ModelViewSet):
 
 
 class DocumentoUsuarioViewSet(viewsets.ModelViewSet):
+    queryset = DocumentoUsuario.objects.all()
     serializer_class = DocumentoUsuarioSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
+        user: Any = self.request.user
         if user.is_staff or user.is_superuser:
             return DocumentoUsuario.objects.all()
         return DocumentoUsuario.objects.filter(usuario=user)
 
     def perform_create(self, serializer):
-        usuario = self.request.user
+        usuario: Any = self.request.user
         
         # Rotación automática: Si el usuario ya tiene 5 o más copias, eliminamos la más antigua
         documentos_existentes = DocumentoUsuario.objects.filter(usuario=usuario)
@@ -315,25 +320,25 @@ class DocumentoUsuarioViewSet(viewsets.ModelViewSet):
             for doc in docs_a_borrar:
                 doc.delete()
 
-        owner = usuario.cuenta_padre if usuario.cuenta_padre else usuario
+        owner: Any = usuario.cuenta_padre if usuario.cuenta_padre else usuario
         sub = owner.suscripciones.filter(estado=Suscripcion.ESTADO_ACTIVA).first()
         if sub and not sub.plan.edicion_nube:
             raise ValidationError("Tu plan actual no permite la edición o creación de documentos en la nube. Por favor actualiza tu plan.")
         serializer.save(usuario=usuario)
 
     def perform_update(self, serializer):
-        usuario = self.request.user
-        owner = usuario.cuenta_padre if usuario.cuenta_padre else usuario
+        usuario: Any = self.request.user
+        owner: Any = usuario.cuenta_padre if usuario.cuenta_padre else usuario
         sub = owner.suscripciones.filter(estado=Suscripcion.ESTADO_ACTIVA).first()
         if sub and not sub.plan.edicion_nube:
             raise ValidationError("Tu plan actual no permite la edición o creación de documentos en la nube. Por favor actualiza tu plan.")
         serializer.save()
 
-    def validar_y_registrar_descarga(self, usuario):
+    def validar_y_registrar_descarga(self, usuario: Any):
         if usuario.is_superuser or usuario.is_staff:
             return None
             
-        owner = usuario.cuenta_padre if usuario.cuenta_padre else usuario
+        owner: Any = usuario.cuenta_padre if usuario.cuenta_padre else usuario
         sub = owner.suscripciones.filter(estado=Suscripcion.ESTADO_ACTIVA).first()
         if not sub:
             return Response({"error": "No tienes una suscripción activa registrada."}, status=status.HTTP_403_FORBIDDEN)
@@ -373,7 +378,7 @@ class DocumentoUsuarioViewSet(viewsets.ModelViewSet):
         
         # Crear un nuevo libro de Excel
         wb = openpyxl.Workbook()
-        ws = wb.active
+        ws: Any = wb.active
         ws.title = "Matriz IPER"
         
         # Mostrar cuadrícula
@@ -521,7 +526,7 @@ class DocumentoUsuarioViewSet(viewsets.ModelViewSet):
         response = HttpResponse(
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        response["Content-Disposition"] = f"attachment; filename=Matriz_IPER_{documento.id}.xlsx"
+        response["Content-Disposition"] = f"attachment; filename=Matriz_IPER_{documento.pk}.xlsx"
         wb.save(response)
         return response
 
@@ -630,18 +635,20 @@ class ServicioViewSet(viewsets.ModelViewSet):
 
 
 class UsuarioViewSet(viewsets.ModelViewSet):
+    queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Usuario.objects.filter(id=self.request.user.id)
+        user: Any = self.request.user
+        return Usuario.objects.filter(pk=user.pk)
 
-    def get_object(self):
+    def get_object(self) -> Any:
         return self.request.user
 
     @action(detail=False, methods=['get', 'put', 'patch'], url_path='perfil')
     def perfil(self, request):
-        usuario = self.request.user
+        usuario: Any = self.request.user
         if request.method == 'GET':
             serializer = self.get_serializer(usuario)
             return Response(serializer.data)
@@ -674,7 +681,7 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='cambiar-plan')
     def cambiar_plan(self, request):
-        usuario = self.request.user
+        usuario: Any = self.request.user
         plan_codigo = request.data.get('plan_codigo')
         
         if not plan_codigo:
@@ -718,41 +725,54 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
 
 class ReporteRiesgoViewSet(viewsets.ModelViewSet):
+    queryset = ReporteRiesgo.objects.all()
     serializer_class = ReporteRiesgoSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        owner = user.cuenta_padre if user.cuenta_padre else user
+        user: Any = self.request.user
+        owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return ReporteRiesgo.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
-        serializer.save(usuario=self.request.user)
+        user: Any = self.request.user
+        serializer.save(usuario=user)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        if instance.estado == ReporteRiesgo.ESTADO_RESUELTO and not instance.fecha_resolucion:
+            instance.fecha_resolucion = timezone.now()
+            instance.save(update_fields=['fecha_resolucion'])
 
 
 class PlantillaInspeccionViewSet(viewsets.ModelViewSet):
+    queryset = PlantillaInspeccion.objects.all()
     serializer_class = PlantillaInspeccionSerializer
     permission_classes = [IsAdminOrReadOnly]
 
     def get_queryset(self):
-        if self.request.user.is_staff or self.request.user.is_superuser:
+        user: Any = self.request.user
+        if user.is_staff or user.is_superuser:
             return PlantillaInspeccion.objects.all()
         return PlantillaInspeccion.objects.filter(activo=True)
 
 
 class InspeccionViewSet(viewsets.ModelViewSet):
+    queryset = Inspeccion.objects.all()
     serializer_class = InspeccionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        owner = user.cuenta_padre if user.cuenta_padre else user
+        user: Any = self.request.user
+        owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return Inspeccion.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
-        respuestas = self.request.data.get('respuestas', [])
+        user: Any = self.request.user
+        req: Any = self.request
+        respuestas = req.data.get('respuestas', [])
         aprobados = 0
         total_evaluados = 0
         for r in respuestas:
@@ -765,51 +785,57 @@ class InspeccionViewSet(viewsets.ModelViewSet):
         
         porcentaje = (aprobados / total_evaluados * 100) if total_evaluados > 0 else 0.00
         porcentaje = round(porcentaje, 2)
-        serializer.save(usuario=self.request.user, porcentaje_cumplimiento=porcentaje)
+        serializer.save(usuario=user, porcentaje_cumplimiento=porcentaje)
 
 
 class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
+    queryset = InvestigacionAccidente.objects.all()
     serializer_class = InvestigacionAccidenteSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        owner = user.cuenta_padre if user.cuenta_padre else user
+        user: Any = self.request.user
+        owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return InvestigacionAccidente.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
-        serializer.save(usuario=self.request.user)
+        user: Any = self.request.user
+        serializer.save(usuario=user)
 
 
 class TemaCapacitacionViewSet(viewsets.ModelViewSet):
+    queryset = TemaCapacitacion.objects.all()
     serializer_class = TemaCapacitacionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
-        owner = user.cuenta_padre if user.cuenta_padre else user
+        user: Any = self.request.user
+        owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return TemaCapacitacion.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
-        serializer.save(usuario=self.request.user)
+        user: Any = self.request.user
+        serializer.save(usuario=user)
 
 
 class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
+    queryset = RegistroCapacitacion.objects.all()
     serializer_class = RegistroCapacitacionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        user = self.request.user
+        user: Any = self.request.user
         if not user or user.is_anonymous:
             return RegistroCapacitacion.objects.all()
-        owner = user.cuenta_padre if user.cuenta_padre else user
+        owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return RegistroCapacitacion.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
-        serializer.save(usuario=self.request.user)
+        user: Any = self.request.user
+        serializer.save(usuario=user)
 
     @action(detail=True, methods=['patch'], url_path='finalizar')
     def finalizar(self, request, pk=None):
@@ -894,12 +920,12 @@ class DashboardStatsView(APIView):
         riesgos_qs = ReporteRiesgo.objects.filter(usuario__in=usuarios_grupo)
         total_riesgos = riesgos_qs.count()
         abiertos_riesgos = riesgos_qs.filter(estado='ABIERTO').count()
-        proceso_riesgos = riesgos_qs.filter(estado='PROCESO').count()
+        proceso_riesgos = riesgos_qs.filter(estado__in=['PROCESO', 'EN_PROCESO']).count()
         resueltos_riesgos = riesgos_qs.filter(estado='RESUELTO').count()
 
         bajo_riesgos = riesgos_qs.filter(gravedad='BAJO').count()
         medio_riesgos = riesgos_qs.filter(gravedad='MEDIO').count()
-        alto_riesgos = riesgos_qs.filter(gravedad='ALTO').count()
+        alto_riesgos = riesgos_qs.filter(gravedad__in=['ALTO', 'CRITICO']).count()
 
         acto_riesgos = riesgos_qs.filter(tipo='ACTO').count()
         condicion_riesgos = riesgos_qs.filter(tipo='CONDICION').count()
@@ -917,7 +943,7 @@ class DashboardStatsView(APIView):
         historial_inspecciones = []
         for insp in inspecciones_qs.order_by('-fecha')[:5]:
             historial_inspecciones.append({
-                "id": insp.id,
+                "id": insp.pk,
                 "plantilla_nombre": insp.plantilla.nombre,
                 "fecha": insp.fecha,
                 "porcentaje": float(insp.porcentaje_cumplimiento),
@@ -948,7 +974,7 @@ class DashboardStatsView(APIView):
         historial_accidentes = []
         for acc in accidentes_qs.order_by('-fecha_hora_evento')[:5]:
             historial_accidentes.append({
-                "id": acc.id,
+                "id": acc.pk,
                 "nombre_afectado": acc.nombre_afectado,
                 "tipo_evento": acc.tipo_evento,
                 "fecha": acc.fecha_hora_evento,
@@ -973,7 +999,7 @@ class DashboardStatsView(APIView):
         historial_capacitaciones = []
         for cap in capacitaciones_qs.order_by('-fecha_programada')[:5]:
             historial_capacitaciones.append({
-                "id": cap.id,
+                "id": cap.pk,
                 "tema_titulo": cap.tema.titulo,
                 "estado": cap.estado,
                 "fecha_programada": cap.fecha_programada,
@@ -1060,6 +1086,7 @@ class SugerenciaConsultaViewSet(viewsets.ModelViewSet):
     - Listado / Detalle / PATCH (responder): requiere autenticación (prevencionista).
     - CREATE (`enviar`): endpoint público sin autenticación para trabajadores.
     """
+    queryset = SugerenciaConsulta.objects.all()
     serializer_class = SugerenciaConsultaSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -1126,7 +1153,8 @@ class ContratistaViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar contratistas y proveedores.
     """
-    serializer_class = ContratistaSerializer
+    queryset = Contratista.objects.all()
+    serializer_class: Any = ContratistaSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
@@ -1135,7 +1163,7 @@ class ContratistaViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(usuario=self.request.user)
 
-    def get_serializer_class(self):
+    def get_serializer_class(self) -> Any:
         if self.action == 'list':
             return ContratistaResumenSerializer
         return ContratistaSerializer
@@ -1205,12 +1233,14 @@ class DocumentoContratistaViewSet(viewsets.ModelViewSet):
     """
     ViewSet para la documentación legal de contratistas.
     """
+    queryset = DocumentoContratista.objects.all()
     serializer_class = DocumentoContratistaSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        queryset = DocumentoContratista.objects.filter(contratista__usuario=self.request.user)
-        contratista_id = self.request.query_params.get('contratista')
+        req: Any = self.request
+        queryset = DocumentoContratista.objects.filter(contratista__usuario=req.user)
+        contratista_id = req.query_params.get('contratista')
         if contratista_id:
             queryset = queryset.filter(contratista_id=contratista_id)
         return queryset
@@ -1226,12 +1256,14 @@ class TrabajadorSubcontratadoViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar la nómina de trabajadores subcontratados.
     """
+    queryset = TrabajadorSubcontratado.objects.all()
     serializer_class = TrabajadorSubcontratadoSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        queryset = TrabajadorSubcontratado.objects.filter(contratista__usuario=self.request.user)
-        contratista_id = self.request.query_params.get('contratista')
+        req: Any = self.request
+        queryset = TrabajadorSubcontratado.objects.filter(contratista__usuario=req.user)
+        contratista_id = req.query_params.get('contratista')
         if contratista_id:
             queryset = queryset.filter(contratista_id=contratista_id)
         return queryset

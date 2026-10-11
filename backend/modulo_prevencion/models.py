@@ -1,3 +1,4 @@
+from typing import Any
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
@@ -51,7 +52,8 @@ class Plan(models.Model):
         ordering = ['precio']
 
     def __str__(self) -> str:
-        return f"{self.nombre} (${int(self.precio):,} CLP)"
+        precio_val = int(float(str(self.precio)))
+        return f"{self.nombre} (${precio_val:,} CLP)"
 
 
 class Usuario(AbstractUser):
@@ -60,6 +62,8 @@ class Usuario(AbstractUser):
     para permitir autenticación por Email/Username, definir tipo de cuenta y
     soportar relaciones jerárquicas multi-asiento.
     """
+    cuentas_hijas: Any
+
     TIPO_INDIVIDUAL = 'INDIVIDUAL'
     TIPO_CORPORATIVO = 'CORPORATIVO'
     
@@ -92,7 +96,7 @@ class Usuario(AbstractUser):
         verbose_name="Foto de Perfil"
     )
 
-    class Meta:
+    class Meta(AbstractUser.Meta):
         verbose_name = "Usuario"
         verbose_name_plural = "Usuarios"
         indexes = [
@@ -100,7 +104,8 @@ class Usuario(AbstractUser):
         ]
 
     def __str__(self) -> str:
-        return f"{self.username} ({self.get_tipo_usuario_display()})"
+        tipo_str = getattr(self, 'get_tipo_usuario_display')()
+        return f"{self.username} ({tipo_str})"
 
     def clean(self) -> None:
         super().clean()
@@ -295,7 +300,9 @@ class DocumentoUsuario(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.plantilla_maestra.nombre} - {self.usuario.username} (Guardado: {self.fecha_ultimo_guardado.strftime('%d/%m/%Y %H:%M')})"
+        fecha_obj: Any = self.fecha_ultimo_guardado
+        fecha_str = fecha_obj.strftime('%d/%m/%Y %H:%M') if hasattr(fecha_obj, 'strftime') else str(fecha_obj)
+        return f"{self.plantilla_maestra.nombre} - {self.usuario.username} (Guardado: {fecha_str})"
 
     @property
     def esta_desactualizado(self) -> bool:
@@ -373,7 +380,9 @@ class MensajeContacto(models.Model):
         ordering = ['-fecha_creacion']
 
     def __str__(self) -> str:
-        return f"{self.asunto} - {self.nombre} ({self.fecha_creacion.strftime('%d/%m/%Y')})"
+        fecha_obj: Any = self.fecha_creacion
+        fecha_str = fecha_obj.strftime('%d/%m/%Y') if hasattr(fecha_obj, 'strftime') else str(fecha_obj)
+        return f"{self.asunto} - {self.nombre} ({fecha_str})"
 
 
 class Servicio(models.Model):
@@ -401,22 +410,25 @@ class Servicio(models.Model):
 
 class ReporteRiesgo(models.Model):
     """
-    Bitácora de hallazgos (Actos o Condiciones Inseguras) registrados por el prevencionista.
+    Bitácora de hallazgos (Actos o Condiciones Subestándar) e Inspecciones en Terreno.
+    Estructurado bajo normativa chilena (DS 594, Ley 16.744, DS 76, Protocolos MINSAL).
     """
     TIPO_ACTO = 'ACTO'
     TIPO_CONDICION = 'CONDICION'
     TIPO_CHOICES = [
-        (TIPO_ACTO, 'Acto Inseguro'),
-        (TIPO_CONDICION, 'Condición Insegura'),
+        (TIPO_ACTO, 'Acto Inseguro / Subestándar'),
+        (TIPO_CONDICION, 'Condición Insegura / Subestándar'),
     ]
 
     GRAVEDAD_BAJA = 'BAJO'
     GRAVEDAD_MEDIA = 'MEDIO'
     GRAVEDAD_ALTA = 'ALTO'
+    GRAVEDAD_CRITICA = 'CRITICO'
     GRAVEDAD_CHOICES = [
-        (GRAVEDAD_BAJA, 'Bajo'),
-        (GRAVEDAD_MEDIA, 'Medio'),
-        (GRAVEDAD_ALTA, 'Alto'),
+        (GRAVEDAD_BAJA, 'Bajo (Riesgo Leve)'),
+        (GRAVEDAD_MEDIA, 'Medio (Riesgo Moderado)'),
+        (GRAVEDAD_ALTA, 'Alto (Riesgo Importante)'),
+        (GRAVEDAD_CRITICA, 'Crítico (Intolerable / Detención Inmediata)'),
     ]
 
     ESTADO_ABIERTO = 'ABIERTO'
@@ -425,7 +437,37 @@ class ReporteRiesgo(models.Model):
     ESTADO_CHOICES = [
         (ESTADO_ABIERTO, 'Abierto'),
         (ESTADO_PROCESO, 'En Proceso'),
-        (ESTADO_RESUELTO, 'Resuelto'),
+        (ESTADO_RESUELTO, 'Resuelto / Subsanado'),
+    ]
+
+    # Clasificación legal de peligros (DS 594 y Protocolos MINSAL)
+    PELIGRO_FISICO = 'FISICO'
+    PELIGRO_QUIMICO = 'QUIMICO'
+    PELIGRO_BIOLOGICO = 'BIOLOGICO'
+    PELIGRO_ERGONOMICO = 'ERGONOMICO'
+    PELIGRO_PSICOSOCIAL = 'PSICOSOCIAL'
+    PELIGRO_SEGURIDAD = 'SEGURIDAD'
+    PELIGRO_CHOICES = [
+        (PELIGRO_FISICO, 'Riesgo Físico (Ruido - PREXOR, Radiación UV Art. 109, Vibraciones, Iluminación)'),
+        (PELIGRO_QUIMICO, 'Riesgo Químico (Sílice - PLANESI, Solventes, Polvos, Vapores)'),
+        (PELIGRO_BIOLOGICO, 'Riesgo Biológico (Agentes Biológicos, Hantavirus, Virus, Bacterias)'),
+        (PELIGRO_ERGONOMICO, 'Riesgo Ergonómico (TMERT DS 594, Manejo Manual de Carga Ley 20.001)'),
+        (PELIGRO_PSICOSOCIAL, 'Riesgo Psicosocial (SUSESO/ISTAS 21 - CEAL-SM)'),
+        (PELIGRO_SEGURIDAD, 'Riesgo de Seguridad / Mecánico (Caídas altura DS 76, Atrapamiento, Eléctrico)'),
+    ]
+
+    # Jerarquía de Control Legal (ISO 45001 / DS 76)
+    CONTROL_ELIMINACION = 'ELIMINACION'
+    CONTROL_SUSTITUCION = 'SUSTITUCION'
+    CONTROL_INGENIERIA = 'INGENIERIA'
+    CONTROL_ADMINISTRATIVO = 'ADMINISTRATIVO'
+    CONTROL_EPP = 'EPP'
+    CONTROL_CHOICES = [
+        (CONTROL_ELIMINACION, '1. Eliminación del Peligro'),
+        (CONTROL_SUSTITUCION, '2. Sustitución'),
+        (CONTROL_INGENIERIA, '3. Control de Ingeniería'),
+        (CONTROL_ADMINISTRATIVO, '4. Control Administrativo / Procedimientos / Señalética'),
+        (CONTROL_EPP, '5. Elementos de Protección Personal (EPP)'),
     ]
 
     usuario = models.ForeignKey(
@@ -442,6 +484,48 @@ class ReporteRiesgo(models.Model):
     )
     descripcion = models.TextField(verbose_name="Descripción del Hallazgo")
     lugar = models.CharField(max_length=255, verbose_name="Ubicación Física")
+    
+    # Nuevos campos de contexto y tipificación legal chilena
+    empresa_faena = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Empresa / Faena / Centro de Trabajo"
+    )
+    area_puesto = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Área o Puesto de Trabajo"
+    )
+    clasificacion_peligro = models.CharField(
+        max_length=30,
+        choices=PELIGRO_CHOICES,
+        default=PELIGRO_SEGURIDAD,
+        verbose_name="Tipificación Normativa del Peligro (MINSAL / DS 594)"
+    )
+    norma_infringida = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Norma Legal Infringida (DS 594, DS 40, etc.)"
+    )
+    
+    # Matriz cuantitativa de evaluación de riesgo (Probabilidad x Consecuencia/Severidad)
+    probabilidad = models.PositiveSmallIntegerField(
+        default=2,
+        verbose_name="Probabilidad (1: Baja, 2: Media, 3: Alta)"
+    )
+    severidad = models.PositiveSmallIntegerField(
+        default=2,
+        verbose_name="Severidad / Consecuencia (1: Leve, 2: Grave, 3: Crítica)"
+    )
+    nivel_riesgo_calculado = models.CharField(
+        max_length=20,
+        default="MEDIO",
+        verbose_name="Nivel de Riesgo Evaluado (P x S)"
+    )
+
     gravedad = models.CharField(
         max_length=10,
         choices=GRAVEDAD_CHOICES,
@@ -454,11 +538,41 @@ class ReporteRiesgo(models.Model):
         default=ESTADO_ABIERTO,
         verbose_name="Estado"
     )
+    
+    # Medida correctiva con Jerarquía de Control Legal
+    jerarquia_control = models.CharField(
+        max_length=30,
+        choices=CONTROL_CHOICES,
+        default=CONTROL_ADMINISTRATIVO,
+        verbose_name="Jerarquía de Control Legal (ISO 45001 / DS 76)"
+    )
     medida_correctiva = models.TextField(
         blank=True,
         null=True,
         verbose_name="Medida Correctiva / Resolución"
     )
+    responsable = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Responsable en la Empresa / Faena (Art. 66 Ley 16.744)"
+    )
+    fecha_limite = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Plazo Límite de Subsanación"
+    )
+    foto_evidencia = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Evidencia Fotográfica (Base64 o URL)"
+    )
+    fecha_resolucion = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Resolución / Cierre"
+    )
+
     # Campos para reportes recibidos desde el portal público de trabajadores (QR)
     reportado_por_externo = models.BooleanField(
         default=False,
@@ -489,12 +603,12 @@ class ReporteRiesgo(models.Model):
     )
 
     class Meta:
-        verbose_name = "Reporte de Riesgo"
-        verbose_name_plural = "Reportes de Riesgos"
+        verbose_name = "Inspección y Hallazgo"
+        verbose_name_plural = "Inspecciones y Hallazgos en Terreno"
         ordering = ['-fecha_creacion']
 
     def __str__(self) -> str:
-        origen = " [Trabajador]" if self.reportado_por_externo else ""
+        origen = " [Trabajador QR]" if self.reportado_por_externo else ""
         return f"{self.tipo} ({self.gravedad}) - {self.lugar} [{self.estado}]{origen}"
 
 
@@ -558,7 +672,9 @@ class Inspeccion(models.Model):
         ordering = ['-fecha']
 
     def __str__(self) -> str:
-        return f"{self.plantilla.nombre} - {self.usuario.username} ({self.fecha.strftime('%d/%m/%Y')} - {self.porcentaje_cumplimiento}%)"
+        fecha_obj: Any = self.fecha
+        fecha_str = fecha_obj.strftime('%d/%m/%Y') if hasattr(fecha_obj, 'strftime') else str(fecha_obj)
+        return f"{self.plantilla.nombre} - {self.usuario.username} ({fecha_str} - {self.porcentaje_cumplimiento}%)"
 
 
 class InvestigacionAccidente(models.Model):
@@ -640,7 +756,10 @@ class InvestigacionAccidente(models.Model):
         ordering = ['-fecha_hora_evento']
 
     def __str__(self) -> str:
-        return f"{self.get_tipo_evento_display()} - {self.nombre_afectado} ({self.fecha_hora_evento.strftime('%d/%m/%Y')})"
+        fecha_obj: Any = self.fecha_hora_evento
+        fecha_str = fecha_obj.strftime('%d/%m/%Y') if hasattr(fecha_obj, 'strftime') else str(fecha_obj)
+        tipo_str = getattr(self, 'get_tipo_evento_display')()
+        return f"{tipo_str} - {self.nombre_afectado} ({fecha_str})"
 
 
 class TemaCapacitacion(models.Model):
@@ -688,7 +807,8 @@ class TemaCapacitacion(models.Model):
         ordering = ['titulo']
 
     def __str__(self) -> str:
-        return f"{self.titulo} ({self.get_categoria_display()})"
+        cat_str = getattr(self, 'get_categoria_display')()
+        return f"{self.titulo} ({cat_str})"
 
 
 class RegistroCapacitacion(models.Model):
@@ -821,13 +941,19 @@ class SugerenciaConsulta(models.Model):
 
     def __str__(self) -> str:
         remitente = self.nombre_remitente if not self.anonimo and self.nombre_remitente else "Anónimo"
-        return f"{self.get_tipo_display()} de {remitente} ({self.fecha_creacion.strftime('%d/%m/%Y')})"
+        fecha_obj: Any = self.fecha_creacion
+        fecha_str = fecha_obj.strftime('%d/%m/%Y') if hasattr(fecha_obj, 'strftime') else str(fecha_obj)
+        tipo_str = getattr(self, 'get_tipo_display')()
+        return f"{tipo_str} de {remitente} ({fecha_str})"
 
 
 class Contratista(models.Model):
     """
     Empresa contratista o proveedora que opera bajo la Ley de Subcontratación 20.123.
     """
+    documentos: Any
+    trabajadores: Any
+
     TIPO_CONTRATISTA = 'CONTRATISTA'
     TIPO_PROVEEDOR = 'PROVEEDOR'
     TIPO_CHOICES = [
@@ -874,11 +1000,11 @@ class Contratista(models.Model):
         """
         Determina el estado general de cumplimiento de la contratista basándose en sus documentos.
         """
-        docs = self.documentos.all()
-        if not docs.exists():
+        docs_mgr: Any = getattr(self, 'documentos', None)
+        if docs_mgr is None or not docs_mgr.exists():
             return 'SIN_DOCUMENTOS'
         
-        estados = [doc.estado_calculado for doc in docs]
+        estados = [doc.estado_calculado for doc in docs_mgr.all()]
         if 'VENCIDO' in estados:
             return 'CRITICO'
         if 'POR_VENCER' in estados:
@@ -947,7 +1073,8 @@ class DocumentoContratista(models.Model):
         ordering = ['-fecha_carga']
 
     def __str__(self) -> str:
-        nombre_doc = self.nombre_personalizado if self.tipo == self.TIPO_OTRO and self.nombre_personalizado else self.get_tipo_display()
+        tipo_str = getattr(self, 'get_tipo_display')()
+        nombre_doc = self.nombre_personalizado if self.tipo == self.TIPO_OTRO and self.nombre_personalizado else tipo_str
         return f"{nombre_doc} - {self.contratista.razon_social}"
 
     @property
@@ -958,7 +1085,8 @@ class DocumentoContratista(models.Model):
         if not self.fecha_vencimiento:
             return 'SIN_VENCIMIENTO'
         hoy = date.today()
-        delta = (self.fecha_vencimiento - hoy).days
+        venc_obj: Any = self.fecha_vencimiento
+        delta = (venc_obj - hoy).days
         if delta < 0:
             return 'VENCIDO'
         elif delta <= 30:

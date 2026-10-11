@@ -129,7 +129,7 @@ DATABASES = {
 }
 
 # Si el motor es SQLite y la ruta es relativa, aseguramos que quede dentro de BASE_DIR
-if DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3':
+if DATABASES['default'].get('ENGINE') == 'django.db.backends.sqlite3':
     db_name = DATABASES['default'].get('NAME')
     if db_name and not os.path.isabs(db_name):
         DATABASES['default']['NAME'] = str(BASE_DIR / db_name)

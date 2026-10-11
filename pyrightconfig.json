@@ -1,9 +1,11 @@
 {
-  "venvPath": "backend",
-  "venv": "venv",
+  "venvPath": ".",
+  "venv": ".venv",
   "extraPaths": [
     "backend",
     "agentes",
-    "backend/venv/Lib/site-packages"
-  ]
+    ".venv/Lib/site-packages"
+  ],
+  "reportIncompatibleVariableOverride": "none"
 }
+
