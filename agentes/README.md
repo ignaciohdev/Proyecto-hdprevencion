@@ -186,7 +186,7 @@ Todos los agentes heredan de la clase base [`AgenteExperto`](file:///c:/Users/Ig
 La configuración central se encuentra en [`gemini_client.py`](file:///c:/Users/Ignacio/Documents/Proyectos/Proyecto-hdprevencion/agentes/gemini_client.py):
 
 ```python
-MODELO_GEMINI = "gemini-3.8-flash"
+MODELO_GEMINI = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 self.config = types.GenerateContentConfig(
     system_instruction=system_prompt,
@@ -394,3 +394,14 @@ agentes/
   ```powershell
   [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
   ```
+- El cliente `gemini_client.py` y `orquestador.py` configuran automáticamente la salida a UTF-8.
+
+### 5. `429 RESOURCE_EXHAUSTED` (Rate Limit / Quota Exceeded)
+- **Causa**: En el nivel gratuito (**Free Tier**) de Google AI Studio, el modelo `gemini-3.8-flash` tiene un límite de **5 peticiones por minuto (5 RPM)**. Como los agentes usan *Function Calling* (herramientas para leer archivos o listar carpetas), una sola consulta puede desencadenar de 2 a 4 peticiones en pocos segundos. Si ejecutas varias consultas seguidas, se alcanza el límite por minuto.
+- **Solución Automática**: [`gemini_client.py`](file:///c:/Users/Ignacio/Documents/Proyectos/Proyecto-hdprevencion/agentes/gemini_client.py) detecta el error 429, extrae el tiempo de espera sugerido por Google (ej. 27s), restaura el historial seguro y **reintenta automáticamente** hasta 4 veces sin abortar la ejecución.
+- **Solución Permanente (Recomendada para desarrollo ágil)**:
+  1. Puedes vincular una tarjeta de crédito en Google AI Studio (modo *Pay-as-you-go*). Las peticiones a modelos Flash cuestan fracciones de centavo y la cuota sube a más de **1,000 RPM**.
+  2. Puedes definir otro modelo en tu archivo `.env` mediante la variable:
+     ```env
+     GEMINI_MODEL=gemini-3.8-flash
+     ```
