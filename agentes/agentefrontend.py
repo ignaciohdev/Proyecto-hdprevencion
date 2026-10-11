@@ -1,4 +1,6 @@
-from .gemini_client import AgenteExperto
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gemini_client import AgenteExperto
 
 # 1. Definimos el System Prompt de Claude para este rol específico
 PROMPT_FRONTEND = """

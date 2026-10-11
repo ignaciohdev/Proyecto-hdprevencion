@@ -37,9 +37,17 @@ cd backend
 python manage.py runserver
 ```
 Accede a la API en [http://127.0.0.1:8000](http://127.0.0.1:8000).
-
-### 4. Agente Auditor (Gemini)
+### 4. Sistema de Agentes Especializados (Gemini)
+El proyecto incluye un ecosistema multi-agente para auditoría legal chilena y desarrollo asistido:
 ```bash
-python agentes/auditor.py
+# Modo interactivo (conversar con cualquier agente)
+python agentes/orquestador.py --modo interactivo
+
+# Modo auditoría legal de un archivo
+python agentes/orquestador.py --modo auditoria --archivo backend/modulo_prevencion/models.py
+
+# Modo pipeline completo (6 pasos para construir un módulo)
+python agentes/orquestador.py --modo flujo --modulo "Matriz IPER"
 ```
 
+Para ver la documentación completa de cada agente y sus configuraciones, consulta [agentes/README.md](agentes/README.md).

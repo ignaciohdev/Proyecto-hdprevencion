@@ -1,4 +1,6 @@
-from .gemini_client import AgenteExperto
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from gemini_client import AgenteExperto
 
 PROMPT_DATABASE = """
 ## ROL

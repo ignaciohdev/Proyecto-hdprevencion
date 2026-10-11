@@ -24,4 +24,7 @@ backend/staticfiles/
 media/
 backend/media/
 
-
+#Resultados de los agentes
+agentes/resultados/
+agentes\resultados\.gitkeep
+
