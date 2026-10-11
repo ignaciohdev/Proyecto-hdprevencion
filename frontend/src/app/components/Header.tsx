@@ -50,9 +50,6 @@ export default function Header() {
             <a href="/" className="hover:text-orange-600 transition-colors duration-300">
               Inicio
             </a>
-            <a href="/servicios" className="hover:text-orange-600 transition-colors duration-300">
-              Servicios
-            </a>
             <a href="/capacitaciones" className="hover:text-orange-600 transition-colors duration-300">
               Capacitaciones
             </a>

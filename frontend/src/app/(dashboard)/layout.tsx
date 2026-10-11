@@ -86,6 +86,14 @@ export default function DashboardLayout({
 
   if (!isAuthenticated) return null;
 
+  const isPaidPlan =
+    user?.is_superuser ||
+    user?.is_staff ||
+    (user?.suscripcion_activa &&
+      (user.suscripcion_activa.acceso_servicios ||
+        user.suscripcion_activa.precio > 0) &&
+      user.suscripcion_activa.plan_codigo !== "basico");
+
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200 flex flex-col md:flex-row transition-colors duration-300">
       
@@ -232,6 +240,22 @@ export default function DashboardLayout({
               </svg>
               <span className="text-sm font-semibold">Contratistas (Ley 20.123)</span>
             </a>
+
+            {/* Asesorías y Servicios Exclusivos (Oculto hasta que se adquiera suscripción de pago) */}
+            {isPaidPlan && (
+              <a
+                href="/panel/servicios"
+                className="flex items-center space-x-3 px-4 py-3 rounded-xl hover:bg-slate-900 transition-colors group bg-gradient-to-r from-orange-950/20 to-transparent border border-orange-500/20"
+              >
+                <svg className="w-5 h-5 text-orange-500 group-hover:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                </svg>
+                <div className="flex items-center justify-between flex-grow">
+                  <span className="text-sm font-semibold text-orange-400 group-hover:text-orange-300">Asesorías Premium</span>
+                  <span className="text-[9px] bg-orange-600/30 text-orange-400 border border-orange-500/40 px-1.5 py-0.5 rounded font-bold uppercase">PRO</span>
+                </div>
+              </a>
+            )}
 
 
             {/* Panel de Superadministrador (Full Access) */}

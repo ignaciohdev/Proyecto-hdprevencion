@@ -630,10 +630,30 @@ class MensajeContactoViewSet(viewsets.ModelViewSet):
             serializer.save()
 
 
+class AccesoServiciosPermission(permissions.BasePermission):
+    """
+    Permite acceder a los servicios preventivos exclusivamente a usuarios
+    con planes de pago activos, o a administradores/moderadores del sistema.
+    """
+    message = "Esta sección de servicios y asesorías exclusivas requiere una suscripción activa de pago (Plan Profesional, Expert o Consultora)."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_staff or user.is_superuser:
+            return True
+        owner = user.cuenta_padre if user.cuenta_padre else user
+        sub = owner.suscripciones.filter(estado=Suscripcion.ESTADO_ACTIVA).first()
+        if sub and (getattr(sub.plan, 'acceso_servicios', False) or float(sub.plan.precio) > 0):
+            return True
+        return False
+
+
 class ServicioViewSet(viewsets.ModelViewSet):
-    queryset = Servicio.objects.all()
+    queryset = Servicio.objects.filter(activo=True)
     serializer_class = ServicioSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [AccesoServiciosPermission]
 
 
 class UsuarioViewSet(viewsets.ModelViewSet):

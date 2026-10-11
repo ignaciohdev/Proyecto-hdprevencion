@@ -48,6 +48,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
                 "marca_blanca": sub.plan.marca_blanca,
                 "limite_semanal": sub.plan.limite_semanal,
                 "asientos": sub.plan.asientos,
+                "acceso_servicios": getattr(sub.plan, 'acceso_servicios', False) or (float(sub.plan.precio) > 0),
                 "fecha_inicio": sub.fecha_inicio,
                 "fecha_vencimiento": sub.fecha_vencimiento,
             }

@@ -14,6 +14,7 @@ interface PlanInfo {
   marca_blanca: boolean;
   limite_semanal: number;
   asientos: number;
+  acceso_servicios?: boolean;
 }
 
 export default function PlanesView() {
@@ -302,6 +303,14 @@ export default function PlanesView() {
                     </span>
                     <span className={plan.marca_blanca ? "" : "text-slate-400 line-through dark:text-slate-600"}>
                       Marca Blanca (quitar logos del pie)
+                    </span>
+                  </li>
+                  <li className="flex items-center space-x-2">
+                    <span className={plan.codigo !== "basico" ? "text-orange-500 font-bold" : "text-slate-350 dark:text-slate-700 font-bold"}>
+                      {plan.codigo !== "basico" ? "✔" : "❌"}
+                    </span>
+                    <span className={plan.codigo !== "basico" ? "font-semibold text-orange-600 dark:text-orange-400" : "text-slate-400 line-through dark:text-slate-600"}>
+                      Asesorías Técnicas en Terreno
                     </span>
                   </li>
                 </ul>

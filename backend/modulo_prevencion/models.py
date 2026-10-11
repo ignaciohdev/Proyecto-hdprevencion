@@ -45,6 +45,10 @@ class Plan(models.Model):
         default=1, 
         verbose_name="Número de Asientos/Usuarios"
     )
+    acceso_servicios = models.BooleanField(
+        default=False,
+        verbose_name="Acceso a Asesorías y Servicios Exclusivos"
+    )
 
     class Meta:
         verbose_name = "Plan de Suscripción"

@@ -1,4 +1,4 @@
-from typing import Any, ClassVar
+from typing import Any
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.utils.html import format_html
@@ -39,7 +39,7 @@ class UsuarioCustomAdmin(UserAdmin):
     )
     
     # Organizar campos en secciones claras en el formulario de edición
-    fieldsets: ClassVar[Any] = tuple(UserAdmin.fieldsets or ()) + (
+    fieldsets = tuple(UserAdmin.fieldsets or ()) + (
         ('Información SaaS (Prevención HD)', {
             'fields': ('tipo_usuario', 'cuenta_padre'),
             'description': 'Campos específicos de la jerarquía de suscripciones y tipos de cuentas corporativas o individuales.'
@@ -47,7 +47,7 @@ class UsuarioCustomAdmin(UserAdmin):
     )
     
     # Organizar campos para el formulario de creación rápida
-    add_fieldsets: ClassVar[Any] = tuple(UserAdmin.add_fieldsets or ()) + (
+    add_fieldsets = tuple(UserAdmin.add_fieldsets or ()) + (
         ('Información SaaS (Prevención HD)', {
             'classes': ('wide',),
             'fields': ('tipo_usuario', 'cuenta_padre'),

@@ -24,7 +24,8 @@ def seed():
             'marca_agua': True,
             'marca_blanca': False,
             'limite_semanal': 5,
-            'asientos': 1
+            'asientos': 1,
+            'acceso_servicios': False
         },
         {
             'codigo': 'profesional',
@@ -34,7 +35,8 @@ def seed():
             'marca_agua': False,
             'marca_blanca': False,
             'limite_semanal': 20,
-            'asientos': 1
+            'asientos': 1,
+            'acceso_servicios': True
         },
         {
             'codigo': 'expert',
@@ -44,7 +46,8 @@ def seed():
             'marca_agua': False,
             'marca_blanca': False,
             'limite_semanal': 50,
-            'asientos': 1
+            'asientos': 1,
+            'acceso_servicios': True
         },
         {
             'codigo': 'consultora',
@@ -54,7 +57,8 @@ def seed():
             'marca_agua': False,
             'marca_blanca': True,
             'limite_semanal': 999999,
-            'asientos': 5
+            'asientos': 5,
+            'acceso_servicios': True
         }
     ]
 
@@ -68,7 +72,8 @@ def seed():
                 'marca_agua': p_info['marca_agua'],
                 'marca_blanca': p_info['marca_blanca'],
                 'limite_semanal': p_info['limite_semanal'],
-                'asientos': p_info['asientos']
+                'asientos': p_info['asientos'],
+                'acceso_servicios': p_info['acceso_servicios']
             }
         )
         if created:
