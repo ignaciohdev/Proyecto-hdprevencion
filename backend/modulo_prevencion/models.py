@@ -1124,3 +1124,124 @@ class TrabajadorSubcontratado(models.Model):
     def __str__(self) -> str:
         return f"{self.nombre_completo} ({self.rut}) - {self.contratista.razon_social}"
 
+
+class SolicitudCapacitacion(models.Model):
+    """
+    Solicitud de cotización para capacitaciones corporativas y relatorías presenciales o sincrónicas
+    impartidas por el equipo de profesionales de HD Prevención (Psicólogos laborales,
+    Ergónomos/Kinesiólogos, Prevencionistas de Riesgos con Registro SEREMI/SNS, Instructores).
+    """
+    TIPO_LEY_KARIN = 'LEY_KARIN'
+    TIPO_TMERT = 'TMERT_ERGONOMIA'
+    TIPO_SEGURIDAD_CRITICA = 'SEGURIDAD_CRITICA'
+    TIPO_EXTINTORES = 'EXTINTORES_EMERGENCIAS'
+    TIPO_INDUCCION_ODI = 'INDUCCION_ODI'
+    TIPO_CPHS = 'CPHS_DS54'
+    TIPO_OTRO = 'A_MEDIDA'
+
+    TIPO_CHOICES = [
+        (TIPO_LEY_KARIN, 'Prevención del Acoso y Ley Karin / Protocolo SUSESO-ISTAS 21 (Psicólogo Laboral)'),
+        (TIPO_TMERT, 'Ergonomía, TMERT y Manejo Manual de Cargas Ley 20.949 (Kinesiólogo / Ergónomo)'),
+        (TIPO_SEGURIDAD_CRITICA, 'Trabajos Críticos: Altura Física, Espacios Confinados, LOTO (Prevencionista Senior)'),
+        (TIPO_EXTINTORES, 'Uso y Manejo Práctico de Extintores DS 594 (Instructor en Terreno)'),
+        (TIPO_INDUCCION_ODI, 'Inducción de Obligación de Informar ODI / DAS DS 40 (Prevencionista Registro SEREMI)'),
+        (TIPO_CPHS, 'Capacitación y Asesoría a Comité Paritario DS 54 (Especialista CPHS)'),
+        (TIPO_OTRO, 'Capacitación Técnica Especializada a Medida'),
+    ]
+
+    MODALIDAD_PRESENCIAL = 'PRESENCIAL'
+    MODALIDAD_ONLINE = 'ONLINE'
+    MODALIDAD_MIXTA = 'MIXTA'
+
+    MODALIDAD_CHOICES = [
+        (MODALIDAD_PRESENCIAL, 'Presencial en Terreno / Faena / Oficina'),
+        (MODALIDAD_ONLINE, 'Sincrónica Online (Videollamada en Vivo)'),
+        (MODALIDAD_MIXTA, 'Híbrida / Mixta'),
+    ]
+
+    ESTADO_PENDIENTE = 'PENDIENTE'
+    ESTADO_CONTACTADO = 'CONTACTADO'
+    ESTADO_COTIZADO = 'COTIZADO'
+    ESTADO_COORDINADO = 'COORDINADO'
+    ESTADO_FINALIZADO = 'FINALIZADO'
+    ESTADO_CANCELADO = 'CANCELADO'
+
+    ESTADO_CHOICES = [
+        (ESTADO_PENDIENTE, 'Pendiente de Contacto'),
+        (ESTADO_CONTACTADO, 'En Contacto con la Empresa'),
+        (ESTADO_COTIZADO, 'Cotización Enviada'),
+        (ESTADO_COORDINADO, 'Fecha y Relator Coordinados'),
+        (ESTADO_FINALIZADO, 'Capacitación Ejecutada'),
+        (ESTADO_CANCELADO, 'Cancelada'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='solicitudes_capacitacion',
+        verbose_name="Usuario Registrado (opcional)"
+    )
+    empresa = models.CharField(max_length=200, verbose_name="Nombre o Razón Social de la Empresa")
+    rut_empresa = models.CharField(max_length=20, verbose_name="RUT de la Empresa")
+    contacto_nombre = models.CharField(max_length=150, verbose_name="Nombre del Contacto")
+    contacto_cargo = models.CharField(max_length=100, blank=True, null=True, verbose_name="Cargo de Contacto")
+    contacto_email = models.EmailField(verbose_name="Correo Electrónico de Contacto")
+    contacto_telefono = models.CharField(max_length=50, verbose_name="Teléfono o WhatsApp")
+    
+    tipo_capacitacion = models.CharField(
+        max_length=40,
+        choices=TIPO_CHOICES,
+        default=TIPO_LEY_KARIN,
+        verbose_name="Programa o Especialidad Requerida"
+    )
+    modalidad = models.CharField(
+        max_length=20,
+        choices=MODALIDAD_CHOICES,
+        default=MODALIDAD_PRESENCIAL,
+        verbose_name="Modalidad Deseada"
+    )
+    region_comuna = models.CharField(
+        max_length=150,
+        verbose_name="Ubicación de Faena / Ciudad / Comuna",
+        help_text="Lugar donde se dictará la capacitación para cálculo de traslados/viáticos."
+    )
+    cantidad_trabajadores = models.PositiveIntegerField(
+        default=10,
+        verbose_name="Cantidad Estimada de Trabajadores"
+    )
+    fecha_tentativa = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Tentativa Deseada"
+    )
+    mensaje_adicional = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Detalles o Requerimientos Específicos"
+    )
+
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_PENDIENTE,
+        verbose_name="Estado de la Solicitud"
+    )
+    notas_internas = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Notas Internas de HD Prevención"
+    )
+    fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación")
+    fecha_actualizacion = models.DateTimeField(auto_now=True, verbose_name="Última Actualización")
+
+    class Meta:
+        verbose_name = "Solicitud de Capacitación Externa"
+        verbose_name_plural = "Solicitudes de Capacitaciones Externas"
+        ordering = ['-fecha_creacion']
+
+    def __str__(self) -> str:
+        return f"{self.empresa} - {self.get_tipo_capacitacion_display()} ({self.estado})"
+
+

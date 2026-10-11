@@ -8,7 +8,7 @@ from .models import (
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
     TemaCapacitacion, RegistroCapacitacion,
-    SugerenciaConsulta
+    SugerenciaConsulta, SolicitudCapacitacion
 )
 
 @admin.register(Usuario)
@@ -259,3 +259,32 @@ class SugerenciaConsultaAdmin(admin.ModelAdmin):
         return mark_safe(
             '<span style="background-color:#fef3c7;color:#92400e;padding:3px 8px;border-radius:4px;font-size:0.82rem;font-weight:600;">Pendiente</span>'
         )
+
+
+@admin.register(SolicitudCapacitacion)
+class SolicitudCapacitacionAdmin(admin.ModelAdmin):
+    list_display = (
+        'empresa', 'tipo_capacitacion', 'modalidad', 'contacto_nombre',
+        'contacto_telefono', 'cantidad_trabajadores', 'estado_badge', 'fecha_creacion'
+    )
+    list_filter = ('estado', 'tipo_capacitacion', 'modalidad', 'fecha_creacion')
+    search_fields = ('empresa', 'rut_empresa', 'contacto_nombre', 'contacto_email', 'region_comuna')
+    readonly_fields = ('fecha_creacion', 'fecha_actualizacion')
+    date_hierarchy = 'fecha_creacion'
+    raw_id_fields = ('usuario',)
+
+    @admin.display(description="Estado", ordering="estado")
+    def estado_badge(self, obj):
+        colores = {
+            'PENDIENTE': ('#fef3c7', '#92400e'),
+            'CONTACTADO': ('#e0e7ff', '#3730a3'),
+            'COTIZADO': ('#f3e8ff', '#6b21a8'),
+            'COORDINADO': ('#dbeafe', '#1e40af'),
+            'FINALIZADO': ('#d1fae5', '#065f46'),
+            'CANCELADO': ('#fee2e2', '#991b1b'),
+        }
+        bg, text = colores.get(obj.estado, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-size:0.8rem;font-weight:600;">{obj.get_estado_display()}</span>'
+        )
+

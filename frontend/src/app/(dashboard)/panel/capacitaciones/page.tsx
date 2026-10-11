@@ -126,13 +126,22 @@ export default function CapacitacionesPage() {
             Programa, dicta y firma actas de capacitaciones de seguridad legalmente exigibles, y lleva el registro digital de firmas.
           </p>
         </div>
-        <button
-          onClick={() => router.push("/panel/capacitaciones/nueva")}
-          className="mt-6 md:mt-0 bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all hover:scale-[1.02] cursor-pointer flex items-center space-x-2 text-sm z-10"
-        >
-          <span>🗓️</span>
-          <span>Programar Sesión</span>
-        </button>
+        <div className="mt-6 md:mt-0 flex flex-wrap gap-3 z-10">
+          <a
+            href="/capacitaciones"
+            className="bg-slate-800 hover:bg-slate-700 text-orange-400 border border-slate-700 font-bold py-3 px-5 rounded-xl transition-all hover:scale-[1.02] cursor-pointer flex items-center space-x-2 text-xs"
+          >
+            <span>🎓</span>
+            <span>Solicitar Relator Externo</span>
+          </a>
+          <button
+            onClick={() => router.push("/panel/capacitaciones/nueva")}
+            className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all hover:scale-[1.02] cursor-pointer flex items-center space-x-2 text-sm"
+          >
+            <span>🗓️</span>
+            <span>Programar Sesión</span>
+          </button>
+        </div>
       </div>
 
       {/* Tarjetas KPI */}
@@ -157,6 +166,32 @@ export default function CapacitacionesPage() {
           <p className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">{totalAsistentes}</p>
           <span className="text-xs text-slate-400">Firmas de asistencia recopiladas</span>
         </div>
+      </div>
+
+      {/* Banner Informativo de Relatorías Externas HD Prevención */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-orange-950/20 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center space-x-4">
+          <div className="w-11 h-11 rounded-xl bg-orange-600/10 border border-orange-500/20 flex items-center justify-center text-xl shrink-0">
+            👨‍🏫
+          </div>
+          <div>
+            <h4 className="text-sm font-bold text-white flex items-center gap-2">
+              <span>¿Necesitas un especialista para dictar tus capacitaciones del PAC?</span>
+              <span className="text-[10px] bg-orange-600/20 text-orange-400 border border-orange-600/30 px-2 py-0.5 rounded-full font-bold">
+                Servicio Especializado
+              </span>
+            </h4>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Enviamos psicólogos para Ley Karin, kinesiólogos para TMERT y prevencionistas con Registro SEREMI a tus obras o sesiones virtuales.
+            </p>
+          </div>
+        </div>
+        <a
+          href="/capacitaciones"
+          className="shrink-0 bg-slate-800 hover:bg-slate-700 text-orange-400 border border-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center space-x-1.5 whitespace-nowrap cursor-pointer hover:scale-[1.02]"
+        >
+          <span>Cotizar Relator Profesional →</span>
+        </a>
       </div>
 
       {/* Barra de Filtros */}

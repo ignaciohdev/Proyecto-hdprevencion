@@ -167,6 +167,22 @@ export default function NuevaCapacitacionPage() {
         </button>
       </div>
 
+      {/* Tip / Asistencia Externa */}
+      <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-4 flex items-center justify-between gap-4 text-xs">
+        <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-300">
+          <span className="text-base">💡</span>
+          <span>
+            ¿Requieres que un <strong>Psicólogo Laboral (Ley Karin)</strong> o <strong>Ergónomo (TMERT)</strong> dicte esta sesión en tu empresa?
+          </span>
+        </div>
+        <a
+          href="/capacitaciones"
+          className="text-orange-600 dark:text-orange-400 font-bold hover:underline shrink-0"
+        >
+          Solicitar Relator HD →
+        </a>
+      </div>
+
       {/* Formulario Principal */}
       <div className="bg-white dark:bg-slate-950 p-6 md:p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800">
         

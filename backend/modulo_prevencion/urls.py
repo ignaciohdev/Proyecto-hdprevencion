@@ -11,7 +11,8 @@ from .views import (
     TemaCapacitacionViewSet, RegistroCapacitacionViewSet,
     SugerenciaConsultaViewSet,
     ReporteRiesgoPublicoCreateView, SugerenciaConsultaPublicaCreateView,
-    ContratistaViewSet, DocumentoContratistaViewSet, TrabajadorSubcontratadoViewSet
+    ContratistaViewSet, DocumentoContratistaViewSet, TrabajadorSubcontratadoViewSet,
+    SolicitudCapacitacionViewSet
 )
 
 router = DefaultRouter()
@@ -28,6 +29,7 @@ router.register(r'inspecciones', InspeccionViewSet, basename='inspeccion')
 router.register(r'accidentes', InvestigacionAccidenteViewSet, basename='investigacionaccidente')
 router.register(r'temas-capacitacion', TemaCapacitacionViewSet, basename='temacapacitacion')
 router.register(r'registro-capacitacion', RegistroCapacitacionViewSet, basename='registrocapacitacion')
+router.register(r'solicitudes-capacitacion', SolicitudCapacitacionViewSet, basename='solicitudcapacitacion')
 router.register(r'buzon', SugerenciaConsultaViewSet, basename='sugerenciaconsulta')
 router.register(r'contratistas', ContratistaViewSet, basename='contratista')
 router.register(r'documentos-contratista', DocumentoContratistaViewSet, basename='documentocontratista')

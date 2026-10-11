@@ -10,7 +10,8 @@ from .models import (
     Noticia, MensajeContacto, Servicio,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
     TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta,
-    Contratista, DocumentoContratista, TrabajadorSubcontratado
+    Contratista, DocumentoContratista, TrabajadorSubcontratado,
+    SolicitudCapacitacion
 )
 
 Usuario = get_user_model()
@@ -345,4 +346,35 @@ class ContratistaResumenSerializer(serializers.ModelSerializer):
 
     def get_cant_documentos(self, obj):
         return obj.documentos.count()
+
+
+class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
+    """
+    Serializador para solicitudes de capacitaciones externas y relatorías presenciales/online.
+    """
+    username = serializers.CharField(source='usuario.username', read_only=True)
+    tipo_capacitacion_display = serializers.CharField(source='get_tipo_capacitacion_display', read_only=True)
+    modalidad_display = serializers.CharField(source='get_modalidad_display', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+
+    class Meta:
+        model = SolicitudCapacitacion
+        fields = (
+            'id', 'usuario', 'username', 'empresa', 'rut_empresa',
+            'contacto_nombre', 'contacto_cargo', 'contacto_email', 'contacto_telefono',
+            'tipo_capacitacion', 'tipo_capacitacion_display',
+            'modalidad', 'modalidad_display',
+            'region_comuna', 'cantidad_trabajadores', 'fecha_tentativa',
+            'mensaje_adicional', 'estado', 'estado_display',
+            'notas_internas', 'fecha_creacion', 'fecha_actualizacion'
+        )
+        read_only_fields = ('id', 'fecha_creacion', 'fecha_actualizacion')
+        extra_kwargs = {
+            'usuario': {'required': False, 'allow_null': True},
+            'notas_internas': {'required': False, 'allow_blank': True},
+            'contacto_cargo': {'required': False, 'allow_blank': True},
+            'mensaje_adicional': {'required': False, 'allow_blank': True},
+            'fecha_tentativa': {'required': False, 'allow_null': True},
+        }
+
 

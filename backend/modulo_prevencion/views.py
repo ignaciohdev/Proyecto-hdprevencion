@@ -18,7 +18,8 @@ from .models import (
     PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
     TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta,
-    Contratista, DocumentoContratista, TrabajadorSubcontratado
+    Contratista, DocumentoContratista, TrabajadorSubcontratado,
+    SolicitudCapacitacion
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -29,7 +30,8 @@ from .serializers import (
     TemaCapacitacionSerializer, RegistroCapacitacionSerializer,
     SugerenciaConsultaSerializer,
     ContratistaSerializer, ContratistaResumenSerializer,
-    DocumentoContratistaSerializer, TrabajadorSubcontratadoSerializer
+    DocumentoContratistaSerializer, TrabajadorSubcontratadoSerializer,
+    SolicitudCapacitacionSerializer
 )
 
 Usuario: Any = get_user_model()
@@ -1273,4 +1275,41 @@ class TrabajadorSubcontratadoViewSet(viewsets.ModelViewSet):
         if contratista.usuario != self.request.user:
             raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
         serializer.save()
+
+
+class SolicitudCapacitacionPermission(permissions.BasePermission):
+    """
+    Permite que cualquier persona (pública o autenticada) envíe solicitudes de cotización (POST).
+    Para listar o ver detalles: los administradores tienen acceso global;
+    los usuarios logueados pueden ver el historial de sus propias solicitudes.
+    """
+    def has_permission(self, request, view):
+        if request.method == 'POST':
+            return True
+        user: Any = request.user
+        return user and user.is_authenticated
+
+
+class SolicitudCapacitacionViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la recepción y gestión de solicitudes de relatorías y capacitaciones externas.
+    """
+    queryset = SolicitudCapacitacion.objects.all()
+    serializer_class = SolicitudCapacitacionSerializer
+    permission_classes = [SolicitudCapacitacionPermission]
+
+    def get_queryset(self):
+        user: Any = self.request.user
+        if not user or not user.is_authenticated:
+            return SolicitudCapacitacion.objects.none()
+        if user.is_superuser or user.is_staff:
+            return SolicitudCapacitacion.objects.all()
+        return SolicitudCapacitacion.objects.filter(usuario=user)
+
+    def perform_create(self, serializer):
+        if self.request.user and self.request.user.is_authenticated:
+            serializer.save(usuario=self.request.user)
+        else:
+            serializer.save()
+
 
