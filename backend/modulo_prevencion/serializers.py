@@ -31,7 +31,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Usuario
-        fields = ('id', 'username', 'email', 'tipo_usuario', 'cuenta_padre', 'suscripcion_activa', 'contador_descargas', 'foto_perfil')
+        fields = ('id', 'uuid', 'username', 'email', 'tipo_usuario', 'cuenta_padre', 'suscripcion_activa', 'contador_descargas', 'foto_perfil')
 
     def get_suscripcion_activa(self, obj):
         owner = obj.cuenta_padre if obj.cuenta_padre else obj
@@ -196,7 +196,7 @@ class ReporteRiesgoSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReporteRiesgo
         fields = (
-            'id', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad',
+            'id', 'uuid', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad',
             'estado', 'medida_correctiva', 'fecha_creacion',
             'reportado_por_externo', 'nombre_reportante', 'rut_reportante', 'contacto_reportante',
             'empresa_faena', 'area_puesto', 'clasificacion_peligro', 'norma_infringida',
@@ -264,7 +264,7 @@ class RegistroCapacitacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = RegistroCapacitacion
         fields = (
-            'id', 'usuario', 'username', 'tema', 'tema_titulo', 'tema_detalle',
+            'id', 'uuid', 'usuario', 'username', 'tema', 'tema_titulo', 'tema_detalle',
             'estado', 'fecha_programada', 'fecha_realizacion', 'lugar',
             'asistentes', 'observaciones', 'fecha_creacion'
         )
@@ -283,7 +283,7 @@ class SugerenciaConsultaSerializer(serializers.ModelSerializer):
     class Meta:
         model = SugerenciaConsulta
         fields = (
-            'id', 'usuario', 'username', 'tipo', 'mensaje', 'anonimo',
+            'id', 'uuid', 'usuario', 'username', 'tipo', 'mensaje', 'anonimo',
             'nombre_remitente', 'contacto_remitente',
             'leido', 'respuesta', 'fecha_creacion', 'fecha_respuesta'
         )

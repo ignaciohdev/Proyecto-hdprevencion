@@ -21,6 +21,7 @@ interface Asistente {
 
 interface RegistroCapacitacion {
   id: number;
+  uuid?: string;
   tema: number;
   tema_titulo: string;
   tema_detalle: TemaCapacitacion;
@@ -276,7 +277,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
               <div className="bg-white p-3.5 rounded-xl shadow border border-slate-200">
                 <img
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                    `${origin}/capacitaciones/firmar/${capacitacionId}`
+                    `${origin}/capacitaciones/firmar/${capacitacion.uuid || capacitacionId}`
                   )}`}
                   alt="Código QR de Asistencia"
                   className="w-44 h-44 mx-auto"
@@ -284,7 +285,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
               </div>
               <div className="text-[10px] bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-250 dark:border-slate-850 font-mono select-all break-all w-full text-slate-550 text-left">
                 <strong className="block text-[8px] uppercase text-slate-400 font-sans mb-0.5">Enlace de Firma:</strong>
-                {`${origin}/capacitaciones/firmar/${capacitacionId}`}
+                {`${origin}/capacitaciones/firmar/${capacitacion.uuid || capacitacionId}`}
               </div>
             </div>
           )}

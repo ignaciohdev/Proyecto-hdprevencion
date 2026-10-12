@@ -6,6 +6,7 @@ import { getApiUrl } from "../../../../utils/api";
 
 interface SessionDetails {
   id: number;
+  uuid: string;
   tema_titulo: string;
   tema_descripcion: string;
   fecha_programada: string;
@@ -14,8 +15,8 @@ interface SessionDetails {
   estado: string;
 }
 
-export default function PublicFirmaPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: capacitacionId } = use(params);
+export default function PublicFirmaPage({ params }: { params: Promise<{ uid: string }> }) {
+  const { uid: capacitacionUuid } = use(params);
   const router = useRouter();
 
   const [session, setSession] = useState<SessionDetails | null>(null);
@@ -37,7 +38,7 @@ export default function PublicFirmaPage({ params }: { params: Promise<{ id: stri
   useEffect(() => {
     const fetchDetails = async () => {
       try {
-        const res = await fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/detalles-publicos/`));
+        const res = await fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionUuid}/detalles-publicos/`));
         if (!res.ok) {
           const errData = await res.json();
           throw new Error(errData.error || "No se pudo cargar la información de la capacitación.");
@@ -50,8 +51,10 @@ export default function PublicFirmaPage({ params }: { params: Promise<{ id: stri
         setLoading(false);
       }
     };
-    fetchDetails();
-  }, [capacitacionId]);
+    if (capacitacionUuid) {
+      fetchDetails();
+    }
+  }, [capacitacionUuid]);
 
   // Configurar el Canvas cuando se carga la página o cambia el tamaño
   useEffect(() => {
@@ -173,7 +176,7 @@ export default function PublicFirmaPage({ params }: { params: Promise<{ id: stri
     const firmaBase64 = canvas.toDataURL("image/png");
 
     try {
-      const res = await fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/registrar-asistencia/`), {
+      const res = await fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionUuid}/registrar-asistencia/`), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

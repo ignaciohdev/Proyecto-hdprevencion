@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 from django.db import models
 from django.contrib.auth.models import AbstractUser
@@ -75,6 +76,15 @@ class Usuario(AbstractUser):
         (TIPO_INDIVIDUAL, 'Individual'),
         (TIPO_CORPORATIVO, 'Multi-asiento Corporativo'),
     ]
+
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Identificador Único (UUID)",
+        help_text="UUID público seguro para códigos QR y portal de participación."
+    )
     
     tipo_usuario = models.CharField(
         max_length=20,
@@ -474,6 +484,15 @@ class ReporteRiesgo(models.Model):
         (CONTROL_EPP, '5. Elementos de Protección Personal (EPP)'),
     ]
 
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Identificador Único (UUID)",
+        help_text="UUID público seguro para reportes de condiciones y actos inseguros."
+    )
+
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -829,6 +848,15 @@ class RegistroCapacitacion(models.Model):
         (ESTADO_CANCELADA, 'Cancelada'),
     ]
 
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Identificador Único (UUID)",
+        help_text="UUID público seguro para firma de charlas vía código QR."
+    )
+
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -889,6 +917,15 @@ class SugerenciaConsulta(models.Model):
         (TIPO_SUGERENCIA, 'Sugerencia Preventiva'),
         (TIPO_CONSULTA, 'Consulta de Seguridad'),
     ]
+
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Identificador Único (UUID)",
+        help_text="UUID público seguro para el buzón digital de sugerencias y denuncias."
+    )
 
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,

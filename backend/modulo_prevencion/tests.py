@@ -71,13 +71,38 @@ class CapacitacionIntegrationTestCase(APITestCase):
 
         # Hacer petición sin token JWT (Anónimo)
         self.client.credentials() # Limpiar credenciales
-        url = reverse('registrocapacitacion-detalles-publicos', kwargs={'pk': registro.pk})
+        url = reverse('registrocapacitacion-detalles-publicos', kwargs={'uuid': str(registro.uuid)})
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['tema_titulo'], "Charla de Inducción ODI")
         self.assertEqual(response.data['relator'], "prevencionista_test")
         self.assertEqual(response.data['estado'], RegistroCapacitacion.ESTADO_PROGRAMADA)
+
+    def test_rechazo_enumeracion_id_secuencial_publico(self):
+        """
+        Verifica que los endpoints públicos rechacen IDs secuenciales numéricos (404),
+        impidiendo la enumeración de recursos y fuga de datos sensibles.
+        """
+        tema = TemaCapacitacion.objects.create(
+            usuario=self.user,
+            titulo="Charla Anti Spoofing",
+            descripcion="Descripción breve",
+            categoria=TemaCapacitacion.CATEGORIA_ODI,
+            duracion_minutos=15
+        )
+        registro = RegistroCapacitacion.objects.create(
+            usuario=self.user,
+            tema=tema,
+            estado=RegistroCapacitacion.ESTADO_PROGRAMADA,
+            fecha_programada=timezone.now().date(),
+            lugar="Planta"
+        )
+        self.client.credentials()
+        # Intentar acceder mediante ID secuencial numérico a endpoint público
+        url_secuencial = f"/api/registro-capacitacion/{registro.pk}/detalles-publicos/"
+        response = self.client.get(url_secuencial)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_registrar_asistencia_publica(self):
         """
@@ -100,7 +125,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
             asistentes=[]
         )
 
-        url = reverse('registrocapacitacion-registrar-asistencia', kwargs={'pk': registro.pk})
+        url = reverse('registrocapacitacion-registrar-asistencia', kwargs={'uuid': str(registro.uuid)})
         
         # 1. Petición pública sin credenciales
         self.client.credentials()
@@ -162,10 +187,11 @@ class CapacitacionIntegrationTestCase(APITestCase):
         response_registro = self.client.post(url_registros, registro_data, format='json')
         self.assertEqual(response_registro.status_code, status.HTTP_201_CREATED)
         registro_id = response_registro.data['id']
+        registro_uuid = response_registro.data['uuid']
 
-        # 3. Trabajadores firman mediante endpoint público (Simulado)
+        # 3. Trabajadores firman mediante endpoint público (Simulado con UUID)
         self.client.credentials() # Anónimo
-        url_firmar = reverse('registrocapacitacion-registrar-asistencia', kwargs={'pk': registro_id})
+        url_firmar = reverse('registrocapacitacion-registrar-asistencia', kwargs={'uuid': registro_uuid})
         
         trabajador_1 = {"nombre": "Juan Perez", "rut": "12.345.678-9", "firma": "data:image/png;base64,aaaa"}
         trabajador_2 = {"nombre": "Maria Soto", "rut": "9.876.543-2", "firma": "data:image/png;base64,bbbb"}
@@ -179,7 +205,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
         # Traer el registro actualizado (que el front enviará al finalizar)
         registro_obj = RegistroCapacitacion.objects.get(id=registro_id)
         
-        finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'pk': registro_id})
+        finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'uuid': registro_uuid})
         payload_finalizar = {
             "asistentes": registro_obj.asistentes,
             "observaciones": "Se ejecutó de forma óptima con firmas móviles."
@@ -223,7 +249,7 @@ class CapacitacionIntegrationTestCase(APITestCase):
             asistentes=[]
         )
 
-        finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'pk': registro.pk})
+        finalizar_url = reverse('registrocapacitacion-finalizar', kwargs={'uuid': str(registro.uuid)})
         response = self.client.patch(finalizar_url, {"asistentes": []}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)

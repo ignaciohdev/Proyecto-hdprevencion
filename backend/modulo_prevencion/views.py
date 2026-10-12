@@ -1,19 +1,21 @@
+import uuid
 from typing import Any
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from django.http import Http404, HttpResponse
+from django.utils import timezone
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
+from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth import get_user_model
-from django.http import HttpResponse
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-from django.db import transaction
-from django.utils import timezone
 from .models import (
     PlantillaMaestra, DocumentoUsuario, Noticia, MensajeContacto, Servicio, Plan, Suscripcion, ContadorDescargas,
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
@@ -846,6 +848,47 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
     queryset = RegistroCapacitacion.objects.all()
     serializer_class = RegistroCapacitacionSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'uuid'
+    throttle_scope = 'public_qr'
+
+    def get_throttles(self):
+        if self.action in ['detalles_publicos', 'registrar_asistencia']:
+            return [AnonRateThrottle(), ScopedRateThrottle()]
+        return super().get_throttles()
+
+    def get_object(self):
+        """
+        Resuelve la instancia asegurando máxima seguridad:
+        - Para los endpoints públicos (detalles_publicos, registrar_asistencia), exige
+          un UUID válido para evitar enumeración y fuga de datos sensibles.
+        - Para endpoints autenticados del dashboard, permite buscar por UUID o ID numérico.
+        """
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        lookup_value = self.kwargs.get(lookup_url_kwarg)
+
+        action_name = getattr(self, 'action', None)
+        if action_name in ['detalles_publicos', 'registrar_asistencia']:
+            try:
+                uuid.UUID(str(lookup_value))
+            except (ValueError, AttributeError):
+                raise Http404("Capacitación no encontrada o identificador no válido.")
+            return get_object_or_404(RegistroCapacitacion, uuid=lookup_value)
+
+        # Acciones privadas autenticadas
+        queryset = self.filter_queryset(self.get_queryset())
+        filter_kwargs = {}
+        try:
+            val_uuid = uuid.UUID(str(lookup_value))
+            filter_kwargs['uuid'] = val_uuid
+        except (ValueError, AttributeError):
+            if str(lookup_value).isdigit():
+                filter_kwargs['pk'] = lookup_value
+            else:
+                filter_kwargs['uuid'] = lookup_value
+
+        obj = get_object_or_404(queryset, **filter_kwargs)
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def get_queryset(self):
         user: Any = self.request.user
@@ -860,7 +903,7 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
         serializer.save(usuario=user)
 
     @action(detail=True, methods=['patch'], url_path='finalizar')
-    def finalizar(self, request, pk=None):
+    def finalizar(self, request, uuid=None):
         """
         Finaliza una sesión de capacitación programada, guardando la lista de firmas de asistencia y comentarios.
         """
@@ -880,14 +923,21 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(capacitacion)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['get'], url_path='detalles-publicos', permission_classes=[permissions.AllowAny])
-    def detalles_publicos(self, request, pk=None):
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path='detalles-publicos',
+        permission_classes=[permissions.AllowAny]
+    )
+    def detalles_publicos(self, request, uuid=None):
         """
         Retorna la información básica de la capacitación para mostrarla públicamente en la firma.
+        Protegido por Throttling y consultado únicamente mediante UUID seguro.
         """
         capacitacion = self.get_object()
         return Response({
             "id": capacitacion.id,
+            "uuid": str(capacitacion.uuid),
             "tema_titulo": capacitacion.tema.titulo,
             "tema_descripcion": capacitacion.tema.descripcion,
             "fecha_programada": capacitacion.fecha_programada,
@@ -896,10 +946,16 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
             "estado": capacitacion.estado
         })
 
-    @action(detail=True, methods=['post'], url_path='registrar-asistencia', permission_classes=[permissions.AllowAny])
-    def registrar_asistencia(self, request, pk=None):
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='registrar-asistencia',
+        permission_classes=[permissions.AllowAny]
+    )
+    def registrar_asistencia(self, request, uuid=None):
         """
         Permite a un trabajador registrar su asistencia y firma digital (Base64) de forma pública.
+        Protegido por Throttling estricto (30 peticiones/min) y direccionado por UUID.
         """
         capacitacion = self.get_object()
         if capacitacion.estado != RegistroCapacitacion.ESTADO_PROGRAMADA:
@@ -1072,16 +1128,19 @@ class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
     """
     Endpoint público (sin autenticación) para que los trabajadores reporten
     condiciones o actos inseguros escaneando un código QR.
-    El campo `usuario` es el prevencionista receptor identificado por su `pk` en la URL.
+    El campo `usuario` es el prevencionista receptor identificado por su `uuid` seguro en la URL.
+    Protegido contra fuerza bruta con AnonRateThrottle y ScopedRateThrottle (30 req/min).
     """
     serializer_class = ReporteRiesgoSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = 'public_qr'
 
     def create(self, request, *args, **kwargs):
-        prevencionista_pk = self.kwargs.get('prevencionista_pk')
+        prevencionista_uuid = self.kwargs.get('prevencionista_uuid')
         try:
-            prevencionista = Usuario.objects.get(pk=prevencionista_pk)
-        except Usuario.DoesNotExist:
+            prevencionista = Usuario.objects.get(uuid=prevencionista_uuid)
+        except (Usuario.DoesNotExist, ValueError):
             return Response(
                 {"error": "El código QR no corresponde a un prevencionista válido."},
                 status=status.HTTP_404_NOT_FOUND
@@ -1089,7 +1148,7 @@ class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(
+        reporte = serializer.save(
             usuario=prevencionista,
             tipo=ReporteRiesgo.TIPO_CONDICION,
             reportado_por_externo=True,
@@ -1097,7 +1156,10 @@ class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
             gravedad=ReporteRiesgo.GRAVEDAD_MEDIA  # El prevencionista la clasifica luego
         )
         return Response(
-            {"mensaje": "¡Reporte enviado con éxito! El prevencionista de tu empresa lo revisará pronto."},
+            {
+                "mensaje": "¡Reporte enviado con éxito! El prevencionista de tu empresa lo revisará pronto.",
+                "uuid": str(reporte.uuid)
+            },
             status=status.HTTP_201_CREATED
         )
 
@@ -1148,15 +1210,19 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
     """
     Endpoint público (sin autenticación) para que los trabajadores envíen
     sugerencias o consultas al prevencionista de su empresa via código QR.
+    El campo `usuario` es el prevencionista receptor identificado por su `uuid` seguro en la URL.
+    Protegido contra fuerza bruta con AnonRateThrottle y ScopedRateThrottle (30 req/min).
     """
     serializer_class = SugerenciaConsultaSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = 'public_qr'
 
     def create(self, request, *args, **kwargs):
-        prevencionista_pk = self.kwargs.get('prevencionista_pk')
+        prevencionista_uuid = self.kwargs.get('prevencionista_uuid')
         try:
-            prevencionista = Usuario.objects.get(pk=prevencionista_pk)
-        except Usuario.DoesNotExist:
+            prevencionista = Usuario.objects.get(uuid=prevencionista_uuid)
+        except (Usuario.DoesNotExist, ValueError):
             return Response(
                 {"error": "El código QR no corresponde a un prevencionista válido."},
                 status=status.HTTP_404_NOT_FOUND
@@ -1164,9 +1230,12 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(usuario=prevencionista)
+        sugerencia = serializer.save(usuario=prevencionista)
         return Response(
-            {"mensaje": "Mensaje recibido. El prevencionista de tu empresa lo revisará a la brevedad."},
+            {
+                "mensaje": "Mensaje recibido. El prevencionista de tu empresa lo revisará a la brevedad.",
+                "uuid": str(sugerencia.uuid)
+            },
             status=status.HTTP_201_CREATED
         )
 

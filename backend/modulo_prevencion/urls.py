@@ -46,12 +46,12 @@ urlpatterns = [
 
     # Endpoints públicos del portal de participación (acceso via código QR, sin login)
     path(
-        'publico/<int:prevencionista_pk>/reportar-riesgo/',
+        'publico/<uuid:prevencionista_uuid>/reportar-riesgo/',
         ReporteRiesgoPublicoCreateView.as_view(),
         name='reportar_riesgo_publico'
     ),
     path(
-        'publico/<int:prevencionista_pk>/buzon/',
+        'publico/<uuid:prevencionista_uuid>/buzon/',
         SugerenciaConsultaPublicaCreateView.as_view(),
         name='buzon_publico'
     ),

@@ -71,7 +71,7 @@ export default function BuzonDigitalPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setUid(String(data.id));
+        setUid(data.uuid ? String(data.uuid) : String(data.id));
       }
     } catch {
       // silencioso
