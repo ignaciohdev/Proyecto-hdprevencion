@@ -12,7 +12,8 @@ from rest_framework.views import APIView
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from django.contrib.auth import get_user_model
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -60,9 +61,94 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
-    Vista de Login personalizada que retorna los tokens JWT con la información extendida del usuario.
+    Vista de Login personalizada:
+    - Retorna 'access' y 'refresh' en JSON (para compatibilidad de clientes).
+    - Inyecta el 'refresh_token' en una cookie HttpOnly:
+      httponly=True, secure=True, samesite='None', path='/', max_age=7 días.
     """
     serializer_class = CustomTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == status.HTTP_200_OK and 'refresh' in response.data:
+            refresh_token = response.data['refresh']
+            response.set_cookie(
+                key='refresh_token',
+                value=refresh_token,
+                max_age=7 * 24 * 60 * 60,
+                httponly=True,
+                secure=True,
+                samesite='None',
+                path='/'
+            )
+        return response
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """
+    Vista de Refresh JWT con soporte dual:
+    - Si no viene 'refresh' en el body, lo extrae de request.COOKIES.get('refresh_token').
+    - Emite un nuevo access token y rota el refresh token en la cookie (ROTATE_REFRESH_TOKENS=True).
+    - Devuelve 'access' (y 'refresh') en el JSON para compatibilidad.
+    """
+    def post(self, request, *args, **kwargs):
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        if 'refresh' not in data or not data['refresh']:
+            cookie_refresh = request.COOKIES.get('refresh_token')
+            if cookie_refresh:
+                data['refresh'] = cookie_refresh
+
+        serializer = self.get_serializer(data=data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+
+        response = Response(serializer.validated_data, status=status.HTTP_200_OK)
+        new_refresh = serializer.validated_data.get('refresh')
+        if new_refresh:
+            response.set_cookie(
+                key='refresh_token',
+                value=new_refresh,
+                max_age=7 * 24 * 60 * 60,
+                httponly=True,
+                secure=True,
+                samesite='None',
+                path='/'
+            )
+        return response
+
+
+class LogoutView(APIView):
+    """
+    Logout seguro:
+    - Invalida el refresh token en la blacklist.
+    - Borra la cookie 'refresh_token'.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        refresh_token = request.data.get('refresh') or request.COOKIES.get('refresh_token')
+        if refresh_token:
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except Exception:
+                pass
+
+        response = Response({"detail": "Sesión cerrada exitosamente."}, status=status.HTTP_200_OK)
+        response.delete_cookie('refresh_token', path='/', samesite='None')
+        response.set_cookie(
+            key='refresh_token',
+            value='',
+            max_age=0,
+            expires='Thu, 01 Jan 1970 00:00:00 GMT',
+            path='/',
+            httponly=True,
+            secure=True,
+            samesite='None'
+        )
+        return response
 
 
 class RegisterView(generics.CreateAPIView):

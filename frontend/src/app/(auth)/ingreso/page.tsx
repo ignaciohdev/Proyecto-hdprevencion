@@ -34,6 +34,7 @@ function IngresoInner() {
     try {
       const response = await fetch(getApiUrl("/api/auth/login/"), {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },

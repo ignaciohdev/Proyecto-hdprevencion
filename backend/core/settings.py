@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     
     # Aplicaciones del proyecto
     'modulo_prevencion',
@@ -212,44 +213,54 @@ REST_FRAMEWORK = {
 
 from datetime import timedelta
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
-    'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': False,
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# Configuración de CORS y orígenes permitidos
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-else:
-    CORS_ALLOW_ALL_ORIGINS = False
-    CORS_ALLOWED_ORIGINS = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ]
-    frontend_url = os.environ.get('FRONTEND_URL')
-    if frontend_url:
-        if frontend_url.endswith('/'):
-            frontend_url = frontend_url[:-1]
-        CORS_ALLOWED_ORIGINS.append(frontend_url)
-        
-    # Configuración de CSRF Trusted Origins para producción
-    CSRF_TRUSTED_ORIGINS = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://*.onrender.com",
-    ]
-    render_external_url = os.environ.get('RENDER_EXTERNAL_URL')
-    if render_external_url:
-        if render_external_url.endswith('/'):
-            render_external_url = render_external_url[:-1]
-        CSRF_TRUSTED_ORIGINS.append(render_external_url)
+# Configuración de CORS y credenciales cross-domain (Vercel <-> Render)
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False
 
-    if frontend_url:
-        CSRF_TRUSTED_ORIGINS.append(frontend_url)
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Permitir cualquier deployment o preview en Vercel
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+]
+
+frontend_url = os.environ.get('FRONTEND_URL')
+if frontend_url:
+    clean_frontend = frontend_url.rstrip('/')
+    if clean_frontend not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(clean_frontend)
+
+# Configuración de CSRF Trusted Origins
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://*.vercel.app",
+    "https://*.onrender.com",
+]
+
+render_external_url = os.environ.get('RENDER_EXTERNAL_URL')
+if render_external_url:
+    clean_render = render_external_url.rstrip('/')
+    if clean_render not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(clean_render)
+
+if frontend_url:
+    clean_frontend = frontend_url.rstrip('/')
+    if clean_frontend not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(clean_frontend)
+
 
 
 

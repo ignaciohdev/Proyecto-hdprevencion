@@ -253,3 +253,85 @@ class CapacitacionIntegrationTestCase(APITestCase):
         response = self.client.patch(finalizar_url, {"asistentes": []}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)
+
+
+class JWTAuthSecurityTestCase(APITestCase):
+    """
+    Pruebas de seguridad para mitigación SEC-02 (Fortalecimiento de JWT):
+    - Cookies HttpOnly SameSite=None Secure para refresh token.
+    - Soporte dual (cookie y body) en endpoint de refresh.
+    - Rotación y blacklist de tokens antiguos.
+    - Logout seguro e invalidación de token.
+    """
+    client: Any
+
+    def setUp(self):
+        self.user = Usuario.objects.create_user(
+            username="jwt_user_test",
+            email="jwt@hdprevencion.cl",
+            password="StrongPassword123!"
+        )
+
+    def test_login_retorna_tokens_e_inyecta_cookie(self):
+        url = reverse('token_obtain_pair')
+        payload = {
+            "username": "jwt_user_test",
+            "password": "StrongPassword123!"
+        }
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        
+        # Verificar cookie refresh_token
+        self.assertIn('refresh_token', response.cookies)
+        cookie = response.cookies['refresh_token']
+        self.assertEqual(cookie['httponly'], True)
+        self.assertEqual(cookie['secure'], True)
+        self.assertEqual(cookie['samesite'], 'None')
+        self.assertEqual(cookie['path'], '/')
+        self.assertEqual(cookie.value, response.data['refresh'])
+
+    def test_refresh_desde_cookie_y_rotacion(self):
+        # 1. Login para obtener refresh token
+        login_res = self.client.post(reverse('token_obtain_pair'), {
+            "username": "jwt_user_test",
+            "password": "StrongPassword123!"
+        })
+        first_refresh = login_res.data['refresh']
+
+        # 2. Refrescar sin enviar refresh en el body (usando la cookie inyectada)
+        refresh_url = reverse('token_refresh')
+        response = self.client.post(refresh_url, {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        
+        # El token de refresco debe haber rotado
+        second_refresh = response.data['refresh']
+        self.assertNotEqual(first_refresh, second_refresh)
+        self.assertEqual(response.cookies['refresh_token'].value, second_refresh)
+
+        # 3. Intentar reutilizar el primer refresh token debe fallar por estar en Blacklist
+        reuse_res = self.client.post(refresh_url, {'refresh': first_refresh}, format='json')
+        self.assertEqual(reuse_res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_invalida_token_y_borra_cookie(self):
+        login_res = self.client.post(reverse('token_obtain_pair'), {
+            "username": "jwt_user_test",
+            "password": "StrongPassword123!"
+        })
+        refresh_token = login_res.data['refresh']
+
+        logout_url = reverse('auth_logout')
+        logout_res = self.client.post(logout_url, {}, format='json')
+        self.assertEqual(logout_res.status_code, status.HTTP_200_OK)
+        
+        # Verificar que la cookie fue eliminada (valor vacío)
+        self.assertEqual(logout_res.cookies['refresh_token'].value, '')
+
+        # Intentar refrescar con el token que fue revocado debe ser rechazado
+        refresh_url = reverse('token_refresh')
+        reuse_res = self.client.post(refresh_url, {'refresh': refresh_token}, format='json')
+        self.assertEqual(reuse_res.status_code, status.HTTP_401_UNAUTHORIZED)
+

@@ -1,78 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { getApiUrl } from "../utils/api";
+import { useState } from "react";
+import { useAuth } from "../hooks/useAuth";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const { user, isAuthenticated, logout } = useAuth();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-  const fetchPerfil = async (token: string) => {
-    try {
-      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Token vencido o inválido.");
-      const data = await res.json();
-      
-      const base64Url = token.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      const decoded = JSON.parse(decodeURIComponent(
-        window.atob(base64).split("").map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join("")
-      ));
-      
-      setUser({
-        ...decoded,
-        ...data
-      });
-      setIsAuthenticated(true);
-    } catch (e) {
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
-      setIsAuthenticated(false);
-      router.push("/ingreso");
-    }
-  };
-
-  useEffect(() => {
-    const token = localStorage.getItem("access_token");
-
-    if (!token) {
-      setIsAuthenticated(false);
-      router.push("/ingreso");
-      return;
-    }
-
-    fetchPerfil(token);
-
-    const handleUserChange = () => {
-      const refreshedToken = localStorage.getItem("access_token");
-      if (refreshedToken) {
-        fetchPerfil(refreshedToken);
-      }
-    };
-
-    window.addEventListener("userPlanChanged", handleUserChange);
-    window.addEventListener("userProfileChanged", handleUserChange);
-    return () => {
-      window.removeEventListener("userPlanChanged", handleUserChange);
-      window.removeEventListener("userProfileChanged", handleUserChange);
-    };
-  }, [router]);
-
-  const handleLogout = () => {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    localStorage.removeItem("user_info");
-    router.push("/ingreso");
-  };
 
   // Mostrar indicador de carga mientras se valida la sesión
   if (isAuthenticated === null) {
@@ -327,7 +264,7 @@ export default function DashboardLayout({
           </a>
           
           <button
-            onClick={handleLogout}
+            onClick={logout}
             className="w-full bg-slate-900 hover:bg-red-950 text-slate-400 hover:text-red-400 font-semibold py-2 px-4 rounded-xl border border-slate-800 hover:border-red-900 transition-all text-sm flex items-center justify-center space-x-2 cursor-pointer"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
