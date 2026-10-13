@@ -11,7 +11,9 @@ from .models import (
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
     TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta,
     Contratista, DocumentoContratista, TrabajadorSubcontratado,
-    SolicitudCapacitacion
+    SolicitudCapacitacion,
+    Empresa, CentroTrabajo, Trabajador,
+    SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia
 )
 
 Usuario = get_user_model()
@@ -192,11 +194,15 @@ class ServicioSerializer(serializers.ModelSerializer):
 
 class ReporteRiesgoSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='usuario.username', read_only=True)
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
 
     class Meta:
         model = ReporteRiesgo
         fields = (
-            'id', 'uuid', 'usuario', 'username', 'tipo', 'descripcion', 'lugar', 'gravedad',
+            'id', 'uuid', 'usuario', 'username', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'tipo', 'descripcion', 'lugar', 'gravedad',
             'estado', 'medida_correctiva', 'fecha_creacion',
             'reportado_por_externo', 'nombre_reportante', 'rut_reportante', 'contacto_reportante',
             'empresa_faena', 'area_puesto', 'clasificacion_peligro', 'norma_infringida',
@@ -217,10 +223,17 @@ class PlantillaInspeccionSerializer(serializers.ModelSerializer):
 class InspeccionSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='usuario.username', read_only=True)
     plantilla_nombre = serializers.CharField(source='plantilla.nombre', read_only=True)
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
 
     class Meta:
         model = Inspeccion
-        fields = ('id', 'usuario', 'username', 'plantilla', 'plantilla_nombre', 'fecha', 'respuestas', 'porcentaje_cumplimiento', 'firma_nombre', 'firma_rut')
+        fields = (
+            'id', 'usuario', 'username', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'plantilla', 'plantilla_nombre', 'fecha', 'respuestas',
+            'porcentaje_cumplimiento', 'firma_nombre', 'firma_rut'
+        )
         extra_kwargs = {
             'usuario': {'required': False},
             'porcentaje_cumplimiento': {'required': False}
@@ -229,16 +242,29 @@ class InspeccionSerializer(serializers.ModelSerializer):
 
 class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='usuario.username', read_only=True)
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    trabajador_nombre = serializers.CharField(source='trabajador.nombre_completo', read_only=True)
+    tipo_accidente_grave_display = serializers.CharField(source='get_tipo_accidente_grave_display', read_only=True)
+    horas_restantes_diat = serializers.FloatField(read_only=True)
+    diat_vencida = serializers.BooleanField(read_only=True)
+    semaforo_diat = serializers.CharField(read_only=True)
 
     class Meta:
         model = InvestigacionAccidente
         fields = (
-            'id', 'usuario', 'username',
+            'id', 'usuario', 'username', 'empresa', 'empresa_nombre',
+            'trabajador', 'trabajador_nombre',
             'nombre_afectado', 'rut_afectado', 'cargo_afectado', 'edad_afectado', 'antiguedad_afectado',
             'tipo_evento', 'fecha_hora_evento', 'lugar_evento', 'descripcion_evento',
             'tipo_lesion', 'parte_cuerpo_afectada',
             'causas_inmediatas', 'causas_basicas', 'analisis_5_porques',
-            'plan_accion', 'fecha_creacion'
+            'plan_accion',
+            'diat_presentada', 'diat_folio', 'diat_fecha_presentacion', 'plazo_limite_diat_24h',
+            'horas_restantes_diat', 'diat_vencida', 'semaforo_diat',
+            'es_grave_o_fatal', 'tipo_accidente_grave', 'tipo_accidente_grave_display',
+            'faena_suspendida', 'aviso_autoridades_realizado', 'aviso_autoridades_folio', 'aviso_autoridades_fecha',
+            'dias_perdidos', 'alta_medica',
+            'fecha_creacion'
         )
         extra_kwargs = {
             'usuario': {'required': False}
@@ -260,11 +286,15 @@ class RegistroCapacitacionSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='usuario.username', read_only=True)
     tema_titulo = serializers.CharField(source='tema.titulo', read_only=True)
     tema_detalle = TemaCapacitacionSerializer(source='tema', read_only=True)
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
 
     class Meta:
         model = RegistroCapacitacion
         fields = (
-            'id', 'uuid', 'usuario', 'username', 'tema', 'tema_titulo', 'tema_detalle',
+            'id', 'uuid', 'usuario', 'username', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'tema', 'tema_titulo', 'tema_detalle',
             'estado', 'fecha_programada', 'fecha_realizacion', 'lugar',
             'asistentes', 'observaciones', 'fecha_creacion'
         )
@@ -377,5 +407,154 @@ class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
             'mensaje_adicional': {'required': False, 'allow_blank': True},
             'fecha_tentativa': {'required': False, 'allow_null': True},
         }
+
+
+class CentroTrabajoSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    empresa_rut = serializers.CharField(source='empresa.rut', read_only=True)
+    cant_trabajadores = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CentroTrabajo
+        fields = (
+            'id', 'empresa', 'empresa_nombre', 'empresa_rut',
+            'nombre', 'direccion', 'comuna', 'region',
+            'es_casa_matriz', 'cant_trabajadores', 'fecha_creacion'
+        )
+
+    def get_cant_trabajadores(self, obj):
+        return obj.trabajadores.filter(estado=Trabajador.ESTADO_ACTIVO).count()
+
+
+class TrabajadorSerializer(serializers.ModelSerializer):
+    nombre_completo = serializers.ReadOnlyField()
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+
+    class Meta:
+        model = Trabajador
+        fields = (
+            'id', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'rut', 'nombres', 'apellidos', 'nombre_completo',
+            'cargo', 'correo', 'telefono', 'fecha_ingreso',
+            'estado', 'fecha_creacion'
+        )
+
+    def validate_rut(self, value):
+        from .models import validar_rut_chileno
+        validar_rut_chileno(value)
+        return value
+
+
+class EmpresaSerializer(serializers.ModelSerializer):
+    prevencionista_username = serializers.CharField(source='prevencionista.username', read_only=True)
+    centros_trabajo = CentroTrabajoSerializer(many=True, read_only=True)
+    cant_centros = serializers.SerializerMethodField()
+    cant_trabajadores = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Empresa
+        fields = (
+            'id', 'prevencionista', 'prevencionista_username',
+            'razon_social', 'nombre_fantasia', 'rut', 'giro',
+            'mutualidad', 'tasa_cotizacion_adicional', 'activo',
+            'fecha_creacion', 'centros_trabajo', 'cant_centros', 'cant_trabajadores'
+        )
+        extra_kwargs = {
+            'prevencionista': {'read_only': True}
+        }
+
+    def validate_rut(self, value):
+        from .models import validar_rut_chileno
+        validar_rut_chileno(value)
+        return value
+
+    def get_cant_centros(self, obj):
+        return obj.centros_trabajo.count()
+
+    def get_cant_trabajadores(self, obj):
+        return obj.trabajadores.filter(estado=Trabajador.ESTADO_ACTIVO).count()
+
+
+class AuditLogAccesoDenunciaSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
+
+    class Meta:
+        model = AuditLogAccesoDenuncia
+        fields = ('id', 'denuncia', 'usuario', 'usuario_nombre', 'fecha_hora', 'ip_origen', 'accion')
+        read_only_fields = ('id', 'fecha_hora', 'ip_origen')
+
+
+class SugerenciaLaboralSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+
+    class Meta:
+        model = SugerenciaLaboral
+        fields = (
+            'id', 'uuid', 'empresa', 'empresa_nombre',
+            'mensaje', 'tipo', 'tipo_display', 'es_anonimo',
+            'nombre_remitente', 'contacto_remitente',
+            'estado', 'estado_display', 'respuesta', 'fecha_creacion'
+        )
+        read_only_fields = ('id', 'uuid', 'fecha_creacion')
+
+
+class DenunciaLeyKarinSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+    tipo_afectacion_display = serializers.CharField(source='get_tipo_afectacion_display', read_only=True)
+    estado_tramite_display = serializers.CharField(source='get_estado_tramite_display', read_only=True)
+    horas_restantes = serializers.FloatField(read_only=True)
+    semaforo = serializers.CharField(read_only=True)
+    accesos_auditoria = AuditLogAccesoDenunciaSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = DenunciaLeyKarin
+        fields = (
+            'id', 'uuid', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'tipo_afectacion', 'tipo_afectacion_display',
+            'rut_denunciante', 'nombre_denunciante',
+            'correo_denunciante', 'telefono_denunciante',
+            'nombre_denunciado', 'cargo_area_denunciado',
+            'descripcion_circunstanciada', 'testigos_o_evidencias',
+            'fecha_hora_ingreso', 'plazo_limite_derivacion_dt',
+            'estado_tramite', 'estado_tramite_display',
+            'medidas_resguardo_detalle', 'derivada_inspeccion_trabajo',
+            'folio_dt', 'horas_restantes', 'semaforo',
+            'accesos_auditoria'
+        )
+        read_only_fields = (
+            'id', 'uuid', 'fecha_hora_ingreso', 'plazo_limite_derivacion_dt',
+            'horas_restantes', 'semaforo', 'accesos_auditoria'
+        )
+
+    def validate_rut_denunciante(self, value):
+        from .models import validar_rut_chileno
+        validar_rut_chileno(value)
+        return value
+
+
+class DenunciaLeyKarinPublicaCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DenunciaLeyKarin
+        fields = (
+            'id', 'uuid', 'empresa', 'centro_trabajo',
+            'tipo_afectacion', 'rut_denunciante', 'nombre_denunciante',
+            'correo_denunciante', 'telefono_denunciante',
+            'nombre_denunciado', 'cargo_area_denunciado',
+            'descripcion_circunstanciada', 'testigos_o_evidencias'
+        )
+        read_only_fields = ('id', 'uuid')
+
+    def validate_rut_denunciante(self, value):
+        from .models import validar_rut_chileno
+        validar_rut_chileno(value)
+        return value
+
+
 
 

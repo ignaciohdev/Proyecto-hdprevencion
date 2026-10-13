@@ -34,6 +34,9 @@ export default function NuevaInvestigacionPage() {
     descripcion_evento: "",
     tipo_lesion: "",
     parte_cuerpo_afectada: "",
+    es_grave_o_fatal: false,
+    tipo_accidente_grave: "OTRO_GRAVE",
+    dias_perdidos: 0,
   });
 
   // Paso 3: Análisis de Causas
@@ -317,6 +320,50 @@ export default function NuevaInvestigacionPage() {
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
                 />
               </div>
+
+              {/* Control de Siniestralidad Legal (Días Perdidos y Protocolo Circular 3336) */}
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-slate-500">Días Perdidos Iniciales (Licencia)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={evento.dias_perdidos}
+                  onChange={(e) => setEvento({ ...evento, dias_perdidos: parseInt(e.target.value) || 0 })}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-350 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              <div className="flex flex-col justify-end">
+                <label className="flex items-center gap-2 cursor-pointer p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl">
+                  <input
+                    type="checkbox"
+                    checked={evento.es_grave_o_fatal}
+                    onChange={(e) => setEvento({ ...evento, es_grave_o_fatal: e.target.checked })}
+                    className="w-4 h-4 accent-red-600 rounded cursor-pointer"
+                  />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                    ⚠️ Clasificar como Accidente Grave o Fatal (Circular 3336)
+                  </span>
+                </label>
+              </div>
+
+              {evento.es_grave_o_fatal && (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold mb-1 text-red-500">Criterio de Gravedad (Art. 76 Ley 16.744)</label>
+                  <select
+                    value={evento.tipo_accidente_grave}
+                    onChange={(e) => setEvento({ ...evento, tipo_accidente_grave: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-900 border border-red-300 dark:border-red-900 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    <option value="CAIDA_ALTURA">Caída de distinto nivel (sobre 1.8 metros)</option>
+                    <option value="AMPUTACION">Amputación o pérdida traumática de parte del cuerpo</option>
+                    <option value="ATRAPAMIENTO_ASFIXIA">Atrapamiento, asfixia o inmersión</option>
+                    <option value="MANIOBRAS_REANIMACION">Accidente que requirió maniobras de RCP / Resucitación</option>
+                    <option value="FALLECIMIENTO">Accidente con consecuencia fatal inmediata</option>
+                    <option value="OTRO_GRAVE">Otro evento de gravedad crítica con compromiso vital</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
         )}

@@ -1,432 +1,565 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
+type CanalType = 'SUGERENCIA' | 'DENUNCIA_KARIN';
 type FormState = 'idle' | 'submitting' | 'success' | 'error';
+
+interface EmpresaItem {
+  id: number;
+  razon_social: string;
+  nombre_fantasia: string;
+  rut: string;
+  centros_trabajo: { id: number; nombre: string; direccion: string }[];
+}
 
 export default function BuzonPublicoPage() {
   const { uid } = useParams<{ uid: string }>();
 
-  const [tipo, setTipo] = useState<'SUGERENCIA' | 'CONSULTA'>('SUGERENCIA');
-  const [form, setForm] = useState({
-    mensaje: '',
-    nombre_remitente: '',
-    contacto_remitente: '',
-  });
-  const [anonimo, setAnonimo] = useState(true);
+  // Selector principal de canal
+  const [canal, setCanal] = useState<CanalType>('SUGERENCIA');
+
+  // Empresas disponibles del prevencionista
+  const [empresas, setEmpresas] = useState<EmpresaItem[]>([]);
+  const [selectedEmpresaId, setSelectedEmpresaId] = useState<string>('');
+  const [selectedCentroId, setSelectedCentroId] = useState<string>('');
+
+  // Formulario Sugerencia Laboral
+  const [tipoSugerencia, setTipoSugerencia] = useState<'MEJORA_PROCESO' | 'CLIMA_LABORAL' | 'SEGURIDAD_GENERAL'>('MEJORA_PROCESO');
+  const [mensajeSugerencia, setMensajeSugerencia] = useState('');
+  const [esAnonimo, setEsAnonimo] = useState(true);
+  const [nombreRemitente, setNombreRemitente] = useState('');
+  const [contactoRemitente, setContactoRemitente] = useState('');
+
+  // Formulario Denuncia Ley Karin
+  const [tipoAfectacion, setTipoAfectacion] = useState<'ACOSO_LABORAL' | 'ACOSO_SEXUAL' | 'VIOLENCIA_EXTERNA'>('ACOSO_LABORAL');
+  const [rutDenunciante, setRutDenunciante] = useState('');
+  const [nombreDenunciante, setNombreDenunciante] = useState('');
+  const [correoDenunciante, setCorreoDenunciante] = useState('');
+  const [telefonoDenunciante, setTelefonoDenunciante] = useState('');
+  const [nombreDenunciado, setNombreDenunciado] = useState('');
+  const [cargoAreaDenunciado, setCargoAreaDenunciado] = useState('');
+  const [descripcionHechos, setDescripcionHechos] = useState('');
+  const [testigosEvidencias, setTestigosEvidencias] = useState('');
+
+  // Estados de carga y feedback
   const [formState, setFormState] = useState<FormState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const [successInfo, setSuccessInfo] = useState<{ uuid: string; tipo: string } | null>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  // Cargar lista de empresas y centros de trabajo del prevencionista
+  useEffect(() => {
+    if (!uid) return;
+    const fetchEmpresas = async () => {
+      try {
+        const res = await fetch(`${API_URL}/publico/${uid}/empresas/`);
+        if (res.ok) {
+          const data: EmpresaItem[] = await res.json();
+          setEmpresas(data);
+          if (data.length > 0) {
+            setSelectedEmpresaId(String(data[0].id));
+            if (data[0].centros_trabajo.length > 0) {
+              setSelectedCentroId(String(data[0].centros_trabajo[0].id));
+            }
+          }
+        }
+      } catch {
+        // silencioso
+      }
+    };
+    fetchEmpresas();
+  }, [uid]);
+
+  // Centros de trabajo disponibles para la empresa seleccionada
+  const centrosDisponibles =
+    empresas.find(e => String(e.id) === selectedEmpresaId)?.centros_trabajo || [];
+
+  const handleEmpresaChange = (empresaId: string) => {
+    setSelectedEmpresaId(empresaId);
+    const emp = empresas.find(e => String(e.id) === empresaId);
+    if (emp && emp.centros_trabajo.length > 0) {
+      setSelectedCentroId(String(emp.centros_trabajo[0].id));
+    } else {
+      setSelectedCentroId('');
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.mensaje.trim()) return;
-
     setFormState('submitting');
     setErrorMsg('');
 
     try {
+      let payload: Record<string, unknown> = {};
+
+      if (canal === 'DENUNCIA_KARIN') {
+        if (!rutDenunciante.trim() || !nombreDenunciante.trim() || !correoDenunciante.trim()) {
+          setErrorMsg('Por favor completa todos los datos obligatorios del denunciante.');
+          setFormState('error');
+          return;
+        }
+        if (!nombreDenunciado.trim() || !descripcionHechos.trim()) {
+          setErrorMsg('Por favor indica el nombre de la persona denunciada y la descripción de los hechos.');
+          setFormState('error');
+          return;
+        }
+
+        payload = {
+          tipo_canal: 'DENUNCIA_KARIN',
+          empresa: selectedEmpresaId ? Number(selectedEmpresaId) : undefined,
+          centro_trabajo: selectedCentroId ? Number(selectedCentroId) : undefined,
+          tipo_afectacion: tipoAfectacion,
+          rut_denunciante: rutDenunciante.trim(),
+          nombre_denunciante: nombreDenunciante.trim(),
+          correo_denunciante: correoDenunciante.trim(),
+          telefono_denunciante: telefonoDenunciante.trim(),
+          nombre_denunciado: nombreDenunciado.trim(),
+          cargo_area_denunciado: cargoAreaDenunciado.trim(),
+          descripcion_circunstanciada: descripcionHechos.trim(),
+          testigos_o_evidencias: testigosEvidencias.trim() || null,
+        };
+      } else {
+        if (!mensajeSugerencia.trim()) {
+          setErrorMsg('Por favor escribe tu sugerencia.');
+          setFormState('error');
+          return;
+        }
+
+        payload = {
+          tipo_canal: 'SUGERENCIA',
+          empresa: selectedEmpresaId ? Number(selectedEmpresaId) : undefined,
+          tipo: tipoSugerencia,
+          mensaje: mensajeSugerencia.trim(),
+          es_anonimo: esAnonimo,
+          nombre_remitente: esAnonimo ? null : nombreRemitente.trim() || null,
+          contacto_remitente: esAnonimo ? null : contactoRemitente.trim() || null,
+        };
+      }
+
       const res = await fetch(`${API_URL}/publico/${uid}/buzon/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tipo,
-          mensaje: form.mensaje,
-          anonimo,
-          nombre_remitente: anonimo ? null : (form.nombre_remitente || null),
-          contacto_remitente: anonimo ? null : (form.contacto_remitente || null),
-        }),
+        body: JSON.stringify(payload),
       });
 
+      const data = await res.json();
+
       if (res.ok) {
+        setSuccessInfo({ uuid: data.uuid, tipo: data.tipo || canal });
         setFormState('success');
       } else {
-        const data = await res.json();
-        setErrorMsg(data.error || 'Ocurrió un error al enviar tu mensaje.');
+        const errorText =
+          data.error ||
+          data.rut_denunciante?.[0] ||
+          data.empresa?.[0] ||
+          'Ocurrió un error al enviar el formulario. Verifica los campos requeridos.';
+        setErrorMsg(errorText);
         setFormState('error');
       }
     } catch {
-      setErrorMsg('No se pudo conectar al servidor. Verifica tu conexión a Internet.');
+      setErrorMsg('No se pudo conectar con el servidor. Revisa tu conexión a Internet.');
       setFormState('error');
     }
   };
 
   if (formState === 'success') {
     return (
-      <div style={styles.pageWrapper}>
-        <div style={styles.successCard}>
-          <div style={styles.successIcon}>📬</div>
-          <h1 style={styles.successTitle}>¡Mensaje recibido!</h1>
-          <p style={styles.successText}>
-            Tu {tipo === 'SUGERENCIA' ? 'sugerencia' : 'consulta'} fue enviada
-            correctamente al prevencionista de tu empresa, quien la revisará a la
-            brevedad.
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-lg w-full text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-2xl flex items-center justify-center text-3xl mx-auto">
+            {successInfo?.tipo === 'DENUNCIA_KARIN' ? '⚖️' : '📬'}
+          </div>
+
+          <h1 className="text-2xl font-black text-white">
+            {successInfo?.tipo === 'DENUNCIA_KARIN'
+              ? 'Denuncia Ley Karin Recepcionada'
+              : '¡Mensaje Enviado con Éxito!'}
+          </h1>
+
+          <p className="text-sm text-slate-300 leading-relaxed">
+            {successInfo?.tipo === 'DENUNCIA_KARIN'
+              ? 'Tu denuncia ha sido registrada bajo estricta confidencialidad. Se ha notificado formalmente al prevencionista y empleador para activar las medidas de resguardo cautelar dentro del plazo legal de 72 horas (Ley N° 21.643).'
+              : 'Tu sugerencia de mejora ha sido transmitida de forma segura al prevencionista de tu empresa.'}
           </p>
-          <p style={styles.successSub}>Puedes cerrar esta ventana.</p>
+
+          {successInfo?.uuid && (
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-xs font-mono text-slate-400">
+              Comprobante Seguro: <span className="text-amber-400">{successInfo.uuid}</span>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-500">Puedes cerrar esta ventana de manera segura.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div style={styles.pageWrapper}>
-      <div style={styles.card}>
-        {/* Header */}
-        <div style={styles.header}>
-          <div style={styles.badge}>📬 Buzón Digital</div>
-          <h1 style={styles.title}>Participación y Consulta</h1>
-          <p style={styles.subtitle}>
-            Envía una sugerencia de mejora o una consulta sobre seguridad
-            directamente al prevencionista de tu empresa. No necesitas cuenta ni
-            contraseña.
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 flex items-center justify-center">
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 max-w-2xl w-full shadow-2xl space-y-6">
+        {/* Encabezado */}
+        <div className="text-center space-y-2 pb-4 border-b border-slate-800">
+          <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full inline-block">
+            Portal Público de Participación & Denuncias
+          </span>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-white">Buzón de Trabajadores</h1>
+          <p className="text-xs md:text-sm text-slate-400 max-w-lg mx-auto">
+            Canal directo con el prevencionista de tu empresa. Puedes ingresar una propuesta de mejora o una denuncia formal y confidencial bajo la Ley Karin.
           </p>
         </div>
 
-        {/* Selector de Tipo */}
-        <div style={styles.typeSelector}>
+        {/* Selector de Canal: Sugerencia vs Denuncia Ley Karin */}
+        <div className="grid grid-cols-2 gap-3 p-1.5 bg-slate-950 rounded-2xl border border-slate-800">
           <button
             type="button"
-            onClick={() => setTipo('SUGERENCIA')}
-            style={{
-              ...styles.typeBtn,
-              ...(tipo === 'SUGERENCIA' ? styles.typeBtnActive : {}),
-            }}
+            onClick={() => setCanal('SUGERENCIA')}
+            className={`py-3 px-4 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              canal === 'SUGERENCIA'
+                ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
+                : 'text-slate-400 hover:text-white'
+            }`}
           >
-            💡 Sugerencia
+            <span>💡</span>
+            <span>Sugerencia / Clima</span>
           </button>
+
           <button
             type="button"
-            onClick={() => setTipo('CONSULTA')}
-            style={{
-              ...styles.typeBtn,
-              ...(tipo === 'CONSULTA' ? styles.typeBtnActiveBlue : {}),
-            }}
+            onClick={() => setCanal('DENUNCIA_KARIN')}
+            className={`py-3 px-4 rounded-xl text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              canal === 'DENUNCIA_KARIN'
+                ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30'
+                : 'text-slate-400 hover:text-white'
+            }`}
           >
-            ❓ Consulta
+            <span>⚖️</span>
+            <span>Denuncia Ley Karin</span>
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {/* Mensaje */}
-          <div style={styles.fieldGroup}>
-            <label style={styles.label} htmlFor="mensaje">
-              Tu {tipo === 'SUGERENCIA' ? 'sugerencia' : 'consulta'}{' '}
-              <span style={styles.required}>*</span>
-            </label>
-            <textarea
-              id="mensaje"
-              name="mensaje"
-              value={form.mensaje}
-              onChange={handleChange}
-              required
-              rows={5}
-              placeholder={
-                tipo === 'SUGERENCIA'
-                  ? 'Ej: Sería útil colocar señalética en el acceso a bodega para indicar el uso obligatorio de casco...'
-                  : 'Ej: ¿Cuándo son los próximos exámenes de altura? ¿Hay charlas de emergencia planificadas?'
-              }
-              style={styles.textarea}
-            />
-          </div>
+        {/* Selector de Empresa y Faena (si hay más de 1) */}
+        {empresas.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80">
+            <div>
+              <label className="text-xs font-bold text-slate-400 block mb-1.5">
+                Empresa a la que perteneces:
+              </label>
+              <select
+                value={selectedEmpresaId}
+                onChange={e => handleEmpresaChange(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+              >
+                {empresas.map(emp => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.razon_social} ({emp.rut})
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          {/* Toggle anonimo */}
-          <div style={styles.anonRow}>
-            <label style={styles.anonLabel} htmlFor="anonimo">
-              <input
-                id="anonimo"
-                type="checkbox"
-                checked={anonimo}
-                onChange={e => setAnonimo(e.target.checked)}
-                style={styles.checkbox}
-              />
-              Enviar de forma anónima
-            </label>
-            <span style={styles.anonHint}>
-              {anonimo
-                ? 'No se incluirá tu identidad'
-                : 'Tus datos serán visibles para el prevencionista'}
-            </span>
-          </div>
-
-          {/* Datos opcionales (si no es anónimo) */}
-          {!anonimo && (
-            <div style={styles.twoCol}>
-              <div style={styles.fieldGroup}>
-                <label style={styles.label} htmlFor="nombre_remitente">
-                  Tu nombre
+            {centrosDisponibles.length > 0 && (
+              <div>
+                <label className="text-xs font-bold text-slate-400 block mb-1.5">
+                  Faena o Sucursal (opcional):
                 </label>
-                <input
-                  id="nombre_remitente"
-                  name="nombre_remitente"
-                  value={form.nombre_remitente}
-                  onChange={handleChange}
-                  type="text"
-                  placeholder="Nombre completo (opcional)"
-                  style={styles.input}
+                <select
+                  value={selectedCentroId}
+                  onChange={e => setSelectedCentroId(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                >
+                  <option value="">(Toda la Empresa / No especifica)</option>
+                  {centrosDisponibles.map(cen => (
+                    <option key={cen.id} value={cen.id}>
+                      {cen.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {canal === 'DENUNCIA_KARIN' ? (
+            /* ══════ FORMULARIO LEY KARIN ══════ */
+            <div className="space-y-4">
+              {/* Alerta de Confidencialidad */}
+              <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-xs text-rose-300 leading-relaxed flex items-start gap-2.5">
+                <span className="text-lg">🛡️</span>
+                <div>
+                  <strong>Canal Protegido por Ley N° 21.643:</strong> Este procedimiento garantiza
+                  confidencialidad estricta y protección inmediata contra represalias (Art. 211-B). El empleador
+                  debe adoptar medidas cautelares dentro de 72 horas corridas.
+                </div>
+              </div>
+
+              {/* Tipo de Afectación */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  Materia o Afectación a Denunciar <span className="text-rose-500">*</span>:
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {[
+                    { id: 'ACOSO_LABORAL', label: 'Acoso Laboral', sub: 'Art. 2 Inc. 3' },
+                    { id: 'ACOSO_SEXUAL', label: 'Acoso Sexual', sub: 'Art. 2 Inc. 2' },
+                    { id: 'VIOLENCIA_EXTERNA', label: 'Violencia en el Trabajo', sub: 'Art. 2 Inc. 4' },
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTipoAfectacion(t.id as unknown as typeof tipoAfectacion)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        tipoAfectacion === t.id
+                          ? 'bg-rose-600/20 border-rose-500 text-white font-bold ring-1 ring-rose-500'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="text-xs">{t.label}</div>
+                      <div className="text-[10px] opacity-70">{t.sub}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Identificación del Denunciante */}
+              <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>👤</span> Datos del Denunciante (Requerido por Ley para activar medidas de resguardo)
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">
+                      RUT <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={rutDenunciante}
+                      onChange={e => setRutDenunciante(e.target.value)}
+                      placeholder="12.345.678-5"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">
+                      Nombre Completo <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={nombreDenunciante}
+                      onChange={e => setNombreDenunciante(e.target.value)}
+                      placeholder="Nombre y Apellidos"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">
+                      Correo Electrónico <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={correoDenunciante}
+                      onChange={e => setCorreoDenunciante(e.target.value)}
+                      placeholder="correo@ejemplo.cl"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Teléfono de Contacto</label>
+                    <input
+                      type="text"
+                      value={telefonoDenunciante}
+                      onChange={e => setTelefonoDenunciante(e.target.value)}
+                      placeholder="+56 9 1234 5678"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Datos de la Persona Denunciada */}
+              <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🎯</span> Persona Denunciada
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">
+                      Nombre Completo <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={nombreDenunciado}
+                      onChange={e => setNombreDenunciado(e.target.value)}
+                      placeholder="Nombre del denunciado"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 block mb-1">Cargo o Área de Trabajo</label>
+                    <input
+                      type="text"
+                      value={cargoAreaDenunciado}
+                      onChange={e => setCargoAreaDenunciado(e.target.value)}
+                      placeholder="Ej: Supervisor de Turno / Bodega"
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Relato de los Hechos */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  Descripción Circunstanciada de los Hechos <span className="text-rose-500">*</span>:
+                </label>
+                <textarea
+                  required
+                  rows={5}
+                  value={descripcionHechos}
+                  onChange={e => setDescripcionHechos(e.target.value)}
+                  placeholder="Describe de manera detallada las fechas aproximadas, lugares físicos o digitales y acciones ocurridas..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500 leading-relaxed"
                 />
               </div>
-              <div style={styles.fieldGroup}>
-                <label style={styles.label} htmlFor="contacto_remitente">
-                  Email o teléfono
+
+              {/* Testigos o Evidencias */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  Testigos o Evidencias Aportadas (Opcional):
                 </label>
-                <input
-                  id="contacto_remitente"
-                  name="contacto_remitente"
-                  value={form.contacto_remitente}
-                  onChange={handleChange}
-                  type="text"
-                  placeholder="Para recibir respuesta"
-                  style={styles.input}
+                <textarea
+                  rows={2}
+                  value={testigosEvidencias}
+                  onChange={e => setTestigosEvidencias(e.target.value)}
+                  placeholder="Menciona si existen correos, mensajes o personas que presenciaron los hechos..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-rose-500"
                 />
+              </div>
+            </div>
+          ) : (
+            /* ══════ FORMULARIO SUGERENCIA / CLIMA ══════ */
+            <div className="space-y-4">
+              {/* Tipo de Sugerencia */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  Área de la Sugerencia:
+                </label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                  {[
+                    { id: 'MEJORA_PROCESO', label: '💡 Mejora de Procesos', sub: 'Eficiencia y métodos' },
+                    { id: 'CLIMA_LABORAL', label: '🤝 Clima & Convivencia', sub: 'Ambiente laboral' },
+                    { id: 'SEGURIDAD_GENERAL', label: '🦺 Seguridad & Salud', sub: 'Condiciones de faena' },
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setTipoSugerencia(t.id as unknown as typeof tipoSugerencia)}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                        tipoSugerencia === t.id
+                          ? 'bg-amber-600/20 border-amber-500 text-white font-bold ring-1 ring-amber-500'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="text-xs">{t.label}</div>
+                      <div className="text-[10px] opacity-70">{t.sub}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Mensaje */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1.5">
+                  Tu Sugerencia o Aporte <span className="text-amber-500">*</span>:
+                </label>
+                <textarea
+                  required
+                  rows={5}
+                  value={mensajeSugerencia}
+                  onChange={e => setMensajeSugerencia(e.target.value)}
+                  placeholder="Ej: Proponemos instalar un dispensador de agua potable adicional en el sector de acopio de materiales y reforzar la señalética de cruce peatonal..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-3.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500 leading-relaxed"
+                />
+              </div>
+
+              {/* Anónimo Toggle */}
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                <label className="flex items-center gap-2.5 text-xs font-bold text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={esAnonimo}
+                    onChange={e => setEsAnonimo(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-700 text-amber-600 focus:ring-0"
+                  />
+                  <span>Enviar de forma anónima (tu identidad no será registrada)</span>
+                </label>
+
+                {!esAnonimo && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">Tu Nombre</label>
+                      <input
+                        type="text"
+                        value={nombreRemitente}
+                        onChange={e => setNombreRemitente(e.target.value)}
+                        placeholder="Nombre completo"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-400 block mb-1">
+                        Contacto (Email o Teléfono)
+                      </label>
+                      <input
+                        type="text"
+                        value={contactoRemitente}
+                        onChange={e => setContactoRemitente(e.target.value)}
+                        placeholder="Para recibir respuesta"
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {formState === 'error' && (
-            <div style={styles.errorBox}>⚠️ {errorMsg}</div>
+          {errorMsg && (
+            <div className="p-3.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-2xl text-xs font-medium">
+              ⚠️ {errorMsg}
+            </div>
           )}
 
+          {/* Botón de Envío */}
           <button
             type="submit"
-            disabled={formState === 'submitting' || !form.mensaje.trim()}
-            style={{
-              ...styles.submitBtn,
-              ...(tipo === 'CONSULTA' ? styles.submitBtnBlue : {}),
-              opacity: formState === 'submitting' ? 0.7 : 1,
-              cursor: formState === 'submitting' ? 'not-allowed' : 'pointer',
-            }}
+            disabled={formState === 'submitting'}
+            className={`w-full py-3.5 px-6 rounded-2xl text-sm font-extrabold text-white transition-all shadow-xl cursor-pointer disabled:opacity-50 ${
+              canal === 'DENUNCIA_KARIN'
+                ? 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 shadow-rose-600/30'
+                : 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-600/30'
+            }`}
           >
-            {formState === 'submitting' ? 'Enviando...' : '📤 Enviar Mensaje'}
+            {formState === 'submitting'
+              ? 'Enviando al sistema seguro...'
+              : canal === 'DENUNCIA_KARIN'
+              ? '⚖️ Enviar Denuncia Formal Ley Karin'
+              : '📬 Enviar Sugerencia Laboral'}
           </button>
         </form>
-
-        <p style={styles.footer}>
-          Este buzón es gestionado por el prevencionista de riesgos de tu empresa.
-        </p>
       </div>
     </div>
   );
 }
-
-/* ───────────── Estilos ───────────── */
-const styles: Record<string, React.CSSProperties> = {
-  pageWrapper: {
-    minHeight: '100vh',
-    background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '24px 16px',
-    fontFamily: "'Inter', 'Segoe UI', sans-serif",
-  },
-  card: {
-    background: 'rgba(30, 41, 59, 0.9)',
-    backdropFilter: 'blur(20px)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '20px',
-    maxWidth: '560px',
-    width: '100%',
-    padding: '40px 36px',
-    boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
-  },
-  header: {
-    textAlign: 'center',
-    marginBottom: '24px',
-  },
-  badge: {
-    display: 'inline-block',
-    background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-    color: '#fff',
-    fontSize: '12px',
-    fontWeight: 700,
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-    padding: '5px 14px',
-    borderRadius: '20px',
-    marginBottom: '14px',
-  },
-  title: {
-    fontSize: '26px',
-    fontWeight: 800,
-    color: '#f1f5f9',
-    margin: '0 0 10px',
-    lineHeight: 1.2,
-  },
-  subtitle: {
-    fontSize: '14px',
-    color: '#94a3b8',
-    lineHeight: 1.6,
-    margin: 0,
-  },
-  typeSelector: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '10px',
-    marginBottom: '20px',
-  },
-  typeBtn: {
-    background: 'rgba(15, 23, 42, 0.6)',
-    border: '1px solid rgba(148, 163, 184, 0.2)',
-    borderRadius: '10px',
-    padding: '11px',
-    fontSize: '14px',
-    fontWeight: 600,
-    color: '#64748b',
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  typeBtnActive: {
-    background: 'rgba(245, 158, 11, 0.15)',
-    border: '1px solid rgba(245, 158, 11, 0.5)',
-    color: '#fbbf24',
-  },
-  typeBtnActiveBlue: {
-    background: 'rgba(99, 102, 241, 0.15)',
-    border: '1px solid rgba(99, 102, 241, 0.5)',
-    color: '#a5b4fc',
-  },
-  form: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '18px',
-  },
-  fieldGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-  },
-  label: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: '#cbd5e1',
-    letterSpacing: '0.02em',
-  },
-  required: {
-    color: '#f87171',
-  },
-  input: {
-    background: 'rgba(15, 23, 42, 0.7)',
-    border: '1px solid rgba(148, 163, 184, 0.2)',
-    borderRadius: '10px',
-    padding: '11px 14px',
-    fontSize: '14px',
-    color: '#f1f5f9',
-    outline: 'none',
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  textarea: {
-    background: 'rgba(15, 23, 42, 0.7)',
-    border: '1px solid rgba(148, 163, 184, 0.2)',
-    borderRadius: '10px',
-    padding: '11px 14px',
-    fontSize: '14px',
-    color: '#f1f5f9',
-    outline: 'none',
-    resize: 'vertical',
-    fontFamily: 'inherit',
-    lineHeight: 1.6,
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  anonRow: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-  },
-  anonLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '14px',
-    fontWeight: 600,
-    color: '#cbd5e1',
-    cursor: 'pointer',
-  },
-  checkbox: {
-    width: '16px',
-    height: '16px',
-    accentColor: '#6366f1',
-    cursor: 'pointer',
-  },
-  anonHint: {
-    fontSize: '12px',
-    color: '#475569',
-    marginLeft: '24px',
-  },
-  twoCol: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '14px',
-  },
-  errorBox: {
-    background: 'rgba(239, 68, 68, 0.15)',
-    border: '1px solid rgba(239, 68, 68, 0.4)',
-    borderRadius: '10px',
-    padding: '12px 16px',
-    fontSize: '13px',
-    color: '#fca5a5',
-  },
-  submitBtn: {
-    background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-    color: '#1a1a1a',
-    fontWeight: 800,
-    fontSize: '15px',
-    border: 'none',
-    borderRadius: '12px',
-    padding: '14px',
-    marginTop: '4px',
-    transition: 'transform 0.15s, box-shadow 0.15s',
-    boxShadow: '0 4px 20px rgba(245, 158, 11, 0.35)',
-  },
-  submitBtnBlue: {
-    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-    color: '#fff',
-    boxShadow: '0 4px 20px rgba(99, 102, 241, 0.35)',
-  },
-  footer: {
-    textAlign: 'center',
-    fontSize: '11px',
-    color: '#475569',
-    marginTop: '24px',
-    marginBottom: 0,
-  },
-  successCard: {
-    background: 'rgba(30, 41, 59, 0.9)',
-    backdropFilter: 'blur(20px)',
-    border: '1px solid rgba(99, 102, 241, 0.3)',
-    borderRadius: '20px',
-    maxWidth: '440px',
-    width: '100%',
-    padding: '52px 40px',
-    textAlign: 'center',
-    boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
-  },
-  successIcon: {
-    fontSize: '52px',
-    marginBottom: '16px',
-  },
-  successTitle: {
-    fontSize: '26px',
-    fontWeight: 800,
-    color: '#818cf8',
-    margin: '0 0 12px',
-  },
-  successText: {
-    fontSize: '15px',
-    color: '#94a3b8',
-    lineHeight: 1.65,
-    margin: '0 0 16px',
-  },
-  successSub: {
-    fontSize: '13px',
-    color: '#475569',
-    margin: 0,
-  },
-};

@@ -4,7 +4,10 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
-from modulo_prevencion.models import PlantillaMaestra, Servicio, Noticia, Plan, PlantillaInspeccion, TemaCapacitacion
+from modulo_prevencion.models import (
+    PlantillaMaestra, Servicio, Noticia, Plan, PlantillaInspeccion, TemaCapacitacion,
+    Empresa, CentroTrabajo, Trabajador
+)
 from django.contrib.auth import get_user_model
 from django.core.files.base import ContentFile
 from django.utils import timezone
@@ -304,6 +307,91 @@ def seed():
                 print(f"Tema de capacitación '{tc.titulo}' creado.")
             else:
                 print(f"Tema de capacitación '{tc.titulo}' actualizado.")
+        # 7. Empresa, Centro de Trabajo y Trabajadores (DAT-01 y DAT-02)
+        empresa_alerce, created = Empresa.objects.update_or_create(
+            rut="76.123.456-0",
+            prevencionista=admin_user,
+            defaults={
+                'razon_social': 'Constructora Alerce SpA',
+                'nombre_fantasia': 'Constructora Alerce',
+                'giro': 'Construcción de edificios completos y obras de ingeniería civil',
+                'mutualidad': 'ACHS',
+                'tasa_cotizacion_adicional': 1.70,
+                'activo': True
+            }
+        )
+        if created:
+            print(f"Empresa '{empresa_alerce.razon_social}' creada.")
+        else:
+            print(f"Empresa '{empresa_alerce.razon_social}' actualizada.")
+
+        centro_cordillera, created = CentroTrabajo.objects.update_or_create(
+            empresa=empresa_alerce,
+            nombre="Faena Edificio Cordillera",
+            defaults={
+                'direccion': 'Av. Las Condes 12345',
+                'comuna': 'Las Condes',
+                'region': 'Región Metropolitana',
+                'es_casa_matriz': False
+            }
+        )
+        if created:
+            print(f"Centro de Trabajo '{centro_cordillera.nombre}' creado.")
+        else:
+            print(f"Centro de Trabajo '{centro_cordillera.nombre}' actualizado.")
+
+        trabajadores_data = [
+            {
+                'rut': '12.345.678-5',
+                'nombres': 'Juan Carlos',
+                'apellidos': 'Pérez Soto',
+                'cargo': 'Operador Rigger',
+                'correo': 'jperez@alerce.cl',
+                'telefono': '+56 9 1122 3344',
+                'fecha_ingreso': timezone.now().date(),
+                'estado': 'ACTIVO'
+            },
+            {
+                'rut': '15.456.789-5',
+                'nombres': 'Pedro Ignacio',
+                'apellidos': 'Rojas González',
+                'cargo': 'Maestro Primera Enfierrador',
+                'correo': 'projas@alerce.cl',
+                'telefono': '+56 9 2233 4455',
+                'fecha_ingreso': timezone.now().date(),
+                'estado': 'ACTIVO'
+            },
+            {
+                'rut': '18.765.432-7',
+                'nombres': 'Camila Andrea',
+                'apellidos': 'Morales Silva',
+                'cargo': 'Jefa de Cuadrilla Terminaciones',
+                'correo': 'cmorales@alerce.cl',
+                'telefono': '+56 9 3344 5566',
+                'fecha_ingreso': timezone.now().date(),
+                'estado': 'ACTIVO'
+            }
+        ]
+
+        for t_info in trabajadores_data:
+            trabajador, created = Trabajador.objects.update_or_create(
+                empresa=empresa_alerce,
+                rut=t_info['rut'],
+                defaults={
+                    'centro_trabajo': centro_cordillera,
+                    'nombres': t_info['nombres'],
+                    'apellidos': t_info['apellidos'],
+                    'cargo': t_info['cargo'],
+                    'correo': t_info['correo'],
+                    'telefono': t_info['telefono'],
+                    'fecha_ingreso': t_info['fecha_ingreso'],
+                    'estado': t_info['estado']
+                }
+            )
+            if created:
+                print(f"Trabajador '{trabajador.nombre_completo}' creado.")
+            else:
+                print(f"Trabajador '{trabajador.nombre_completo}' actualizado.")
     else:
         print("No se encontró ningún usuario en el sistema para asociar los temas de capacitación por defecto.")
 

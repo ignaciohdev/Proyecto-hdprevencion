@@ -11,7 +11,9 @@ from .views import (
     SugerenciaConsultaViewSet,
     ReporteRiesgoPublicoCreateView, SugerenciaConsultaPublicaCreateView,
     ContratistaViewSet, DocumentoContratistaViewSet, TrabajadorSubcontratadoViewSet,
-    SolicitudCapacitacionViewSet
+    SolicitudCapacitacionViewSet,
+    EmpresaViewSet, CentroTrabajoViewSet, TrabajadorViewSet,
+    DenunciaLeyKarinViewSet, SugerenciaLaboralViewSet, PublicoEmpresasListView
 )
 
 router = DefaultRouter()
@@ -33,6 +35,11 @@ router.register(r'buzon', SugerenciaConsultaViewSet, basename='sugerenciaconsult
 router.register(r'contratistas', ContratistaViewSet, basename='contratista')
 router.register(r'documentos-contratista', DocumentoContratistaViewSet, basename='documentocontratista')
 router.register(r'trabajadores-subcontratados', TrabajadorSubcontratadoViewSet, basename='trabajadorsubcontratado')
+router.register(r'empresas', EmpresaViewSet, basename='empresa')
+router.register(r'centros-trabajo', CentroTrabajoViewSet, basename='centrotrabajo')
+router.register(r'trabajadores', TrabajadorViewSet, basename='trabajador')
+router.register(r'sugerencias-laborales', SugerenciaLaboralViewSet, basename='sugerencialaboral')
+router.register(r'denuncias-ley-karin', DenunciaLeyKarinViewSet, basename='denuncialeykarin')
 
 urlpatterns = [
     # Endpoints de autenticación y registro con JWT
@@ -54,6 +61,11 @@ urlpatterns = [
         'publico/<uuid:prevencionista_uuid>/buzon/',
         SugerenciaConsultaPublicaCreateView.as_view(),
         name='buzon_publico'
+    ),
+    path(
+        'publico/<uuid:prevencionista_uuid>/empresas/',
+        PublicoEmpresasListView.as_view(),
+        name='publico_empresas_list'
     ),
 
     # Endpoints de la API generados por el router

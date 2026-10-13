@@ -1,6 +1,7 @@
 import uuid
 from typing import Any
 from django.db import transaction
+from django.db.models import Sum, Count, Q
 from django.shortcuts import get_object_or_404
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -22,7 +23,9 @@ from .models import (
     ReporteRiesgo, PlantillaInspeccion, Inspeccion, InvestigacionAccidente,
     TemaCapacitacion, RegistroCapacitacion, SugerenciaConsulta,
     Contratista, DocumentoContratista, TrabajadorSubcontratado,
-    SolicitudCapacitacion
+    SolicitudCapacitacion,
+    Empresa, CentroTrabajo, Trabajador,
+    SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -34,7 +37,10 @@ from .serializers import (
     SugerenciaConsultaSerializer,
     ContratistaSerializer, ContratistaResumenSerializer,
     DocumentoContratistaSerializer, TrabajadorSubcontratadoSerializer,
-    SolicitudCapacitacionSerializer
+    SolicitudCapacitacionSerializer,
+    EmpresaSerializer, CentroTrabajoSerializer, TrabajadorSerializer,
+    SugerenciaLaboralSerializer, DenunciaLeyKarinSerializer,
+    AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer
 )
 
 Usuario: Any = get_user_model()
@@ -907,11 +913,169 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
         user: Any = self.request.user
         owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
-        return InvestigacionAccidente.objects.filter(usuario__in=usuarios_grupo)
+        qs = InvestigacionAccidente.objects.filter(usuario__in=usuarios_grupo)
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            qs = qs.filter(empresa_id=empresa_id)
+        return qs
 
     def perform_create(self, serializer):
         user: Any = self.request.user
         serializer.save(usuario=user)
+
+    @action(detail=True, methods=['post', 'patch'], url_path='registrar-diat')
+    def registrar_diat(self, request, pk=None):
+        """
+        Formaliza la tramitación de la DIAT ante el organismo administrador (mutualidad)
+        cumpliendo el plazo perentorio de 24 horas (D.S. 44 / Ley 16.744).
+        """
+        accidente = self.get_object()
+        diat_folio = request.data.get('diat_folio') or request.data.get('folio')
+        diat_fecha = request.data.get('diat_fecha_presentacion') or request.data.get('fecha_presentacion')
+
+        if not diat_folio and not accidente.diat_folio:
+            return Response(
+                {'error': 'Debe proporcionar el folio oficial de la DIAT emitido por la mutualidad.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if diat_folio:
+            accidente.diat_folio = str(diat_folio).strip()
+        accidente.diat_presentada = True
+
+        if diat_fecha:
+            accidente.diat_fecha_presentacion = diat_fecha
+        elif not accidente.diat_fecha_presentacion:
+            accidente.diat_fecha_presentacion = timezone.now()
+
+        accidente.save()
+        serializer = self.get_serializer(accidente)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post', 'patch'], url_path='protocolo-grave-fatal')
+    def protocolo_grave_fatal(self, request, pk=None):
+        """
+        Registra el protocolo obligatorio de accidente grave o fatal (Art. 76 Ley 16.744 / Circular 3336 SUSESO):
+        - Auto-suspensión inmediata de faenas
+        - Aviso inmediato a Inspección del Trabajo y Seremi de Salud
+        """
+        accidente = self.get_object()
+
+        if 'faena_suspendida' in request.data:
+            accidente.faena_suspendida = bool(request.data.get('faena_suspendida'))
+
+        if 'aviso_autoridades_realizado' in request.data:
+            accidente.aviso_autoridades_realizado = bool(request.data.get('aviso_autoridades_realizado'))
+
+        if 'aviso_autoridades_folio' in request.data:
+            accidente.aviso_autoridades_folio = request.data.get('aviso_autoridades_folio')
+
+        if 'aviso_autoridades_fecha' in request.data:
+            accidente.aviso_autoridades_fecha = request.data.get('aviso_autoridades_fecha')
+        elif accidente.aviso_autoridades_realizado and not accidente.aviso_autoridades_fecha:
+            accidente.aviso_autoridades_fecha = timezone.now()
+
+        if 'es_grave_o_fatal' in request.data:
+            accidente.es_grave_o_fatal = bool(request.data.get('es_grave_o_fatal'))
+
+        if 'tipo_accidente_grave' in request.data:
+            accidente.tipo_accidente_grave = request.data.get('tipo_accidente_grave')
+
+        if 'dias_perdidos' in request.data:
+            try:
+                accidente.dias_perdidos = int(request.data.get('dias_perdidos', 0))
+            except (ValueError, TypeError):
+                pass
+
+        if 'alta_medica' in request.data:
+            accidente.alta_medica = bool(request.data.get('alta_medica'))
+
+        accidente.save()
+        serializer = self.get_serializer(accidente)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='estadisticas')
+    def estadisticas(self, request):
+        """
+        Calcula los índices de siniestralidad mensual/anual con aislamiento multi-tenant:
+        - total_accidentes: Conteo de eventos de trabajo.
+        - total_dias_perdidos: Sumatoria de dias_perdidos.
+        - tasa_frecuencia_if: (accidentes_con_tiempo_perdido * 1_000_000) / horas_trabajadas_estimadas.
+        - tasa_gravedad_ig: (total_dias_perdidos * 1_000_000) / horas_trabajadas_estimadas.
+        - graves_o_fatales_count: Conteo de eventos críticos que requirieron auto-suspensión.
+        """
+        qs = self.get_queryset()
+
+        empresa_id = request.query_params.get('empresa')
+        if empresa_id:
+            qs = qs.filter(empresa_id=empresa_id)
+
+        year = request.query_params.get('year')
+        if year and year != 'ALL':
+            try:
+                qs = qs.filter(fecha_hora_evento__year=int(year))
+            except (ValueError, TypeError):
+                pass
+
+        # Conteo de eventos de trabajo (excluye trayecto o incidentes sin lesión)
+        total_accidentes = qs.filter(tipo_evento=InvestigacionAccidente.TIPO_TRABAJO).count()
+
+        # Sumatoria de días perdidos por reposo médico
+        total_dias_perdidos = qs.aggregate(Sum('dias_perdidos'))['dias_perdidos__sum'] or 0
+
+        # Accidentes con tiempo perdido (CTP): eventos de trabajo con reposo médico (dias_perdidos > 0)
+        accidentes_con_tiempo_perdido = qs.filter(
+            tipo_evento=InvestigacionAccidente.TIPO_TRABAJO,
+            dias_perdidos__gt=0
+        ).count()
+
+        # Eventos graves o fatales que requirieron auto-suspensión o protocolo
+        graves_o_fatales_count = qs.filter(
+            Q(es_grave_o_fatal=True) | Q(faena_suspendida=True)
+        ).count()
+
+        # Determinación de horas trabajadas estimadas
+        user: Any = request.user
+        owner: Any = user.cuenta_padre if user.cuenta_padre else user
+        usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+
+        horas_param = request.query_params.get('horas_trabajadas') or request.query_params.get('horas_persona')
+        if horas_param:
+            try:
+                horas_trabajadas_estimadas = float(horas_param)
+            except (ValueError, TypeError):
+                horas_trabajadas_estimadas = 0.0
+        else:
+            if empresa_id:
+                num_trabajadores = Trabajador.objects.filter(empresa_id=empresa_id, activo=True).count()
+            else:
+                num_trabajadores = Trabajador.objects.filter(empresa__prevencionista__in=usuarios_grupo, activo=True).count()
+
+            if num_trabajadores > 0:
+                horas_trabajadas_estimadas = float(num_trabajadores * 180 * 12)
+            else:
+                horas_trabajadas_estimadas = 200000.0
+
+        # Cálculo de tasas normalizadas por millón de horas persona (NCh 436 / Circular 3336)
+        if horas_trabajadas_estimadas > 0:
+            tasa_frecuencia_if = round((accidentes_con_tiempo_perdido * 1_000_000) / horas_trabajadas_estimadas, 2)
+            tasa_gravedad_ig = round((total_dias_perdidos * 1_000_000) / horas_trabajadas_estimadas, 2)
+        else:
+            tasa_frecuencia_if = 0.0
+            tasa_gravedad_ig = 0.0
+
+        return Response({
+            'total_accidentes': total_accidentes,
+            'total_dias_perdidos': total_dias_perdidos,
+            'accidentes_con_tiempo_perdido': accidentes_con_tiempo_perdido,
+            'horas_trabajadas_estimadas': horas_trabajadas_estimadas,
+            'tasa_frecuencia_if': tasa_frecuencia_if,
+            'tasa_gravedad_ig': tasa_gravedad_ig,
+            'graves_o_fatales_count': graves_o_fatales_count,
+            'diat_pendientes_count': qs.filter(diat_presentada=False).count(),
+            'diat_vencidas_count': sum(1 for a in qs if a.diat_vencida),
+            'total_eventos': qs.count(),
+        }, status=status.HTTP_200_OK)
 
 
 class TemaCapacitacionViewSet(viewsets.ModelViewSet):
@@ -1292,14 +1456,24 @@ class SugerenciaConsultaViewSet(viewsets.ModelViewSet):
         )
 
 
+def get_client_ip(request):
+    """Obtiene la dirección IP real del cliente considerando proxies inversos."""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0].strip()
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip or '127.0.0.1'
+
+
 class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
     """
-    Endpoint público (sin autenticación) para que los trabajadores envíen
-    sugerencias o consultas al prevencionista de su empresa via código QR.
-    El campo `usuario` es el prevencionista receptor identificado por su `uuid` seguro en la URL.
+    Endpoint público (sin autenticación) para que los trabajadores envíen:
+    a) Sugerencias Laborales abiertas de clima y mejora.
+    b) Denuncias Formales Confidenciales bajo Ley Karin (Ley N° 21.643).
+    El prevencionista receptor se identifica por su UUID seguro en la URL.
     Protegido contra fuerza bruta con AnonRateThrottle y ScopedRateThrottle (30 req/min).
     """
-    serializer_class = SugerenciaConsultaSerializer
     permission_classes = [permissions.AllowAny]
     throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
     throttle_scope = 'public_qr'
@@ -1314,16 +1488,105 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        sugerencia = serializer.save(usuario=prevencionista)
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        tipo_canal = data.get('tipo_canal') or data.get('canal')
+
+        # Resolver empresa del prevencionista
+        empresa_id = data.get('empresa')
+        empresa = None
+        if empresa_id:
+            empresa = Empresa.objects.filter(id=empresa_id, prevencionista=prevencionista).first()
+        if not empresa:
+            empresa = Empresa.objects.filter(prevencionista=prevencionista, activo=True).first()
+
+        # Flujo B: Denuncia Formal Ley Karin
+        if tipo_canal == 'DENUNCIA_KARIN' or 'rut_denunciante' in data:
+            if not empresa:
+                return Response(
+                    {"error": "El prevencionista aún no tiene empresas vinculadas para recibir denuncias formales."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            serializer = DenunciaLeyKarinPublicaCreateSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            denuncia = serializer.save(empresa=empresa)
+
+            # Registro de auditoría de ingreso
+            AuditLogAccesoDenuncia.objects.create(
+                denuncia=denuncia,
+                usuario=prevencionista,
+                ip_origen=get_client_ip(request),
+                accion="RECEPCION_PORTAL_PUBLICO"
+            )
+
+            return Response(
+                {
+                    "mensaje": "Denuncia Ley Karin recepcionada de manera confidencial y protegida. Se han activado los protocolos legales de resguardo.",
+                    "uuid": str(denuncia.uuid),
+                    "tipo": "DENUNCIA_KARIN"
+                },
+                status=status.HTTP_201_CREATED
+            )
+
+        # Flujo A: Sugerencia Laboral Abierta
+        if empresa:
+            tipo_sug = data.get('tipo', SugerenciaLaboral.TIPO_MEJORA_PROCESO)
+            if tipo_sug == 'SUGERENCIA':
+                tipo_sug = SugerenciaLaboral.TIPO_MEJORA_PROCESO
+            elif tipo_sug == 'CONSULTA':
+                tipo_sug = SugerenciaLaboral.TIPO_SEGURIDAD_GENERAL
+
+            sugerencia_laboral = SugerenciaLaboral.objects.create(
+                empresa=empresa,
+                mensaje=data.get('mensaje', ''),
+                tipo=tipo_sug,
+                es_anonimo=data.get('es_anonimo', data.get('anonimo', True)),
+                nombre_remitente=data.get('nombre_remitente'),
+                contacto_remitente=data.get('contacto_remitente')
+            )
+            ret_uuid = str(sugerencia_laboral.uuid)
+        else:
+            # Compatibilidad retroactiva con SugerenciaConsulta
+            legacy_serializer = SugerenciaConsultaSerializer(data=data)
+            legacy_serializer.is_valid(raise_exception=True)
+            sc = legacy_serializer.save(usuario=prevencionista)
+            ret_uuid = str(sc.uuid)
+
         return Response(
             {
                 "mensaje": "Mensaje recibido. El prevencionista de tu empresa lo revisará a la brevedad.",
-                "uuid": str(sugerencia.uuid)
+                "uuid": ret_uuid,
+                "tipo": "SUGERENCIA"
             },
             status=status.HTTP_201_CREATED
         )
+
+
+class PublicoEmpresasListView(APIView):
+    """
+    Endpoint público que lista las empresas y faenas de un prevencionista
+    para permitir la selección adecuada en el portal QR.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, prevencionista_uuid):
+        try:
+            prevencionista = Usuario.objects.get(uuid=prevencionista_uuid)
+        except (Usuario.DoesNotExist, ValueError):
+            return Response({"error": "Prevencionista no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        empresas = Empresa.objects.filter(prevencionista=prevencionista, activo=True)
+        res = []
+        for emp in empresas:
+            centros = list(emp.centros_trabajo.values('id', 'nombre', 'direccion'))
+            res.append({
+                'id': emp.id,
+                'razon_social': emp.razon_social,
+                'nombre_fantasia': emp.nombre_fantasia or emp.razon_social,
+                'rut': emp.rut,
+                'centros_trabajo': centros
+            })
+        return Response(res, status=status.HTTP_200_OK)
 
 
 class ContratistaViewSet(viewsets.ModelViewSet):
@@ -1486,5 +1749,248 @@ class SolicitudCapacitacionViewSet(viewsets.ModelViewSet):
             serializer.save(usuario=self.request.user)
         else:
             serializer.save()
+
+
+def get_usuarios_grupo(user: Any) -> list[Any]:
+    """Retorna la lista de usuarios del mismo grupo corporativo (cuenta padre y cuentas hijas)."""
+    if not user or getattr(user, 'is_anonymous', True):
+        return []
+    owner: Any = getattr(user, 'cuenta_padre', None) or user
+    cuentas_hijas: Any = getattr(owner, 'cuentas_hijas', None)
+    if cuentas_hijas is not None and hasattr(cuentas_hijas, 'all'):
+        return [owner] + list(cuentas_hijas.all())
+    return [owner]
+
+
+class EmpresaViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión de Empresas asesoradas.
+    Aislamiento Multi-Tenant estricto: el prevencionista solo ve y opera sobre sus propias empresas.
+    """
+    queryset = Empresa.objects.all()
+    serializer_class = EmpresaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return Empresa.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        return Empresa.objects.filter(prevencionista__in=usuarios_grupo)
+
+    def perform_create(self, serializer):
+        serializer.save(prevencionista=self.request.user)
+
+
+class CentroTrabajoViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para Centros de Trabajo / Faenas / Sucursales.
+    Aislamiento Multi-Tenant: solo centros de trabajo pertenecientes a las empresas del prevencionista.
+    """
+    queryset = CentroTrabajo.objects.all()
+    serializer_class = CentroTrabajoSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return CentroTrabajo.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = CentroTrabajo.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+        
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        empresa = serializer.validated_data.get('empresa')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"empresa": "No tienes permiso para asociar centros de trabajo a esta empresa."})
+        serializer.save()
+
+
+class TrabajadorViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para Fichas y Registro de Trabajadores.
+    Aislamiento Multi-Tenant: solo trabajadores vinculados a las empresas del prevencionista.
+    """
+    queryset = Trabajador.objects.all()
+    serializer_class = TrabajadorSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return Trabajador.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = Trabajador.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+        
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+            
+        centro_id = self.request.query_params.get('centro_trabajo')
+        if centro_id:
+            queryset = queryset.filter(centro_trabajo_id=centro_id)
+            
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado=estado)
+            
+        return queryset
+
+    def perform_create(self, serializer):
+        empresa = serializer.validated_data.get('empresa')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"empresa": "No tienes permiso para registrar trabajadores en esta empresa."})
+            
+        centro_trabajo = serializer.validated_data.get('centro_trabajo')
+        if centro_trabajo and centro_trabajo.empresa != empresa:
+            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa seleccionada."})
+            
+        serializer.save()
+
+
+class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión confidencial y trazada de denuncias bajo Ley Karin (Ley N° 21.643).
+    Aislamiento Multi-Tenant: solo accesible por el prevencionista a cargo de la empresa.
+    Auditoría: cada retrieve (apertura de expediente) genera un registro inmutable en AuditLogAccesoDenuncia.
+    """
+    queryset = DenunciaLeyKarin.objects.all()
+    serializer_class = DenunciaLeyKarinSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return DenunciaLeyKarin.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = DenunciaLeyKarin.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado_tramite=estado)
+
+        return queryset
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Registrar auditoría inmutable de apertura de expediente
+        AuditLogAccesoDenuncia.objects.create(
+            denuncia=instance,
+            usuario=request.user,
+            ip_origen=get_client_ip(request),
+            accion=AuditLogAccesoDenuncia.ACCION_APERTURA
+        )
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def perform_create(self, serializer):
+        empresa = serializer.validated_data.get('empresa')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"empresa": "No tienes permiso para registrar denuncias en esta empresa."})
+        serializer.save()
+
+    @action(detail=True, methods=['post', 'patch'], url_path='registrar-medidas')
+    def registrar_medidas(self, request, pk=None):
+        """
+        Registra medidas cautelares de resguardo inmediato (separación física, etc.).
+        """
+        denuncia = self.get_object()
+        medidas = request.data.get('medidas_resguardo_detalle', '').strip()
+        if not medidas:
+            return Response(
+                {"medidas_resguardo_detalle": "Debe especificar las medidas cautelares adoptadas."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        denuncia.medidas_resguardo_detalle = medidas
+        denuncia.estado_tramite = DenunciaLeyKarin.ESTADO_MEDIDAS_RESGUARDO
+        denuncia.save()
+
+        AuditLogAccesoDenuncia.objects.create(
+            denuncia=denuncia,
+            usuario=request.user,
+            ip_origen=get_client_ip(request),
+            accion=AuditLogAccesoDenuncia.ACCION_MEDIDAS
+        )
+
+        return Response(DenunciaLeyKarinSerializer(denuncia).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post', 'patch'], url_path='derivar-dt')
+    def derivar_dt(self, request, pk=None):
+        """
+        Registra la derivación formal a la Inspección del Trabajo (DT).
+        """
+        denuncia = self.get_object()
+        folio_dt = request.data.get('folio_dt', '').strip()
+        denuncia.derivada_inspeccion_trabajo = True
+        denuncia.folio_dt = folio_dt or None
+        denuncia.estado_tramite = DenunciaLeyKarin.ESTADO_DERIVADA_DT
+        denuncia.save()
+
+        AuditLogAccesoDenuncia.objects.create(
+            denuncia=denuncia,
+            usuario=request.user,
+            ip_origen=get_client_ip(request),
+            accion=AuditLogAccesoDenuncia.ACCION_DERIVACION
+        )
+
+        return Response(DenunciaLeyKarinSerializer(denuncia).data, status=status.HTTP_200_OK)
+
+
+class SugerenciaLaboralViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para el Canal Abierto de Sugerencias y Clima Laboral.
+    """
+    queryset = SugerenciaLaboral.objects.all()
+    serializer_class = SugerenciaLaboralSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return SugerenciaLaboral.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = SugerenciaLaboral.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado=estado)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        empresa = serializer.validated_data.get('empresa')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"empresa": "No tienes permiso para registrar sugerencias en esta empresa."})
+        serializer.save()
+
+    @action(detail=True, methods=['post', 'patch'], url_path='responder')
+    def responder(self, request, pk=None):
+        sugerencia = self.get_object()
+        respuesta = request.data.get('respuesta', '').strip()
+        estado = request.data.get('estado')
+        if respuesta:
+            sugerencia.respuesta = respuesta
+        if estado in dict(SugerenciaLaboral.ESTADO_CHOICES):
+            sugerencia.estado = estado
+        sugerencia.save()
+        return Response(SugerenciaLaboralSerializer(sugerencia).data, status=status.HTTP_200_OK)
+
+
 
 

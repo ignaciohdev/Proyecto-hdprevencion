@@ -4,7 +4,8 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from datetime import date
+from datetime import date, timedelta
+from django.utils import timezone
 
 
 class Plan(models.Model):
@@ -422,6 +423,252 @@ class Servicio(models.Model):
         return self.nombre
 
 
+def validar_rut_chileno(valor: Any) -> None:
+    """
+    Validador de formato y dígito verificador para RUT chileno usando Módulo 11.
+    Acepta formatos con o sin puntos y con guion (ej. '76.123.456-0', '12345678-5').
+    """
+    if not valor:
+        return
+
+    rut_limpio = str(valor).strip().upper().replace(".", "").replace("-", "").replace(" ", "")
+    if len(rut_limpio) < 2:
+        raise ValidationError("El RUT ingresado es demasiado corto.")
+
+    cuerpo = rut_limpio[:-1]
+    dv = rut_limpio[-1]
+
+    if not cuerpo.isdigit():
+        raise ValidationError("El cuerpo del RUT debe contener únicamente dígitos numéricos.")
+
+    multiplicadores = [2, 3, 4, 5, 6, 7]
+    suma = sum(int(digito) * multiplicadores[i % 6] for i, digito in enumerate(reversed(cuerpo)))
+    resto = 11 - (suma % 11)
+
+    if resto == 11:
+        dv_esperado = '0'
+    elif resto == 10:
+        dv_esperado = 'K'
+    else:
+        dv_esperado = str(resto)
+
+    if dv != dv_esperado:
+        raise ValidationError(f"El dígito verificador '{dv}' no es válido para el RUT ingresado (se esperaba '{dv_esperado}').")
+
+
+class Empresa(models.Model):
+    """
+    Entidad fundamental que representa a una empresa cliente asesorada en prevención de riesgos.
+    Permite arquitectura multi-tenant donde cada prevencionista gestiona su propia cartera de empresas.
+    """
+    MUTUALIDAD_ACHS = 'ACHS'
+    MUTUALIDAD_MUTUAL = 'MUTUAL'
+    MUTUALIDAD_IST = 'IST'
+    MUTUALIDAD_ISL = 'ISL'
+    MUTUALIDAD_OTRA = 'OTRA'
+    MUTUALIDAD_CHOICES = [
+        (MUTUALIDAD_ACHS, 'Asociación Chilena de Seguridad (ACHS)'),
+        (MUTUALIDAD_MUTUAL, 'Mutual de Seguridad CChC'),
+        (MUTUALIDAD_IST, 'Instituto de Seguridad del Trabajo (IST)'),
+        (MUTUALIDAD_ISL, 'Instituto de Seguridad Laboral (ISL)'),
+        (MUTUALIDAD_OTRA, 'Otra Mutualidad'),
+    ]
+
+    prevencionista = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='empresas_asesoradas',
+        verbose_name="Prevencionista a Cargo"
+    )
+    razon_social = models.CharField(
+        max_length=200,
+        verbose_name="Razón Social"
+    )
+    nombre_fantasia = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Nombre de Fantasía"
+    )
+    rut = models.CharField(
+        max_length=15,
+        db_index=True,
+        validators=[validar_rut_chileno],
+        verbose_name="RUT Empresa"
+    )
+    giro = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        verbose_name="Giro o Actividad Económica"
+    )
+    mutualidad = models.CharField(
+        max_length=20,
+        choices=MUTUALIDAD_CHOICES,
+        default=MUTUALIDAD_ACHS,
+        verbose_name="Organismo Administrador Ley 16.744"
+    )
+    tasa_cotizacion_adicional = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0.00,
+        verbose_name="Tasa Cotización Adicional (%)",
+        help_text="Cotización adicional Ley 16.744 según DS 67 o DS 110."
+    )
+    activo = models.BooleanField(
+        default=True,
+        verbose_name="Empresa Activa"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+
+    class Meta:
+        verbose_name = "Empresa"
+        verbose_name_plural = "Empresas"
+        ordering = ['-fecha_creacion']
+
+    def __str__(self) -> str:
+        return f"{self.razon_social} ({self.rut})"
+
+
+class CentroTrabajo(models.Model):
+    """
+    Representa una faena, sucursal, obra o planta perteneciente a una Empresa.
+    Permite segmentar inspecciones, reportes de riesgo y cuadrillas de trabajadores.
+    """
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='centros_trabajo',
+        verbose_name="Empresa"
+    )
+    nombre = models.CharField(
+        max_length=150,
+        verbose_name="Nombre del Centro de Trabajo / Faena"
+    )
+    direccion = models.CharField(
+        max_length=255,
+        verbose_name="Dirección Física"
+    )
+    comuna = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Comuna"
+    )
+    region = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Región"
+    )
+    es_casa_matriz = models.BooleanField(
+        default=False,
+        verbose_name="Es Casa Matriz"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+
+    class Meta:
+        verbose_name = "Centro de Trabajo"
+        verbose_name_plural = "Centros de Trabajo"
+        ordering = ['nombre']
+
+    def __str__(self) -> str:
+        return f"{self.nombre} - {self.empresa.razon_social}"
+
+
+class Trabajador(models.Model):
+    """
+    Ficha de un trabajador perteneciente a una Empresa y opcionalmente a un Centro de Trabajo.
+    Mantiene el historial preventivo: capacitaciones firmadas, incidentes y entrega de EPP.
+    """
+    ESTADO_ACTIVO = 'ACTIVO'
+    ESTADO_DESVINCULADO = 'DESVINCULADO'
+    ESTADO_LICENCIA = 'LICENCIA'
+    ESTADO_CHOICES = [
+        (ESTADO_ACTIVO, 'Activo'),
+        (ESTADO_DESVINCULADO, 'Desvinculado'),
+        (ESTADO_LICENCIA, 'Licencia Médica'),
+    ]
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='trabajadores',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='trabajadores',
+        verbose_name="Centro de Trabajo / Faena Asignada"
+    )
+    rut = models.CharField(
+        max_length=15,
+        db_index=True,
+        validators=[validar_rut_chileno],
+        verbose_name="RUT Trabajador"
+    )
+    nombres = models.CharField(
+        max_length=100,
+        verbose_name="Nombres"
+    )
+    apellidos = models.CharField(
+        max_length=100,
+        verbose_name="Apellidos"
+    )
+    cargo = models.CharField(
+        max_length=100,
+        verbose_name="Cargo u Ocupación"
+    )
+    correo = models.EmailField(
+        blank=True,
+        null=True,
+        verbose_name="Correo Electrónico"
+    )
+    telefono = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Teléfono de Contacto"
+    )
+    fecha_ingreso = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Ingreso a la Empresa"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_ACTIVO,
+        verbose_name="Estado Laboral"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+
+    class Meta:
+        unique_together = [['empresa', 'rut']]
+        verbose_name = "Trabajador"
+        verbose_name_plural = "Trabajadores"
+        ordering = ['apellidos', 'nombres']
+
+    def __str__(self) -> str:
+        return f"{self.nombres} {self.apellidos} ({self.rut})"
+
+    @property
+    def nombre_completo(self) -> str:
+        return f"{self.nombres} {self.apellidos}".strip()
+
+
 class ReporteRiesgo(models.Model):
     """
     Bitácora de hallazgos (Actos o Condiciones Subestándar) e Inspecciones en Terreno.
@@ -498,6 +745,22 @@ class ReporteRiesgo(models.Model):
         on_delete=models.CASCADE,
         related_name='reportes_riesgo',
         verbose_name="Prevencionista"
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reportes_riesgo',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reportes_riesgo',
+        verbose_name="Centro de Trabajo / Faena"
     )
     tipo = models.CharField(
         max_length=20,
@@ -666,6 +929,22 @@ class Inspeccion(models.Model):
         related_name='inspecciones',
         verbose_name="Inspector (Prevencionista)"
     )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='inspecciones',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='inspecciones',
+        verbose_name="Centro de Trabajo / Faena"
+    )
     plantilla = models.ForeignKey(
         PlantillaInspeccion,
         on_delete=models.PROTECT,
@@ -708,6 +987,15 @@ class InvestigacionAccidente(models.Model):
     TIPO_TRAYECTO = 'TRAYECTO'
     TIPO_INCIDENTE = 'INCIDENTE'
 
+    TIPO_ACCIDENTE_GRAVE_CHOICES = [
+        ('CAIDA_ALTURA', 'Caída de distinto nivel (sobre 1.8 metros)'),
+        ('AMPUTACION', 'Amputación o pérdida traumática de parte del cuerpo'),
+        ('ATRAPAMIENTO_ASFIXIA', 'Atrapamiento, asfixia o inmersión'),
+        ('MANIOBRAS_REANIMACION', 'Accidente que requirió maniobras de RCP / Resucitación'),
+        ('FALLECIMIENTO', 'Accidente con consecuencia fatal inmediata'),
+        ('OTRO_GRAVE', 'Otro evento de gravedad crítica con compromiso vital'),
+    ]
+
     TIPO_EVENTO_CHOICES = [
         (TIPO_TRABAJO, 'Accidente del Trabajo'),
         (TIPO_TRAYECTO, 'Accidente de Trayecto'),
@@ -719,6 +1007,22 @@ class InvestigacionAccidente(models.Model):
         on_delete=models.CASCADE,
         related_name='investigaciones_accidentes',
         verbose_name="Prevencionista Investigador"
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='accidentes',
+        verbose_name="Empresa"
+    )
+    trabajador = models.ForeignKey(
+        Trabajador,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='accidentes_sufridos',
+        verbose_name="Trabajador Afectado"
     )
     
     # Datos del Afectado
@@ -771,7 +1075,114 @@ class InvestigacionAccidente(models.Model):
         help_text="Lista de objetos: [{'medida': '...', 'responsable': '...', 'fecha_limite': 'AAAA-MM-DD', 'estado': 'PENDIENTE|REALIZADO'}]."
     )
 
+    # Tramitación Legal DIAT / DIEP (Plazo legal 24 horas - D.S. 44 / Ley 16.744)
+    diat_presentada = models.BooleanField(
+        default=False,
+        verbose_name="DIAT Formalizada ante Mutualidad"
+    )
+    diat_folio = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Folio DIAT Mutual"
+    )
+    diat_fecha_presentacion = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Presentación DIAT"
+    )
+    plazo_limite_diat_24h = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Plazo Límite DIAT (24h)",
+        help_text="24 horas desde la ocurrencia del evento"
+    )
+
+    # Protocolo de Accidente Grave o Fatal (Art. 76 Ley 16.744 / Circular 3336 SUSESO)
+    es_grave_o_fatal = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="¿Es Accidente Grave o Fatal?"
+    )
+    tipo_accidente_grave = models.CharField(
+        max_length=30,
+        choices=TIPO_ACCIDENTE_GRAVE_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Tipo de Accidente Grave"
+    )
+    faena_suspendida = models.BooleanField(
+        default=False,
+        verbose_name="Auto-suspensión de Faenas",
+        help_text="Auto-suspensión inmediata obligatoria de faenas por el empleador"
+    )
+    aviso_autoridades_realizado = models.BooleanField(
+        default=False,
+        verbose_name="Aviso a Autoridades",
+        help_text="Aviso inmediato a Inspección del Trabajo y Seremi de Salud"
+    )
+    aviso_autoridades_folio = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Folio Notificación Autoridades"
+    )
+    aviso_autoridades_fecha = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Notificación Autoridades"
+    )
+
+    # Control de Días Perdidos y Licencias
+    dias_perdidos = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Días Perdidos",
+        help_text="Días de reposo/licencia médica laboral"
+    )
+    alta_medica = models.BooleanField(
+        default=False,
+        verbose_name="Alta Médica Emitida"
+    )
+
     fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Registro")
+
+    @property
+    def horas_restantes_diat(self) -> float:
+        """Tiempo restante en horas para cumplir con el plazo legal de 24h para presentar la DIAT."""
+        if not self.plazo_limite_diat_24h:
+            return 0.0
+        diff = (self.plazo_limite_diat_24h - timezone.now()).total_seconds() / 3600.0
+        return round(diff, 1)
+
+    @property
+    def diat_vencida(self) -> bool:
+        """True si han pasado >24 horas de la ocurrencia del evento y diat_presentada sigue en False."""
+        if self.diat_presentada:
+            return False
+        if not self.plazo_limite_diat_24h:
+            if self.fecha_hora_evento:
+                return timezone.now() > (self.fecha_hora_evento + timedelta(hours=24))
+            return False
+        return timezone.now() > self.plazo_limite_diat_24h
+
+    @property
+    def semaforo_diat(self) -> str:
+        """
+        Retorna el estado del semáforo legal para la tramitación de la DIAT:
+        - 'PRESENTADA': Formalizada ante la mutualidad (verde)
+        - 'VENCIDA': Superó las 24 horas sin formalizar (rojo)
+        - 'EN_PLAZO': En plazo legal con horas restantes (amarillo)
+        """
+        if self.diat_presentada:
+            return 'PRESENTADA'
+        if self.diat_vencida:
+            return 'VENCIDA'
+        return 'EN_PLAZO'
+
+    def save(self, *args, **kwargs):
+        if self.fecha_hora_evento and not self.plazo_limite_diat_24h:
+            self.plazo_limite_diat_24h = self.fecha_hora_evento + timedelta(hours=24)
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Investigación de Accidente"
@@ -862,6 +1273,22 @@ class RegistroCapacitacion(models.Model):
         on_delete=models.CASCADE,
         related_name='capacitaciones_registradas',
         verbose_name="Prevencionista Relator"
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='capacitaciones',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='capacitaciones',
+        verbose_name="Centro de Trabajo / Faena"
     )
     tema = models.ForeignKey(
         TemaCapacitacion,
@@ -986,6 +1413,304 @@ class SugerenciaConsulta(models.Model):
         fecha_str = fecha_obj.strftime('%d/%m/%Y') if hasattr(fecha_obj, 'strftime') else str(fecha_obj)
         tipo_str = getattr(self, 'get_tipo_display')()
         return f"{tipo_str} de {remitente} ({fecha_str})"
+
+
+class SugerenciaLaboral(models.Model):
+    """
+    Canal abierto y participativo para sugerencias de clima laboral, mejoras de procesos
+    y seguridad general dentro de una empresa.
+    """
+    TIPO_MEJORA_PROCESO = 'MEJORA_PROCESO'
+    TIPO_CLIMA_LABORAL = 'CLIMA_LABORAL'
+    TIPO_SEGURIDAD_GENERAL = 'SEGURIDAD_GENERAL'
+    TIPO_OTRO = 'OTRO'
+    TIPO_CHOICES = [
+        (TIPO_MEJORA_PROCESO, 'Mejora de Procesos / Productividad'),
+        (TIPO_CLIMA_LABORAL, 'Clima Laboral y Bienestar'),
+        (TIPO_SEGURIDAD_GENERAL, 'Seguridad y Salud en el Trabajo'),
+        (TIPO_OTRO, 'Otro Aporte / Sugerencia'),
+    ]
+
+    ESTADO_NUEVA = 'NUEVA'
+    ESTADO_REVISADA = 'REVISADA'
+    ESTADO_APLICADA = 'APLICADA'
+    ESTADO_CHOICES = [
+        (ESTADO_NUEVA, 'Nueva'),
+        (ESTADO_REVISADA, 'Revisada'),
+        (ESTADO_APLICADA, 'Aplicada'),
+    ]
+
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Identificador Único (UUID)"
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='sugerencias',
+        verbose_name="Empresa"
+    )
+    mensaje = models.TextField(verbose_name="Mensaje de la Sugerencia")
+    tipo = models.CharField(
+        max_length=30,
+        choices=TIPO_CHOICES,
+        default=TIPO_MEJORA_PROCESO,
+        verbose_name="Tipo de Sugerencia"
+    )
+    es_anonimo = models.BooleanField(
+        default=True,
+        verbose_name="Es Anónimo"
+    )
+    nombre_remitente = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Nombre del Remitente"
+    )
+    contacto_remitente = models.CharField(
+        max_length=150,
+        blank=True,
+        null=True,
+        verbose_name="Contacto del Remitente"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_NUEVA,
+        verbose_name="Estado de la Sugerencia"
+    )
+    respuesta = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Respuesta o Medida Preventiva"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+
+    class Meta:
+        verbose_name = "Sugerencia Laboral"
+        verbose_name_plural = "Sugerencias Laborales"
+        ordering = ['-fecha_creacion']
+
+    def __str__(self) -> str:
+        remitente = self.nombre_remitente if not self.es_anonimo and self.nombre_remitente else "Anónimo"
+        return f"[{self.get_tipo_display()}] {remitente} - {self.empresa.razon_social}"
+
+
+class DenunciaLeyKarin(models.Model):
+    """
+    Canal formal, confidencial y auditado para denuncias bajo Ley N° 21.643 (Ley Karin)
+    sobre Acoso Sexual, Acoso Laboral y Violencia en el Trabajo.
+    Cumple estrictamente con la Circular SUSESO y Dictámenes de la Dirección del Trabajo (DT).
+    """
+    TIPO_ACOSO_SEXUAL = 'ACOSO_SEXUAL'
+    TIPO_ACOSO_LABORAL = 'ACOSO_LABORAL'
+    TIPO_VIOLENCIA_EXTERNA = 'VIOLENCIA_EXTERNA'
+    TIPO_AFECTACION_CHOICES = [
+        (TIPO_ACOSO_SEXUAL, 'Acoso Sexual (Art. 2 Inc. 2 Código del Trabajo)'),
+        (TIPO_ACOSO_LABORAL, 'Acoso Laboral (Art. 2 Inc. 3 Código del Trabajo)'),
+        (TIPO_VIOLENCIA_EXTERNA, 'Violencia en el Trabajo ejercida por terceros/clientes (Art. 2 Inc. 4)'),
+    ]
+
+    ESTADO_RECEPCIONADA = 'RECEPCIONADA'
+    ESTADO_MEDIDAS_RESGUARDO = 'MEDIDAS_RESGUARDO_APLICADAS'
+    ESTADO_DERIVADA_DT = 'DERIVADA_A_DT'
+    ESTADO_INVESTIGACION_INTERNA = 'INVESTIGACION_INTERNA'
+    ESTADO_FINALIZADA = 'FINALIZADA'
+    ESTADO_TRAMITE_CHOICES = [
+        (ESTADO_RECEPCIONADA, 'Recepcionada / En Análisis Inicial'),
+        (ESTADO_MEDIDAS_RESGUARDO, 'Medidas de Resguardo Cautelar Aplicadas'),
+        (ESTADO_DERIVADA_DT, 'Derivada a Inspección del Trabajo (DT)'),
+        (ESTADO_INVESTIGACION_INTERNA, 'Investigación Interna en Curso'),
+        (ESTADO_FINALIZADA, 'Finalizada con Dictamen / Resolución'),
+    ]
+
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Identificador Único Confidencial (UUID)"
+    )
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='denuncias_karin',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='denuncias_karin',
+        verbose_name="Centro de Trabajo / Faena"
+    )
+    tipo_afectacion = models.CharField(
+        max_length=30,
+        choices=TIPO_AFECTACION_CHOICES,
+        verbose_name="Tipo de Afectación"
+    )
+
+    # Identificación del Denunciante (Obligatorio para denuncia formal y medidas de protección)
+    rut_denunciante = models.CharField(
+        max_length=15,
+        validators=[validar_rut_chileno],
+        verbose_name="RUT del Denunciante"
+    )
+    nombre_denunciante = models.CharField(
+        max_length=150,
+        verbose_name="Nombre Completo del Denunciante"
+    )
+    correo_denunciante = models.EmailField(
+        verbose_name="Correo Electrónico del Denunciante"
+    )
+    telefono_denunciante = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Teléfono del Denunciante"
+    )
+
+    # Datos de la Persona Denunciada
+    nombre_denunciado = models.CharField(
+        max_length=150,
+        verbose_name="Nombre de la Persona Denunciada"
+    )
+    cargo_area_denunciado = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Cargo o Área de la Persona Denunciada"
+    )
+
+    # Relato de los Hechos
+    descripcion_circunstanciada = models.TextField(
+        verbose_name="Descripción Circunstanciada",
+        help_text="Hechos, lugares y fechas aproximadas"
+    )
+    testigos_o_evidencias = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Testigos o Evidencias"
+    )
+
+    # Gestión de Plazos Legales y Medidas (72h DT)
+    fecha_hora_ingreso = models.DateTimeField(
+        auto_now_add=True,
+        editable=False,
+        verbose_name="Fecha y Hora de Ingreso"
+    )
+    plazo_limite_derivacion_dt = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="72 horas legales desde el ingreso",
+        verbose_name="Plazo Límite Derivación DT"
+    )
+    estado_tramite = models.CharField(
+        max_length=35,
+        choices=ESTADO_TRAMITE_CHOICES,
+        default=ESTADO_RECEPCIONADA,
+        verbose_name="Estado del Trámite"
+    )
+    medidas_resguardo_detalle = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Separación de puestos físicos, redistribución de jornadas, etc.",
+        verbose_name="Medidas de Resguardo Cautelar"
+    )
+    derivada_inspeccion_trabajo = models.BooleanField(
+        default=False,
+        verbose_name="Derivada a Inspección del Trabajo (DT)"
+    )
+    folio_dt = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Folio DT"
+    )
+
+    class Meta:
+        verbose_name = "Denuncia Ley Karin"
+        verbose_name_plural = "Denuncias Ley Karin"
+        ordering = ['-fecha_hora_ingreso']
+
+    def save(self, *args, **kwargs):
+        from datetime import timedelta
+        from django.utils import timezone
+        if not self.plazo_limite_derivacion_dt:
+            # 72 horas legales desde el momento de registro
+            self.plazo_limite_derivacion_dt = timezone.now() + timedelta(hours=72)
+        super().save(*args, **kwargs)
+
+    @property
+    def horas_restantes(self) -> float:
+        from django.utils import timezone
+        if not self.plazo_limite_derivacion_dt:
+            return 72.0
+        diff = self.plazo_limite_derivacion_dt - timezone.now()
+        return round(diff.total_seconds() / 3600.0, 1)
+
+    @property
+    def semaforo(self) -> str:
+        if self.derivada_inspeccion_trabajo or self.estado_tramite in [self.ESTADO_DERIVADA_DT, self.ESTADO_FINALIZADA]:
+            return 'DERIVADA'
+        horas = self.horas_restantes
+        if horas <= 12:
+            return 'ROJO'
+        elif horas <= 24:
+            return 'AMARILLO'
+        return 'VERDE'
+
+    def __str__(self) -> str:
+        return f"Denuncia Karin #{self.id} - {self.get_tipo_afectacion_display()} ({self.empresa.razon_social})"
+
+
+class AuditLogAccesoDenuncia(models.Model):
+    """
+    Registro inmutable de confidencialidad y auditoría de accesos a una denuncia Ley Karin.
+    """
+    ACCION_APERTURA = "APERTURA_EXPEDIENTE"
+    ACCION_DESCARGA = "DESCARGA_INFORME"
+    ACCION_MEDIDAS = "REGISTRO_MEDIDAS"
+    ACCION_DERIVACION = "DERIVACION_DT"
+
+    denuncia = models.ForeignKey(
+        DenunciaLeyKarin,
+        on_delete=models.CASCADE,
+        related_name='accesos_auditoria',
+        verbose_name="Denuncia Asociada"
+    )
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        verbose_name="Usuario que Accedió"
+    )
+    fecha_hora = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha y Hora de Acceso"
+    )
+    ip_origen = models.GenericIPAddressField(
+        verbose_name="Dirección IP de Origen"
+    )
+    accion = models.CharField(
+        max_length=100,
+        default=ACCION_APERTURA,
+        verbose_name="Acción Realizada"
+    )
+
+    class Meta:
+        verbose_name = "Auditoría de Acceso a Denuncia"
+        verbose_name_plural = "Auditorías de Accesos a Denuncias"
+        ordering = ['-fecha_hora']
+
+    def __str__(self) -> str:
+        return f"[{self.fecha_hora}] {self.usuario.username} - {self.accion} en Denuncia #{self.denuncia_id}"
 
 
 class Contratista(models.Model):

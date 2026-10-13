@@ -36,6 +36,23 @@ interface AccidentRecord {
   };
   analisis_5_porques: string[];
   plan_accion: ActionItem[];
+  // Compliance Legal
+  diat_presentada: boolean;
+  diat_folio?: string | null;
+  diat_fecha_presentacion?: string | null;
+  plazo_limite_diat_24h?: string | null;
+  horas_restantes_diat: number;
+  diat_vencida: boolean;
+  semaforo_diat: "PRESENTADA" | "EN_PLAZO" | "VENCIDA";
+  es_grave_o_fatal: boolean;
+  tipo_accidente_grave?: string | null;
+  tipo_accidente_grave_display?: string | null;
+  faena_suspendida: boolean;
+  aviso_autoridades_realizado: boolean;
+  aviso_autoridades_folio?: string | null;
+  aviso_autoridades_fecha?: string | null;
+  dias_perdidos: number;
+  alta_medica: boolean;
   fecha_creacion: string;
 }
 
@@ -320,7 +337,76 @@ export default function DetalleAccidentePage() {
           </table>
         </div>
 
-        {/* SECCIÓN F: FIRMAS DE RESPONSABILIDAD */}
+        {/* SECCIÓN F: TRAMITACIÓN LEGAL Y PROTOCOLO NORMATIVO (LEY 16.744 / CIRCULAR 3336) */}
+        <div className="mb-6 border border-slate-200 rounded-lg p-3 bg-slate-50/50 break-inside-avoid">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-800 border-b border-slate-200 pb-1.5 mb-2.5 flex items-center justify-between">
+            <span>F. Tramitación Legal y Protocolo Normativo (SUSESO / D.S. 44)</span>
+            {record.es_grave_o_fatal && (
+              <span className="text-[10px] font-black uppercase text-red-600 bg-red-100 px-2 py-0.5 rounded">
+                ⚠️ Protocolo Accidente Grave Activado
+              </span>
+            )}
+          </h3>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-semibold">Estado DIAT</span>
+              <span className={`font-bold ${record.diat_presentada ? "text-emerald-700" : "text-amber-700"}`}>
+                {record.diat_presentada ? "✓ DIAT Formalizada" : "Pendiente de Presentación"}
+              </span>
+            </div>
+
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-semibold">Folio DIAT Mutual</span>
+              <span className="font-mono font-bold text-slate-800">
+                {record.diat_folio || "S/F"}
+              </span>
+            </div>
+
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-semibold">Días Perdidos (Reposo)</span>
+              <span className="font-bold text-slate-800">
+                {record.dias_perdidos} {record.dias_perdidos === 1 ? "día" : "días"}
+              </span>
+            </div>
+
+            <div>
+              <span className="text-slate-500 block text-[10px] uppercase font-semibold">Alta Médica</span>
+              <span className="font-medium text-slate-700">
+                {record.alta_medica ? "Emitida por Mutualidad" : "En Tratamiento"}
+              </span>
+            </div>
+          </div>
+
+          {record.es_grave_o_fatal && (
+            <div className="mt-3 pt-2.5 border-t border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Criterio Circular 3336</span>
+                <span className="font-semibold text-slate-800">
+                  {record.tipo_accidente_grave_display || record.tipo_accidente_grave || "Crítico"}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Auto-suspensión de Faenas</span>
+                <span className={`font-bold ${record.faena_suspendida ? "text-emerald-700" : "text-red-600"}`}>
+                  {record.faena_suspendida ? "🛑 Faena Auto-Suspendida" : "⚠️ No Suspendida"}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Aviso a DT / Seremi</span>
+                <span className="font-medium text-slate-800">
+                  {record.aviso_autoridades_realizado
+                    ? `✓ Folio: ${record.aviso_autoridades_folio || "Realizado"}`
+                    : "Pendiente"}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* SECCIÓN G: FIRMAS DE RESPONSABILIDAD */}
         <div className="border-t border-slate-200 pt-8 mt-12 break-inside-avoid">
           <div className="grid grid-cols-3 gap-6 text-center text-[10px]">
             {/* Firma 1 */}
