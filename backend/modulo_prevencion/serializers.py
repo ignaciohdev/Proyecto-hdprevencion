@@ -267,6 +267,7 @@ class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
             'horas_restantes_diat', 'diat_vencida', 'semaforo_diat',
             'es_grave_o_fatal', 'tipo_accidente_grave', 'tipo_accidente_grave_display',
             'faena_suspendida', 'aviso_autoridades_realizado', 'aviso_autoridades_folio', 'aviso_autoridades_fecha',
+            'arbol_de_causas', 'plazo_investigacion_suseso_30d', 'reanudacion_autorizada', 'resolucion_reanudacion_dt_seremi',
             'dias_perdidos', 'alta_medica',
             'fecha_creacion'
         )
@@ -300,7 +301,10 @@ class RegistroCapacitacionSerializer(serializers.ModelSerializer):
             'centro_trabajo', 'centro_trabajo_nombre',
             'tema', 'tema_titulo', 'tema_detalle',
             'estado', 'fecha_programada', 'fecha_realizacion', 'lugar',
-            'asistentes', 'observaciones', 'fecha_creacion'
+            'asistentes', 'observaciones',
+            'evaluacion_comprension_aplicada', 'porcentaje_aprobacion_minimo',
+            'entidad_capacitadora', 'codigo_sence', 'certificado_emitido',
+            'fecha_creacion'
         )
         extra_kwargs = {
             'usuario': {'required': False}
@@ -347,6 +351,8 @@ class DocumentoContratistaSerializer(serializers.ModelSerializer):
 
 
 class ContratistaSerializer(serializers.ModelSerializer):
+    empresa_principal_nombre = serializers.CharField(source='empresa_principal.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
     documentos = DocumentoContratistaSerializer(many=True, read_only=True)
     trabajadores = TrabajadorSubcontratadoSerializer(many=True, read_only=True)
     estado_cumplimiento = serializers.ReadOnlyField()
@@ -354,7 +360,9 @@ class ContratistaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contratista
         fields = (
-            'id', 'usuario', 'razon_social', 'rut', 'tipo', 'giro',
+            'id', 'usuario', 'empresa_principal', 'empresa_principal_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'razon_social', 'rut', 'tipo', 'giro',
             'nombre_representante', 'email_contacto', 'telefono_contacto',
             'activo', 'fecha_ingreso', 'observaciones', 'fecha_creacion',
             'documentos', 'trabajadores', 'estado_cumplimiento'
@@ -365,6 +373,8 @@ class ContratistaSerializer(serializers.ModelSerializer):
 
 
 class ContratistaResumenSerializer(serializers.ModelSerializer):
+    empresa_principal_nombre = serializers.CharField(source='empresa_principal.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
     estado_cumplimiento = serializers.ReadOnlyField()
     cant_trabajadores = serializers.SerializerMethodField()
     cant_documentos = serializers.SerializerMethodField()
@@ -372,7 +382,9 @@ class ContratistaResumenSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contratista
         fields = (
-            'id', 'razon_social', 'rut', 'tipo', 'activo', 'fecha_ingreso',
+            'id', 'empresa_principal', 'empresa_principal_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'razon_social', 'rut', 'tipo', 'activo', 'fecha_ingreso',
             'estado_cumplimiento', 'cant_trabajadores', 'cant_documentos'
         )
 
@@ -506,19 +518,55 @@ class SugerenciaLaboralSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'uuid', 'fecha_creacion')
 
 
+class DenunciaLeyKarinListSerializer(serializers.ModelSerializer):
+    """
+    Serializer de lista para canal Ley Karin (Ley N° 21.643 / D.S. 44).
+    Enmascara por confidencialidad estricta y resguardo de datos (Ley 21.719)
+    todos los datos identificatorios de personas y relato pormenorizado.
+    """
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+    tipo_afectacion_display = serializers.CharField(source='get_tipo_afectacion_display', read_only=True)
+    estado_tramite_display = serializers.CharField(source='get_estado_tramite_display', read_only=True)
+    codigo_seguimiento = serializers.CharField(read_only=True)
+    horas_restantes = serializers.FloatField(read_only=True)
+    dias_restantes_mutualidad = serializers.IntegerField(read_only=True)
+    semaforo = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = DenunciaLeyKarin
+        fields = (
+            'id', 'uuid', 'codigo_seguimiento', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'tipo_afectacion', 'tipo_afectacion_display',
+            'fecha_hora_ingreso', 'plazo_limite_derivacion_dt',
+            'plazo_limite_informe_mutualidad_5d', 'dias_restantes_mutualidad',
+            'estado_tramite', 'estado_tramite_display',
+            'derivada_inspeccion_trabajo', 'derivada_mutualidad',
+            'horas_restantes', 'semaforo'
+        )
+        read_only_fields = (
+            'id', 'uuid', 'codigo_seguimiento', 'fecha_hora_ingreso',
+            'plazo_limite_derivacion_dt', 'plazo_limite_informe_mutualidad_5d',
+            'dias_restantes_mutualidad', 'horas_restantes', 'semaforo'
+        )
+
+
 class DenunciaLeyKarinSerializer(serializers.ModelSerializer):
     empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
     centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
     tipo_afectacion_display = serializers.CharField(source='get_tipo_afectacion_display', read_only=True)
     estado_tramite_display = serializers.CharField(source='get_estado_tramite_display', read_only=True)
+    codigo_seguimiento = serializers.CharField(read_only=True)
     horas_restantes = serializers.FloatField(read_only=True)
+    dias_restantes_mutualidad = serializers.IntegerField(read_only=True)
     semaforo = serializers.CharField(read_only=True)
     accesos_auditoria = AuditLogAccesoDenunciaSerializer(many=True, read_only=True)
 
     class Meta:
         model = DenunciaLeyKarin
         fields = (
-            'id', 'uuid', 'empresa', 'empresa_nombre',
+            'id', 'uuid', 'codigo_seguimiento', 'empresa', 'empresa_nombre',
             'centro_trabajo', 'centro_trabajo_nombre',
             'tipo_afectacion', 'tipo_afectacion_display',
             'rut_denunciante', 'nombre_denunciante',
@@ -528,11 +576,17 @@ class DenunciaLeyKarinSerializer(serializers.ModelSerializer):
             'fecha_hora_ingreso', 'plazo_limite_derivacion_dt',
             'estado_tramite', 'estado_tramite_display',
             'medidas_resguardo_detalle', 'derivada_inspeccion_trabajo',
-            'folio_dt', 'horas_restantes', 'semaforo',
+            'folio_dt',
+            'derivada_mutualidad', 'fecha_derivacion_mutualidad', 'folio_mutualidad',
+            'comprobante_anexo_67', 'atencion_psicologica_ofrecida',
+            'fecha_ofrecimiento_psicologico', 'plazo_limite_informe_mutualidad_5d',
+            'dias_restantes_mutualidad',
+            'horas_restantes', 'semaforo',
             'accesos_auditoria'
         )
         read_only_fields = (
-            'id', 'uuid', 'fecha_hora_ingreso', 'plazo_limite_derivacion_dt',
+            'id', 'uuid', 'codigo_seguimiento', 'fecha_hora_ingreso', 'plazo_limite_derivacion_dt',
+            'plazo_limite_informe_mutualidad_5d', 'dias_restantes_mutualidad',
             'horas_restantes', 'semaforo', 'accesos_auditoria'
         )
 
@@ -564,6 +618,7 @@ class MiembroCPHSSerializer(serializers.ModelSerializer):
     estamento_display = serializers.CharField(source='get_estamento_display', read_only=True)
     tipo_representacion_display = serializers.CharField(source='get_tipo_representacion_display', read_only=True)
     cargo_display = serializers.CharField(source='get_cargo_display', read_only=True)
+    causal_cese_display = serializers.CharField(source='get_causal_cese_display', read_only=True)
 
     class Meta:
         model = MiembroCPHS
@@ -572,6 +627,7 @@ class MiembroCPHSSerializer(serializers.ModelSerializer):
             'estamento', 'estamento_display',
             'tipo_representacion', 'tipo_representacion_display',
             'cargo', 'cargo_display', 'activo',
+            'tiene_fuero_laboral', 'causal_cese', 'causal_cese_display',
             'fecha_designacion', 'fecha_creacion'
         )
 
@@ -584,6 +640,7 @@ class MiembroCPHSSerializer(serializers.ModelSerializer):
 class ActaSesionCPHSSerializer(serializers.ModelSerializer):
     comite_nombre = serializers.CharField(source='comite.nombre', read_only=True)
     tipo_sesion_display = serializers.CharField(source='get_tipo_sesion_display', read_only=True)
+    numero_acta = serializers.IntegerField(required=False, allow_null=True)
     total_acuerdos = serializers.SerializerMethodField()
     acuerdos_cumplidos = serializers.SerializerMethodField()
 
@@ -595,6 +652,9 @@ class ActaSesionCPHSSerializer(serializers.ModelSerializer):
             'lugar', 'asistentes', 'tabla_temas', 'acuerdos',
             'fecha_creacion', 'total_acuerdos', 'acuerdos_cumplidos'
         )
+        extra_kwargs = {
+            'numero_acta': {'required': False}
+        }
 
     def get_total_acuerdos(self, obj):
         if isinstance(obj.acuerdos, list):
@@ -623,6 +683,7 @@ class ComiteParitarioSerializer(serializers.ModelSerializer):
             'centro_trabajo', 'centro_trabajo_nombre',
             'nombre', 'fecha_constitucion', 'fecha_vencimiento_mandato',
             'estado', 'estado_display', 'dias_restantes_mandato',
+            'folio_registro_rel_dt', 'fecha_registro_rel_dt', 'alerta_plazo_rel_15dias',
             'miembros', 'total_miembros', 'total_actas', 'fecha_creacion'
         )
 
@@ -792,6 +853,29 @@ class ItemMatrizRiesgoSerializer(serializers.ModelSerializer):
         if value < 1 or value > 5:
             raise ValidationError("La severidad residual debe estar entre 1 y 5.")
         return value
+
+    def validate(self, data):
+        data = super().validate(data)
+        p_pura = data.get('probabilidad_pura', getattr(self.instance, 'probabilidad_pura', 2))
+        s_pura = data.get('severidad_pura', getattr(self.instance, 'severidad_pura', 2))
+        p_res = data.get('probabilidad_residual', getattr(self.instance, 'probabilidad_residual', 2))
+        s_res = data.get('severidad_residual', getattr(self.instance, 'severidad_residual', 2))
+
+        mag_pura = p_pura * s_pura
+        mag_res = p_res * s_res
+        if mag_res < mag_pura:
+            controles = [
+                data.get('control_eliminacion', getattr(self.instance, 'control_eliminacion', '')),
+                data.get('control_sustitucion', getattr(self.instance, 'control_sustitucion', '')),
+                data.get('control_ingenieria', getattr(self.instance, 'control_ingenieria', '')),
+                data.get('control_administrativo', getattr(self.instance, 'control_administrativo', '')),
+                data.get('control_epp', getattr(self.instance, 'control_epp', '')),
+            ]
+            if not any(c and str(c).strip() for c in controles):
+                raise serializers.ValidationError(
+                    "Artículos 9 y 10 D.S. N° 44: No es legal reducir el riesgo residual sin registrar al menos una medida de control de la jerarquía preventiva (eliminación, sustitución, ingeniería, administrativa o EPP)."
+                )
+        return data
 
 
 class MatrizRiesgoMiperSerializer(serializers.ModelSerializer):

@@ -148,6 +148,18 @@ export default function ModalItemMiper({
     return Math.max(0, Math.round(red));
   }, [magnitudPura, magnitudResidual]);
 
+  const tieneControles = useMemo(() => {
+    return Boolean(
+      controlEliminacion.trim() ||
+      controlSustitucion.trim() ||
+      controlIngenieria.trim() ||
+      controlAdministrativo.trim() ||
+      controlEpp.trim()
+    );
+  }, [controlEliminacion, controlSustitucion, controlIngenieria, controlAdministrativo, controlEpp]);
+
+  const reduccionIlegal = magnitudResidual < magnitudPura && !tieneControles;
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -158,6 +170,13 @@ export default function ModalItemMiper({
     }
     if (!peligro.trim() || !riesgoConsecuencia.trim()) {
       setErrorMsg("Debe detallar el Peligro y su Riesgo / Consecuencia.");
+      return;
+    }
+
+    if (reduccionIlegal) {
+      setErrorMsg(
+        "Infracción a los Arts. 9 y 10 del D.S. N° 44: No es legal registrar una reducción de riesgo (Riesgo Residual menor al Puro) sin haber especificado al menos una medida concreta en la Jerarquía de Controles (Eliminación, Sustitución, Ingeniería, Administrativo o EPP)."
+      );
       return;
     }
 
@@ -470,6 +489,18 @@ export default function ModalItemMiper({
               </span>
             </div>
 
+            {reduccionIlegal && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-rose-400">
+                  <span>⚠️</span>
+                  <span>Validación Obligatoria D.S. N° 44 (Arts. 9 y 10):</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  Has establecido un Riesgo Residual ({magnitudResidual}) inferior al Riesgo Puro ({magnitudPura}). Para justificar metodológicamente esta reducción, debes registrar al menos una medida en la jerarquía de controles a continuación.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-2 border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/40">
               {/* 1. Eliminación */}
               <div className="border-b border-slate-800/80">
@@ -780,14 +811,21 @@ export default function ModalItemMiper({
               </button>
               <button
                 type="submit"
-                disabled={guardando}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-lg shadow-orange-500/20 transition-all flex items-center gap-2"
+                disabled={guardando || reduccionIlegal}
+                title={reduccionIlegal ? "Debes registrar al menos un control para justificar la reducción de riesgo" : undefined}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center gap-2 ${
+                  reduccionIlegal
+                    ? "bg-slate-700 text-slate-400 cursor-not-allowed opacity-60"
+                    : "bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-orange-500/20 cursor-pointer"
+                }`}
               >
                 {guardando ? (
                   <>
                     <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
                     Guardando...
                   </>
+                ) : reduccionIlegal ? (
+                  "⚠️ Requiere Controles Preventivos"
                 ) : isEditing ? (
                   "Actualizar Peligro"
                 ) : (

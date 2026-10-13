@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
@@ -16,8 +16,10 @@ interface EmpresaItem {
   centros_trabajo: { id: number; nombre: string; direccion: string }[];
 }
 
-export default function BuzonPublicoPage() {
+function BuzonPublicoContent() {
   const { uid } = useParams<{ uid: string }>();
+  const searchParams = useSearchParams();
+  const empresaParam = searchParams.get('empresa');
 
   // Selector principal de canal
   const [canal, setCanal] = useState<CanalType>('SUGERENCIA');
@@ -50,12 +52,13 @@ export default function BuzonPublicoPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successInfo, setSuccessInfo] = useState<{ uuid: string; tipo: string } | null>(null);
 
-  // Cargar lista de empresas y centros de trabajo del prevencionista
+  // Cargar lista de empresas y centros de trabajo del prevencionista (Aislada por tenant)
   useEffect(() => {
     if (!uid) return;
     const fetchEmpresas = async () => {
       try {
-        const res = await fetch(`${API_URL}/publico/${uid}/empresas/`);
+        const query = empresaParam ? `?empresa=${encodeURIComponent(empresaParam)}` : '';
+        const res = await fetch(`${API_URL}/publico/${uid}/empresas/${query}`);
         if (res.ok) {
           const data: EmpresaItem[] = await res.json();
           setEmpresas(data);
@@ -71,7 +74,7 @@ export default function BuzonPublicoPage() {
       }
     };
     fetchEmpresas();
-  }, [uid]);
+  }, [uid, empresaParam]);
 
   // Centros de trabajo disponibles para la empresa seleccionada
   const centrosDisponibles =
@@ -240,24 +243,21 @@ export default function BuzonPublicoPage() {
           </button>
         </div>
 
-        {/* Selector de Empresa y Faena (si hay más de 1) */}
+        {/* Contexto de Empresa y Faena (Aislamiento Multi-Tenant Ley N° 21.719) */}
         {empresas.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80">
             <div>
               <label className="text-xs font-bold text-slate-400 block mb-1.5">
-                Empresa a la que perteneces:
+                Empresa Vinculada (Canal Confidencial):
               </label>
-              <select
-                value={selectedEmpresaId}
-                onChange={e => handleEmpresaChange(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-              >
-                {empresas.map(emp => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.razon_social} ({emp.rut})
-                  </option>
-                ))}
-              </select>
+              <div className="w-full bg-slate-900 border border-emerald-500/30 rounded-xl p-2.5 text-xs text-white flex items-center justify-between shadow-inner">
+                <span className="font-bold truncate">
+                  🏢 {empresas.find(e => String(e.id) === selectedEmpresaId)?.razon_social || empresas[0]?.razon_social}
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-mono ml-2 shrink-0">
+                  🔒 Contexto Fijo
+                </span>
+              </div>
             </div>
 
             {centrosDisponibles.length > 0 && (
@@ -561,5 +561,19 @@ export default function BuzonPublicoPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function BuzonPublicoPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }
+    >
+      <BuzonPublicoContent />
+    </Suspense>
   );
 }

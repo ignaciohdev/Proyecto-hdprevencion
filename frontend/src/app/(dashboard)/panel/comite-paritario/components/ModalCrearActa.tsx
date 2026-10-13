@@ -150,7 +150,7 @@ export function ModalCrearActa({
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
             <span className="text-[11px] font-bold text-orange-600 uppercase tracking-wider">
-              Libro Digital de Actas • D.S. N° 44 Art. 16
+              Libro Digital de Actas • D.S. N° 44 Arts. 39, 40 y 42
             </span>
             <h3 className="text-lg font-extrabold text-slate-900 dark:text-white">
               Registrar Acta de Sesión CPHS
@@ -244,10 +244,22 @@ export function ModalCrearActa({
                 }`}
               >
                 {tieneQuorumLegal
-                  ? "✓ Quorum Legal Válido (D.S. 44)"
-                  : "⚠ Sin Quorum (Falta representación patronal o laboral)"}
+                  ? "✓ Quorum Legal Válido (Art. 40 D.S. 44)"
+                  : "⚠ Sin Quorum Legal"}
               </span>
             </div>
+
+            {!tieneQuorumLegal && (
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <span>⚖️</span>
+                  <span>Infracción al Art. 40 del D.S. N° 44 (Comité Paritario)</span>
+                </div>
+                <p className="text-[11px] leading-relaxed opacity-90">
+                  Para que la sesión sea jurídicamente válida y pueda emitirse el acta, es obligatoria la asistencia concurrente de al menos un (1) representante de la empresa y un (1) representante de los trabajadores. El guardado se encuentra bloqueado hasta cumplir el quórum legal mínimo.
+                </p>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto pr-1">
               {miembros.map((m) => {
@@ -363,14 +375,21 @@ export function ModalCrearActa({
             </button>
             <button
               type="submit"
-              disabled={guardando}
-              className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center space-x-2"
+              disabled={guardando || !tieneQuorumLegal}
+              title={!tieneQuorumLegal ? "Bloqueado: Se requiere quórum de ambos estamentos (Art. 40 D.S. 44)" : undefined}
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm flex items-center space-x-2 ${
+                !tieneQuorumLegal
+                  ? "bg-slate-400 dark:bg-slate-700 text-slate-200 cursor-not-allowed opacity-60"
+                  : "bg-orange-600 hover:bg-orange-500 text-white cursor-pointer"
+              }`}
             >
               {guardando ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   <span>Guardando Acta...</span>
                 </>
+              ) : !tieneQuorumLegal ? (
+                <span>⚠️ Bloqueado por Falta de Quórum</span>
               ) : (
                 <span>Guardar y Emitir Acta</span>
               )}

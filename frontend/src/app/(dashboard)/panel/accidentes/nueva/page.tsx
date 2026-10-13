@@ -37,6 +37,9 @@ export default function NuevaInvestigacionPage() {
     es_grave_o_fatal: false,
     tipo_accidente_grave: "OTRO_GRAVE",
     dias_perdidos: 0,
+    faena_suspendida_inmediata: false,
+    aviso_autoridades_realizado: false,
+    folio_aviso_autoridad: "",
   });
 
   // Paso 3: Análisis de Causas
@@ -87,6 +90,12 @@ export default function NuevaInvestigacionPage() {
       return;
     }
 
+    if (evento.es_grave_o_fatal && (!evento.faena_suspendida_inmediata || !evento.aviso_autoridades_realizado)) {
+      alert("Infracción Art. 76 Ley N° 16.744: Para accidentes graves o fatales es obligatorio dejar constancia de la suspensión de faenas y aviso a autoridades (Teléfono 600 42 000 22).");
+      setLoading(false);
+      return;
+    }
+
     const payload = {
       ...afectado,
       edad_afectado: parseInt(afectado.edad_afectado) || 0,
@@ -121,7 +130,17 @@ export default function NuevaInvestigacionPage() {
     }
   };
 
-  const nextStep = () => setStep((s) => Math.min(s + 1, 4));
+  const nextStep = () => {
+    if (step === 2 && evento.es_grave_o_fatal) {
+      if (!evento.faena_suspendida_inmediata || !evento.aviso_autoridades_realizado) {
+        alert(
+          "Infracción al Art. 76 Ley N° 16.744 y Circular 3.336 SUSESO:\nPara accidentes graves o fatales es mandatorio registrar la constancia de suspensión inmediata de faenas y el aviso a las autoridades (Teléfono 600 42 000 22 / Portal DT)."
+        );
+        return;
+      }
+    }
+    setStep((s) => Math.min(s + 1, 4));
+  };
   const prevStep = () => setStep((s) => Math.max(s - 1, 1));
 
   return (
@@ -348,20 +367,97 @@ export default function NuevaInvestigacionPage() {
               </div>
 
               {evento.es_grave_o_fatal && (
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold mb-1 text-red-500">Criterio de Gravedad (Art. 76 Ley 16.744)</label>
-                  <select
-                    value={evento.tipo_accidente_grave}
-                    onChange={(e) => setEvento({ ...evento, tipo_accidente_grave: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-900 border border-red-300 dark:border-red-900 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  >
-                    <option value="CAIDA_ALTURA">Caída de distinto nivel (sobre 1.8 metros)</option>
-                    <option value="AMPUTACION">Amputación o pérdida traumática de parte del cuerpo</option>
-                    <option value="ATRAPAMIENTO_ASFIXIA">Atrapamiento, asfixia o inmersión</option>
-                    <option value="MANIOBRAS_REANIMACION">Accidente que requirió maniobras de RCP / Resucitación</option>
-                    <option value="FALLECIMIENTO">Accidente con consecuencia fatal inmediata</option>
-                    <option value="OTRO_GRAVE">Otro evento de gravedad crítica con compromiso vital</option>
-                  </select>
+                <div className="md:col-span-2 space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-red-500">
+                      Criterio de Gravedad Legal (Art. 76 Ley N° 16.744 / Compendio SUSESO)
+                    </label>
+                    <select
+                      value={evento.tipo_accidente_grave}
+                      onChange={(e) => setEvento({ ...evento, tipo_accidente_grave: e.target.value })}
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-red-300 dark:border-red-900 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                      <option value="CAIDA_ALTURA">Caída de distinto nivel (sobre 1.8 metros)</option>
+                      <option value="AMPUTACION">Amputación o pérdida traumática de parte del cuerpo</option>
+                      <option value="ATRAPAMIENTO_ASFIXIA">Atrapamiento, asfixia o inmersión</option>
+                      <option value="MANIOBRAS_RESCATE">Accidente que obligó a maniobras de rescate o salvamento</option>
+                      <option value="CONDICIONES_HIPERBARICAS">Afectación en condiciones hiperbáricas (buzos / faenas subacuáticas)</option>
+                      <option value="COLECTIVO_MASIVO">Accidente con afectación colectiva masiva de trabajadores</option>
+                      <option value="MANIOBRAS_REANIMACION">Accidente que requirió maniobras de RCP / Resucitación</option>
+                      <option value="FALLECIMIENTO">Accidente con consecuencia fatal inmediata</option>
+                      <option value="OTRO_GRAVE">Otro evento de gravedad crítica con compromiso vital</option>
+                    </select>
+                  </div>
+
+                  {/* Panel Prioritario de Suspensión de Faenas y Notificación Legal Inmediata */}
+                  <div className="p-4 md:p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-950 dark:text-rose-200 space-y-3.5 shadow-sm">
+                    <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold text-xs md:text-sm">
+                      <span className="text-xl">🚨</span>
+                      <span>PROTOCOLO OBLIGATORIO DE SUSPENSIÓN Y NOTIFICACIÓN INMEDIATA (Circular N° 3.336)</span>
+                    </div>
+
+                    <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                      El empleador debe <strong>suspender de forma inmediata</strong> los trabajos y evacuar el área si el riesgo persiste. Asimismo, debe <strong>notificar de inmediato</strong> a la Inspección del Trabajo y SEREMI de Salud respectiva.
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                      <a
+                        href="tel:6004200022"
+                        className="p-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-md transition-colors"
+                      >
+                        <span>📞</span>
+                        <span>Teléfono Único Nacional: 600 42 000 22</span>
+                      </a>
+                      <a
+                        href="https://tramites.dirtrab.cl"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-3 bg-slate-800 hover:bg-slate-700 text-slate-100 rounded-xl text-xs font-bold flex items-center justify-center gap-2 border border-slate-700 transition-colors"
+                      >
+                        <span>🌐</span>
+                        <span>Portal Web DT: Notificación de Accidentes</span>
+                      </a>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-rose-500/20">
+                      <label className="flex items-start gap-2.5 cursor-pointer bg-white dark:bg-slate-900/80 p-3 rounded-xl border border-rose-200 dark:border-rose-900/50">
+                        <input
+                          type="checkbox"
+                          checked={evento.faena_suspendida_inmediata}
+                          onChange={(e) => setEvento({ ...evento, faena_suspendida_inmediata: e.target.checked })}
+                          className="mt-0.5 w-4 h-4 accent-rose-600 rounded cursor-pointer"
+                        />
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Constancia obligatoria: Se procedió a la <strong>suspensión inmediata de las faenas</strong> y evacuación de los trabajadores en riesgo. <span className="text-rose-500">*</span>
+                        </span>
+                      </label>
+
+                      <label className="flex items-start gap-2.5 cursor-pointer bg-white dark:bg-slate-900/80 p-3 rounded-xl border border-rose-200 dark:border-rose-900/50">
+                        <input
+                          type="checkbox"
+                          checked={evento.aviso_autoridades_realizado}
+                          onChange={(e) => setEvento({ ...evento, aviso_autoridades_realizado: e.target.checked })}
+                          className="mt-0.5 w-4 h-4 accent-rose-600 rounded cursor-pointer"
+                        />
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Constancia obligatoria: Se realizó la <strong>notificación inmediata a la DT y SEREMI de Salud</strong> (vía telefónica 600 42 000 22 o web). <span className="text-rose-500">*</span>
+                        </span>
+                      </label>
+
+                      <div className="pt-2">
+                        <label className="block text-xs font-semibold mb-1 text-slate-700 dark:text-slate-300">
+                          Folio o Comprobante de Notificación Autoridad (DT / SEREMI):
+                        </label>
+                        <input
+                          type="text"
+                          value={evento.folio_aviso_autoridad}
+                          onChange={(e) => setEvento({ ...evento, folio_aviso_autoridad: e.target.value })}
+                          placeholder="Ej: FOLIO-DT-2026-991823"
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

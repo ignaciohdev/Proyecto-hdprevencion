@@ -28,6 +28,11 @@ interface RegistroCapacitacion {
   asistentes: Asistente[];
   observaciones: string | null;
   username: string;
+  evaluacion_comprension_aplicada?: boolean;
+  porcentaje_aprobacion_minimo?: number;
+  entidad_capacitadora?: string;
+  codigo_sence?: string;
+  certificado_emitido?: boolean;
 }
 
 export default function CapacitacionesPage() {
@@ -67,11 +72,17 @@ export default function CapacitacionesPage() {
   const getCategoriaLabel = (cat: string) => {
     switch (cat) {
       case "CHARLA_5_MIN":
-        return "Charla de 5 Minutos";
+        return "Charla 5 Minutos (Operativa)";
       case "INDUCCION_ODI":
-        return "Inducción ODI / DAS";
+        return "Inducción ODI (Art. 15 D.S. N° 44)";
+      case "CURSO_8H_GENERO":
+        return "Curso Bienal 8h Género (Art. 16 D.S. N° 44)";
+      case "CURSO_20H_CPHS":
+        return "Curso 20h CPHS (Mutualidad / D.S. N° 44)";
+      case "CURSO_1H_EPP":
+        return "Capacitación Obligatoria EPP 1h (D.S. N° 44)";
       case "CURSO_TEORICO":
-        return "Capacitación Teórica";
+        return "Capacitación Teórica General";
       case "CURSO_PRACTICO":
         return "Capacitación Práctica";
       default:
@@ -82,13 +93,19 @@ export default function CapacitacionesPage() {
   const getCategoriaBadgeColor = (cat: string) => {
     switch (cat) {
       case "CHARLA_5_MIN":
-        return "bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-450 border border-sky-100 dark:border-sky-900/40";
+        return "bg-sky-50 dark:bg-sky-950/30 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-900/40";
       case "INDUCCION_ODI":
-        return "bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-450 border border-purple-100 dark:border-purple-900/40";
+        return "bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40";
+      case "CURSO_8H_GENERO":
+        return "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-bold";
+      case "CURSO_20H_CPHS":
+        return "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 font-bold";
+      case "CURSO_1H_EPP":
+        return "bg-teal-50 dark:bg-teal-950/30 text-teal-700 dark:text-teal-300 border border-teal-300 dark:border-teal-800 font-bold";
       case "CURSO_TEORICO":
-        return "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-450 border border-indigo-100 dark:border-indigo-900/40";
+        return "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40";
       case "CURSO_PRACTICO":
-        return "bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-450 border border-pink-100 dark:border-pink-900/40";
+        return "bg-pink-50 dark:bg-pink-950/30 text-pink-600 dark:text-pink-400 border border-pink-100 dark:border-pink-900/40";
       default:
         return "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400";
     }
@@ -97,10 +114,14 @@ export default function CapacitacionesPage() {
   // Filtrado de capacitaciones
   const capacitacionesFiltradas = capacitaciones.filter((cap) => {
     const matchEstado = filtroEstado === "TODOS" || cap.estado === filtroEstado;
-    const matchCategoria =
-      filtroCategoria === "TODOS" ||
-      (cap.tema_detalle && cap.tema_detalle.categoria === filtroCategoria);
-    return matchEstado && matchCategoria;
+    if (!matchEstado) return false;
+
+    if (filtroCategoria === "TODOS") return true;
+    if (filtroCategoria === "CURSOS_FORMALES") {
+      const cat = cap.tema_detalle?.categoria;
+      return cat === "CURSO_8H_GENERO" || cat === "CURSO_20H_CPHS" || cat === "CURSO_1H_EPP";
+    }
+    return cap.tema_detalle && cap.tema_detalle.categoria === filtroCategoria;
   });
 
   // Métricas
@@ -218,11 +239,15 @@ export default function CapacitacionesPage() {
               onChange={(e) => setFiltroCategoria(e.target.value)}
               className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-orange-500 text-slate-700 dark:text-slate-300"
             >
-              <option value="TODOS">Todas</option>
-              <option value="CHARLA_5_MIN">Charla de 5 Minutos</option>
-              <option value="INDUCCION_ODI">Inducción ODI / DAS</option>
-              <option value="CURSO_TEORICO">Capacitación Teórica</option>
-              <option value="CURSO_PRACTICO">Capacitación Práctica</option>
+              <option value="TODOS">Todas las Categorías</option>
+              <option value="CURSOS_FORMALES">🎓 Submódulo Cursos Formales (8h / 20h / 1h)</option>
+              <option value="CURSO_8H_GENERO">Curso Bienal 8h Género (Art. 16 D.S. N° 44)</option>
+              <option value="CURSO_20H_CPHS">Curso 20h CPHS (Mutualidad / D.S. N° 44)</option>
+              <option value="CURSO_1H_EPP">Capacitación Obligatoria EPP 1h (D.S. N° 44)</option>
+              <option value="CHARLA_5_MIN">Charla 5 Minutos (Operativa)</option>
+              <option value="INDUCCION_ODI">Inducción ODI (Art. 15 D.S. N° 44)</option>
+              <option value="CURSO_TEORICO">Capacitación Teórica General</option>
+              <option value="CURSO_PRACTICO">Capacitación Práctica / Simulacro</option>
             </select>
           </div>
         </div>
@@ -260,45 +285,68 @@ export default function CapacitacionesPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {capacitacionesFiltradas.map((cap) => (
-            <div
-              key={cap.id}
-              className="bg-white dark:bg-slate-950 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
-            >
-              <div className="space-y-2 flex-grow max-w-3xl">
-                <div className="flex items-center space-x-2 flex-wrap gap-y-2">
-                  <span
-                    className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
-                      cap.estado === "REALIZADA"
-                        ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border border-emerald-100 dark:border-emerald-900/40"
+          {capacitacionesFiltradas.map((cap) => {
+            const esCursoFormal =
+              cap.tema_detalle?.categoria === "CURSO_8H_GENERO" ||
+              cap.tema_detalle?.categoria === "CURSO_20H_CPHS" ||
+              cap.tema_detalle?.categoria === "CURSO_1H_EPP";
+
+            return (
+              <div
+                key={cap.id}
+                className={`bg-white dark:bg-slate-950 p-6 rounded-2xl border ${
+                  esCursoFormal
+                    ? "border-emerald-300 dark:border-emerald-800 shadow-md shadow-emerald-950/5"
+                    : "border-slate-200 dark:border-slate-800 shadow-sm"
+                } hover:shadow-md transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4`}
+              >
+                <div className="space-y-2 flex-grow max-w-3xl">
+                  <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+                    <span
+                      className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+                        cap.estado === "REALIZADA"
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border border-emerald-100 dark:border-emerald-900/40"
+                          : cap.estado === "PROGRAMADA"
+                          ? "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-100 dark:border-amber-900/40"
+                          : "bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-450 border border-red-100 dark:border-red-900/40"
+                      }`}
+                    >
+                      {cap.estado === "REALIZADA"
+                        ? "✔ Ejecutada / Realizada"
                         : cap.estado === "PROGRAMADA"
-                        ? "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-100 dark:border-amber-900/40"
-                        : "bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-450 border border-red-100 dark:border-red-900/40"
-                    }`}
-                  >
-                    {cap.estado === "REALIZADA"
-                      ? "✔ Ejecutada / Realizada"
-                      : cap.estado === "PROGRAMADA"
-                      ? "⏳ Programada / Pendiente"
-                      : "✖ Cancelada"}
-                  </span>
-                  
-                  {cap.tema_detalle && (
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getCategoriaBadgeColor(cap.tema_detalle.categoria)}`}>
-                      {getCategoriaLabel(cap.tema_detalle.categoria)}
+                        ? "⏳ Programada / Pendiente"
+                        : "✖ Cancelada"}
                     </span>
-                  )}
+                    
+                    {cap.tema_detalle && (
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getCategoriaBadgeColor(cap.tema_detalle.categoria)}`}>
+                        {getCategoriaLabel(cap.tema_detalle.categoria)}
+                      </span>
+                    )}
 
-                  {cap.tema_detalle && (
-                    <span className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 font-mono">
-                      ⏱️ {cap.tema_detalle.duracion_minutos} Min.
-                    </span>
-                  )}
-                </div>
+                    {cap.tema_detalle && (
+                      <span className="text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 font-mono">
+                        ⏱️ {cap.tema_detalle.duracion_minutos} Min.
+                      </span>
+                    )}
 
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                  {cap.tema_titulo}
-                </h3>
+                    {esCursoFormal && (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                        🎓 Curso Formal Certificado D.S. N° 44
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    {cap.tema_titulo}
+                  </h3>
+
+                  {esCursoFormal && (
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-300 font-medium bg-emerald-50/70 dark:bg-emerald-950/30 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-900/50">
+                      <span>✓ Exige Evaluación de Comprensión (Aprobación &ge; 75%)</span>
+                      <span>• Validez Oficial SG-SST</span>
+                    </div>
+                  )}
                 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-1 text-xs text-slate-500 dark:text-slate-400">
                   <span className="flex items-center space-x-1">
@@ -348,8 +396,9 @@ export default function CapacitacionesPage() {
                 )}
               </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
+      </div>
       )}
     </div>
   );

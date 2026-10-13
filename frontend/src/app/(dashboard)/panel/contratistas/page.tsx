@@ -13,6 +13,17 @@ interface ContratistaResumen {
   estado_cumplimiento: "AL_DIA" | "POR_VENCER" | "CRITICO" | "SIN_DOCUMENTOS";
   cant_trabajadores: number;
   cant_documentos: number;
+  empresa_principal?: number | null;
+  empresa_principal_nombre?: string | null;
+  centro_trabajo?: number | null;
+  centro_trabajo_nombre?: string | null;
+}
+
+interface EmpresaMandante {
+  id: number;
+  razon_social: string;
+  rut: string;
+  centros_trabajo?: { id: number; nombre: string }[];
 }
 
 interface DashboardStats {
@@ -43,6 +54,8 @@ function formatDate(dateStr: string) {
 
 export default function ContratistasPage() {
   const [contratistas, setContratistas] = useState<ContratistaResumen[]>([]);
+  const [empresasMandantes, setEmpresasMandantes] = useState<EmpresaMandante[]>([]);
+  const [filtroMandante, setFiltroMandante] = useState<string>("TODAS");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +69,8 @@ export default function ContratistasPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
+    empresa_principal: "",
+    centro_trabajo: "",
     razon_social: "",
     rut: "",
     tipo: "CONTRATISTA",
@@ -71,8 +86,18 @@ export default function ContratistasPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
+      // 0. Cargar empresas mandantes (D.S. N° 76)
+      const resEmp = await fetch(getApiUrl("/api/empresas/"), {
+        headers: getAuthHeaders()
+      });
+      if (resEmp.ok) {
+        const dataEmp = await resEmp.json();
+        setEmpresasMandantes(Array.isArray(dataEmp) ? dataEmp : dataEmp.results || []);
+      }
+
       // 1. Obtener lista resumida de contratistas
-      const resList = await fetch(getApiUrl("/api/contratistas/"), {
+      const query = filtroMandante !== "TODAS" ? `?empresa=${filtroMandante}` : "";
+      const resList = await fetch(getApiUrl(`/api/contratistas/${query}`), {
         headers: getAuthHeaders()
       });
       if (!resList.ok) throw new Error("Error al obtener la lista de contratistas.");
@@ -93,7 +118,7 @@ export default function ContratistasPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filtroMandante]);
 
   useEffect(() => {
     fetchData();
@@ -108,13 +133,25 @@ export default function ContratistasPage() {
     e.preventDefault();
     setSaving(true);
     try {
+      const payload: Record<string, any> = { ...form };
+      if (payload.empresa_principal) {
+        payload.empresa_principal = Number(payload.empresa_principal);
+      } else {
+        delete payload.empresa_principal;
+      }
+      if (payload.centro_trabajo) {
+        payload.centro_trabajo = Number(payload.centro_trabajo);
+      } else {
+        delete payload.centro_trabajo;
+      }
+
       const res = await fetch(getApiUrl("/api/contratistas/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...getAuthHeaders()
         },
-        body: JSON.stringify(form)
+        body: JSON.stringify(payload)
       });
 
       if (!res.ok) {
@@ -124,6 +161,8 @@ export default function ContratistasPage() {
 
       // Reiniciar formulario y cerrar modal
       setForm({
+        empresa_principal: "",
+        centro_trabajo: "",
         razon_social: "",
         rut: "",
         tipo: "CONTRATISTA",
@@ -229,6 +268,22 @@ export default function ContratistasPage() {
         </div>
 
         <div style={s.filterGroup}>
+          <span style={s.filterLabel}>🏢 Mandante (D.S. 76):</span>
+          <select
+            value={filtroMandante}
+            onChange={(e) => setFiltroMandante(e.target.value)}
+            style={s.selectInput}
+          >
+            <option value="TODAS">Todas las Mandantes</option>
+            {empresasMandantes.map((emp) => (
+              <option key={emp.id} value={emp.id}>
+                {emp.razon_social} ({emp.rut})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={s.filterGroup}>
           <span style={s.filterLabel}>Tipo:</span>
           <select
             value={filtroTipo}
@@ -277,6 +332,7 @@ export default function ContratistasPage() {
               <tr>
                 <th style={s.th}>Razón Social</th>
                 <th style={s.th}>RUT</th>
+                <th style={s.th}>Mandante / Faena</th>
                 <th style={s.th}>Tipo</th>
                 <th style={s.th}>Estado Cumplimiento</th>
                 <th style={s.th}>Trabajadores</th>
@@ -307,6 +363,16 @@ export default function ContratistasPage() {
                       {!item.activo && <span style={s.inactiveTag}>Inactivo</span>}
                     </td>
                     <td style={s.td}>{item.rut}</td>
+                    <td style={s.td}>
+                      <div style={{ fontWeight: 600, color: "#f8fafc", fontSize: "12px" }}>
+                        {item.empresa_principal_nombre || "Empresa Mandante"}
+                      </div>
+                      {item.centro_trabajo_nombre && (
+                        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "2px" }}>
+                          📍 {item.centro_trabajo_nombre}
+                        </div>
+                      )}
+                    </td>
                     <td style={s.td}>
                       <span style={{
                         ...s.tipoTag,
@@ -354,6 +420,41 @@ export default function ContratistasPage() {
             </div>
             <form onSubmit={handleAddContratista} style={s.form}>
               <div style={s.formGrid}>
+                <div style={s.formGroup}>
+                  <label style={s.label}>Empresa Mandante (D.S. N° 76) *</label>
+                  <select
+                    name="empresa_principal"
+                    required
+                    value={form.empresa_principal}
+                    onChange={handleInputChange}
+                    style={s.input}
+                  >
+                    <option value="">Seleccione Mandante...</option>
+                    {empresasMandantes.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.razon_social} ({emp.rut})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={s.formGroup}>
+                  <label style={s.label}>Centro de Trabajo / Faena</label>
+                  <select
+                    name="centro_trabajo"
+                    value={form.centro_trabajo}
+                    onChange={handleInputChange}
+                    style={s.input}
+                  >
+                    <option value="">(Sin Faena Específica / Toda la Obra)</option>
+                    {empresasMandantes
+                      .find((e) => String(e.id) === String(form.empresa_principal))
+                      ?.centros_trabajo?.map((cen) => (
+                        <option key={cen.id} value={cen.id}>
+                          {cen.nombre}
+                        </option>
+                      ))}
+                  </select>
+                </div>
                 <div style={s.formGroup}>
                   <label style={s.label}>Razón Social *</label>
                   <input

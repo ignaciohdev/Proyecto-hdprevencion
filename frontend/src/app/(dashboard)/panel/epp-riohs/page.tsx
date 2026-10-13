@@ -12,6 +12,7 @@ import {
 import {
   ModalNuevaEntrega,
   ModalComprobanteImprimible,
+  ModalQRFirmaMovilEPP,
 } from "./components";
 
 export default function EppRiohsPage() {
@@ -30,6 +31,7 @@ export default function EppRiohsPage() {
 
   // Modales
   const [isModalNuevaOpen, setIsModalNuevaOpen] = useState<boolean>(false);
+  const [isModalQrOpen, setIsModalQrOpen] = useState<boolean>(false);
   const [entregaSeleccionada, setEntregaSeleccionada] = useState<EntregaEPP | null>(null);
 
   // 1. Cargar Empresas, Centros y Trabajadores
@@ -152,15 +154,28 @@ export default function EppRiohsPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsModalNuevaOpen(true)}
-          className="px-5 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-orange-500/20 flex items-center justify-center space-x-2 flex-shrink-0"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          <span>Nueva Entrega con Firma en Pantalla</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2.5 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsModalQrOpen(true)}
+            className="px-4 py-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-2xl text-xs font-black transition-all shadow-sm flex items-center justify-center space-x-2"
+          >
+            <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+            </svg>
+            <span>Firma Móvil en Terreno (QR)</span>
+          </button>
+
+          <button
+            onClick={() => setIsModalNuevaOpen(true)}
+            className="px-5 py-3 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl text-xs font-black transition-all shadow-md hover:shadow-orange-500/20 flex items-center justify-center space-x-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            <span>Nueva Entrega con Firma en Pantalla</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. TARJETAS MÉTRICAS SUPERIORES */}
@@ -503,6 +518,15 @@ export default function EppRiohsPage() {
         isOpen={Boolean(entregaSeleccionada)}
         onClose={() => setEntregaSeleccionada(null)}
         entrega={entregaSeleccionada}
+      />
+
+      <ModalQRFirmaMovilEPP
+        isOpen={isModalQrOpen}
+        onClose={() => setIsModalQrOpen(false)}
+        empresas={empresas}
+        centrosTrabajo={centrosTrabajo}
+        trabajadores={trabajadores}
+        empresaInicialId={empresaFiltro !== "TODAS" ? Number(empresaFiltro) : undefined}
       />
     </div>
   );

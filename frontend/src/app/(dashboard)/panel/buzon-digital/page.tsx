@@ -28,25 +28,40 @@ interface AuditLog {
   accion: string;
 }
 
+interface EmpresaItem {
+  id: number;
+  razon_social: string;
+  rut: string;
+}
+
 interface DenunciaLeyKarin {
   id: number;
   uuid: string;
+  codigo_seguimiento?: string;
   empresa: number;
   empresa_nombre: string;
   centro_trabajo: number | null;
   centro_trabajo_nombre: string | null;
   tipo_afectacion: "ACOSO_SEXUAL" | "ACOSO_LABORAL" | "VIOLENCIA_EXTERNA";
   tipo_afectacion_display: string;
-  rut_denunciante: string;
-  nombre_denunciante: string;
-  correo_denunciante: string;
-  telefono_denunciante: string;
-  nombre_denunciado: string;
-  cargo_area_denunciado: string;
-  descripcion_circunstanciada: string;
-  testigos_o_evidencias: string | null;
+  rut_denunciante?: string;
+  nombre_denunciante?: string;
+  correo_denunciante?: string;
+  telefono_denunciante?: string;
+  nombre_denunciado?: string;
+  cargo_area_denunciado?: string;
+  descripcion_circunstanciada?: string;
+  testigos_o_evidencias?: string | null;
   fecha_hora_ingreso: string;
   plazo_limite_derivacion_dt: string | null;
+  plazo_limite_informe_mutualidad_5d?: string | null;
+  dias_restantes_mutualidad?: number;
+  derivada_mutualidad?: boolean;
+  fecha_derivacion_mutualidad?: string | null;
+  folio_mutualidad?: string | null;
+  comprobante_anexo_67?: string | null;
+  atencion_psicologica_ofrecida?: boolean;
+  fecha_ofrecimiento_psicologico?: string | null;
   estado_tramite:
     | "RECEPCIONADA"
     | "MEDIDAS_RESGUARDO_APLICADAS"
@@ -59,6 +74,7 @@ interface DenunciaLeyKarin {
   folio_dt: string | null;
   horas_restantes: number;
   semaforo: "VERDE" | "AMARILLO" | "ROJO" | "DERIVADA";
+  es_detalle_confidencial?: boolean;
   accesos_auditoria?: AuditLog[];
 }
 
@@ -99,6 +115,14 @@ export default function BuzonDigitalPage() {
   const [medidasTexto, setMedidasTexto] = useState("");
   const [showDtModal, setShowDtModal] = useState(false);
   const [folioDtTexto, setFolioDtTexto] = useState("");
+  const [showMutualidadModal, setShowMutualidadModal] = useState(false);
+  const [folioMutualidadTexto, setFolioMutualidadTexto] = useState("");
+  const [atencionPsicologicaCheck, setAtencionPsicologicaCheck] = useState(false);
+  const [archivoAnexo67, setArchivoAnexo67] = useState<File | null>(null);
+
+  // Empresas para QR aislado
+  const [empresas, setEmpresas] = useState<EmpresaItem[]>([]);
+  const [selectedEmpresaQr, setSelectedEmpresaQr] = useState<string>("");
 
   // Loading & General State
   const [loading, setLoading] = useState(true);
@@ -115,6 +139,17 @@ export default function BuzonDigitalPage() {
     setError(null);
     try {
       const headers = { ...getAuthHeaders() };
+
+      // 0. Fetch empresas para contexto de prevencionista
+      const resEmp = await fetch(getApiUrl("/api/empresas/"), { headers });
+      if (resEmp.ok) {
+        const dataEmp = await resEmp.json();
+        const empList = Array.isArray(dataEmp) ? dataEmp : dataEmp.results || [];
+        setEmpresas(empList);
+        if (empList.length > 0) {
+          setSelectedEmpresaQr((prev) => prev || String(empList[0].id));
+        }
+      }
 
       // 1. Fetch sugerencias laborales
       const resSug = await fetch(getApiUrl("/api/sugerencias-laborales/"), { headers });
@@ -272,6 +307,47 @@ export default function BuzonDigitalPage() {
     }
   };
 
+  // Registrar Derivación a la Mutualidad (Compendio SUSESO Libro IV - Anexo 67 y 5 días hábiles)
+  const handleDerivarMutualidad = async () => {
+    if (!selectedKarin) return;
+    setSaving(true);
+    try {
+      const formData = new FormData();
+      if (folioMutualidadTexto.trim()) {
+        formData.append("folio_mutualidad", folioMutualidadTexto.trim());
+      }
+      formData.append("atencion_psicologica_ofrecida", atencionPsicologicaCheck ? "true" : "false");
+      if (archivoAnexo67) {
+        formData.append("comprobante_anexo_67", archivoAnexo67);
+      }
+
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+      const res = await fetch(
+        getApiUrl(`/api/denuncias-ley-karin/${selectedKarin.id}/derivar-mutualidad/`),
+        {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }
+      );
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || "Error al registrar derivación a mutualidad.");
+      }
+      const updated = await res.json();
+      setSelectedKarin(updated);
+      setDenuncias((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
+      setShowMutualidadModal(false);
+      setFolioMutualidadTexto("");
+      setArchivoAnexo67(null);
+      alert("Derivación a Organismo Administrador (Mutualidad) y Anexo 67 registrados exitosamente.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error al registrar.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Filtros Sugerencias
   const sugerenciasFiltradas = sugerencias.filter((s) => {
     if (filtroTipoSug !== "TODOS" && s.tipo !== filtroTipoSug) return false;
@@ -290,7 +366,9 @@ export default function BuzonDigitalPage() {
   const sugerenciasNuevas = sugerencias.filter((s) => s.estado === "NUEVA").length;
 
   const publicPortalUrl = uid
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/participacion/${uid}/buzon`
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/participacion/${uid}/buzon${
+        selectedEmpresaQr ? `?empresa=${selectedEmpresaQr}` : ""
+      }`
     : "";
 
   return (
@@ -505,21 +583,52 @@ export default function BuzonDigitalPage() {
                         </span>
                       </div>
 
-                      {/* Denunciante & Denunciado */}
-                      <div className="text-xs text-slate-300 font-semibold mb-1">
-                        Denunciante: <span className="text-white">{d.nombre_denunciante}</span> ({d.rut_denunciante})
-                      </div>
-                      <div className="text-xs text-slate-400 mb-2">
-                        Imputado: <span className="text-slate-200">{d.nombre_denunciado}</span> {d.cargo_area_denunciado && `(${d.cargo_area_denunciado})`}
+                      {/* Código Seguro y Estado de Protección Ley Karin */}
+                      <div className="flex items-center justify-between text-xs my-2 bg-slate-950/50 p-2 rounded-lg border border-slate-800">
+                        <div>
+                          <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">
+                            Código Seguro
+                          </span>
+                          <span className="font-mono font-bold text-amber-400">
+                            {d.codigo_seguimiento || `KARIN-2026-${d.id}`}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                          🔒 Identidad Protegida
+                        </span>
                       </div>
 
-                      {/* Extracto del relato */}
-                      <p className="text-xs text-slate-400 line-clamp-2 italic bg-slate-950/40 p-2 rounded-lg border border-slate-800/40">
-                        &ldquo;{d.descripcion_circunstanciada}&rdquo;
-                      </p>
+                      {/* Notificación Mutualidad (5 días hábiles - Anexo 67) */}
+                      <div className="flex items-center justify-between text-[11px] mb-2 px-1">
+                        <span className="text-slate-400">Plazo Mutualidad (5d):</span>
+                        <span
+                          className={`font-semibold px-2 py-0.5 rounded ${
+                            d.derivada_mutualidad
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "bg-blue-500/20 text-blue-300"
+                          }`}
+                        >
+                          {d.derivada_mutualidad
+                            ? `✓ Derivada (${d.folio_mutualidad || "Anexo 67"})`
+                            : `${d.dias_restantes_mutualidad !== undefined ? d.dias_restantes_mutualidad : 5}d hábiles`}
+                        </span>
+                      </div>
+
+                      {/* Botón para Abrir Expediente Auditado */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectKarin(d);
+                        }}
+                        className="w-full py-2 px-3 bg-gradient-to-r from-slate-800 to-slate-850 hover:from-rose-900/40 hover:to-slate-800 text-slate-200 hover:text-white text-xs font-bold rounded-lg border border-slate-700/80 hover:border-rose-500/50 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                      >
+                        <span>📂</span>
+                        <span>Ver Expediente Confidencial</span>
+                      </button>
 
                       {/* Bottom Meta */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-800/50">
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 mt-2.5 pt-2 border-t border-slate-800/50">
                         <span>🏢 {d.empresa_nombre}</span>
                         <span>{formatDate(d.fecha_hora_ingreso)}</span>
                       </div>
@@ -678,6 +787,68 @@ export default function BuzonDigitalPage() {
                     </div>
                   </div>
 
+                  {/* Derivación Obligatoria a Mutualidad (Compendio SUSESO Libro IV - Anexo 67 y 5 días hábiles) */}
+                  <div className="bg-slate-950 p-4 rounded-xl border border-blue-500/30 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">🏥</span>
+                        <div>
+                          <h4 className="text-xs font-bold text-blue-300 uppercase tracking-wider">
+                            Organismo Administrador / Mutualidad (Plazo Legal 5 Días Hábiles)
+                          </h4>
+                          <p className="text-[11px] text-slate-400">
+                            Límite informe mutualidad: {formatDate(selectedKarin.plazo_limite_informe_mutualidad_5d)}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`text-xs px-2.5 py-1 rounded-full font-bold border ${
+                          selectedKarin.derivada_mutualidad
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                            : "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                        }`}
+                      >
+                        {selectedKarin.derivada_mutualidad ? "✓ Notificada a Mutualidad" : "Pendiente Derivación"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 block text-[11px]">Folio Mutualidad / DIAT:</span>
+                        <span className="font-mono font-bold text-white">
+                          {selectedKarin.folio_mutualidad || "Sin folio registrado"}
+                        </span>
+                        {selectedKarin.comprobante_anexo_67 && (
+                          <a
+                            href={selectedKarin.comprobante_anexo_67}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-orange-400 hover:underline block text-[11px] mt-1"
+                          >
+                            📎 Ver Comprobante Anexo 67
+                          </a>
+                        )}
+                      </div>
+                      <div className="bg-slate-900 p-2.5 rounded-lg border border-slate-800">
+                        <span className="text-slate-400 block text-[11px]">Atención Psicológica Temprana:</span>
+                        <span
+                          className={`font-bold ${
+                            selectedKarin.atencion_psicologica_ofrecida ? "text-emerald-400" : "text-slate-400"
+                          }`}
+                        >
+                          {selectedKarin.atencion_psicologica_ofrecida
+                            ? "✓ Ofrecida al denunciante"
+                            : "No registrada"}
+                        </span>
+                        {selectedKarin.fecha_ofrecimiento_psicologico && (
+                          <span className="text-[11px] text-slate-400 block mt-0.5">
+                            Fecha: {formatDate(selectedKarin.fecha_ofrecimiento_psicologico)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Acciones Obligatorias de Gestión Legal */}
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <button
@@ -685,9 +856,21 @@ export default function BuzonDigitalPage() {
                         setMedidasTexto(selectedKarin.medidas_resguardo_detalle || "");
                         setShowMedidasModal(true);
                       }}
-                      className="flex-1 py-2.5 px-4 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                      className="flex-1 min-w-[140px] py-2.5 px-3 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
                     >
-                      🛡️ Registrar Medidas de Resguardo
+                      🛡️ Medidas Resguardo
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setFolioMutualidadTexto(selectedKarin.folio_mutualidad || "");
+                        setAtencionPsicologicaCheck(Boolean(selectedKarin.atencion_psicologica_ofrecida));
+                        setArchivoAnexo67(null);
+                        setShowMutualidadModal(true);
+                      }}
+                      className="flex-1 min-w-[140px] py-2.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition-all cursor-pointer text-center"
+                    >
+                      🏥 Notificar Mutualidad (Anexo 67)
                     </button>
 
                     <button
@@ -695,9 +878,9 @@ export default function BuzonDigitalPage() {
                         setFolioDtTexto(selectedKarin.folio_dt || "");
                         setShowDtModal(true);
                       }}
-                      className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer text-center"
+                      className="flex-1 min-w-[140px] py-2.5 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-600/30 transition-all cursor-pointer text-center"
                     >
-                      🏛️ Marcar Derivación a la DT
+                      🏛️ Derivación DT
                     </button>
                   </div>
 
@@ -1030,6 +1213,91 @@ export default function BuzonDigitalPage() {
         </div>
       )}
 
+      {/* ── Modal: Registrar Derivación a la Mutualidad (Compendio SUSESO Libro IV) ── */}
+      {showMutualidadModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <span>🏥</span> Derivación a Mutualidad (Anexo 67 SUSESO)
+              </h3>
+              <button
+                onClick={() => setShowMutualidadModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-xs text-blue-300 leading-relaxed">
+              <strong>Plazo Legal Estricto: 5 días hábiles</strong> desde la recepción de la denuncia para remitir los antecedentes al organismo administrador de la Ley 16.744 y activar el protocolo de apoyo psicológico temprano (Compendio SUSESO Libro IV).
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  Número de Folio o DIAT de Ingreso en Mutualidad:
+                </label>
+                <input
+                  type="text"
+                  value={folioMutualidadTexto}
+                  onChange={(e) => setFolioMutualidadTexto(e.target.value)}
+                  placeholder="Ej. MUT-2026-004589"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-300 block mb-1">
+                  Adjuntar Comprobante Anexo N° 67 (PDF o Imagen):
+                </label>
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg"
+                  onChange={(e) => setArchivoAnexo67(e.target.files?.[0] || null)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2 text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500 cursor-pointer"
+                />
+              </div>
+
+              <div className="pt-2">
+                <label className="flex items-start gap-2.5 cursor-pointer bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={atencionPsicologicaCheck}
+                    onChange={(e) => setAtencionPsicologicaCheck(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-200 block">
+                      Atención psicológica temprana ofrecida formalmente
+                    </span>
+                    <span className="text-slate-400 text-[11px]">
+                      Se deja constancia que la entidad empleadora puso a disposición del denunciante la atención y orientación psicológica que otorga la mutualidad.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2 border-t border-slate-800">
+              <button
+                onClick={() => setShowMutualidadModal(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDerivarMutualidad}
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl cursor-pointer disabled:opacity-50"
+              >
+                {saving ? "Guardando..." : "Registrar Derivación Mutualidad"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal: Código QR y Enlace Público ── */}
       {showQrModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1049,6 +1317,28 @@ export default function BuzonDigitalPage() {
             <p className="text-xs text-slate-400 leading-relaxed">
               Imprime o comparte este código QR en faenas, comedores y murales informativos para que los trabajadores envíen sugerencias o denuncias formales confidenciales sin requerir credenciales de acceso.
             </p>
+
+            {empresas.length > 0 && (
+              <div className="text-left bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                <label className="text-xs font-bold text-slate-300 block">
+                  🏢 Empresa Mandante para este QR:
+                </label>
+                <select
+                  value={selectedEmpresaQr}
+                  onChange={(e) => setSelectedEmpresaQr(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                >
+                  {empresas.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.razon_social} ({emp.rut})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-500">
+                  El QR generado fija esta empresa exclusivamente, blindando el secreto comercial y la Ley N° 21.719.
+                </p>
+              </div>
+            )}
 
             {publicPortalUrl ? (
               <div className="flex flex-col items-center justify-center py-2 space-y-3">

@@ -794,7 +794,7 @@ class ReporteRiesgo(models.Model):
         max_length=255,
         blank=True,
         default="",
-        verbose_name="Norma Legal Infringida (DS 594, DS 40, etc.)"
+        verbose_name="Norma Legal Infringida (D.S. N° 44, D.S. N° 594, D.S. N° 76, Ley Karin, etc.)"
     )
     
     # Matriz cuantitativa de evaluación de riesgo (Probabilidad x Consecuencia/Severidad)
@@ -992,6 +992,9 @@ class InvestigacionAccidente(models.Model):
         ('AMPUTACION', 'Amputación o pérdida traumática de parte del cuerpo'),
         ('ATRAPAMIENTO_ASFIXIA', 'Atrapamiento, asfixia o inmersión'),
         ('MANIOBRAS_REANIMACION', 'Accidente que requirió maniobras de RCP / Resucitación'),
+        ('MANIOBRAS_RESCATE', 'Accidente que obliga a maniobras de rescate'),
+        ('CONDICIONES_HIPERBARICAS', 'Accidente en faenas bajo condiciones hiperbáricas'),
+        ('COLECTIVO_MASIVO', 'Accidente que afecta de manera colectiva y masiva la faena'),
         ('FALLECIMIENTO', 'Accidente con consecuencia fatal inmediata'),
         ('OTRO_GRAVE', 'Otro evento de gravedad crítica con compromiso vital'),
     ]
@@ -1133,6 +1136,31 @@ class InvestigacionAccidente(models.Model):
         verbose_name="Fecha Notificación Autoridades"
     )
 
+    # Metodología de Árbol de Causas y Flujo RALF / SUSESO (eDoc 143)
+    arbol_de_causas = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Árbol de Causas",
+        help_text="Estructura de hechos y causas según metodología del Árbol de Causas exigida por SUSESO para eDoc 143"
+    )
+    plazo_investigacion_suseso_30d = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Plazo Investigación SUSESO (30 Días)",
+        help_text="Plazo legal de 30 días corridos para remitir investigación eDoc 143 a la mutualidad"
+    )
+    reanudacion_autorizada = models.BooleanField(
+        default=False,
+        verbose_name="Reanudación de Faenas Autorizada",
+        help_text="Autorización formal de levantamiento de suspensión de faenas por DT o Seremi"
+    )
+    resolucion_reanudacion_dt_seremi = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Resolución de Reanudación DT / Seremi"
+    )
+
     # Control de Días Perdidos y Licencias
     dias_perdidos = models.PositiveIntegerField(
         default=0,
@@ -1204,12 +1232,18 @@ class TemaCapacitacion(models.Model):
     CATEGORIA_ODI = 'INDUCCION_ODI'
     CATEGORIA_TEORICO = 'CURSO_TEORICO'
     CATEGORIA_PRACTICO = 'CURSO_PRACTICO'
+    CATEGORIA_CURSO_8H_GENERO = 'CURSO_8H_GENERO'
+    CATEGORIA_CURSO_20H_CPHS = 'CURSO_20H_CPHS'
+    CATEGORIA_CURSO_1H_EPP = 'CURSO_1H_EPP'
 
     CATEGORIA_CHOICES = [
         (CATEGORIA_CHARLA, 'Charla de 5 Minutos'),
-        (CATEGORIA_ODI, 'Inducción de Obligación de Informar (ODI/DAS)'),
+        (CATEGORIA_ODI, 'Información de los riesgos laborales (ODI Art. 15 D.S. N° 44)'),
         (CATEGORIA_TEORICO, 'Capacitación Teórica'),
         (CATEGORIA_PRACTICO, 'Capacitación Práctica / Simulacro'),
+        (CATEGORIA_CURSO_8H_GENERO, 'Curso Bienal 8h con Enfoque de Género (Art. 16 D.S. N° 44)'),
+        (CATEGORIA_CURSO_20H_CPHS, 'Curso 20h CPHS (Mutualidad / D.S. N° 44)'),
+        (CATEGORIA_CURSO_1H_EPP, 'Capacitación Obligatoria EPP 1h (D.S. N° 44)'),
     ]
 
     usuario = models.ForeignKey(
@@ -1319,6 +1353,30 @@ class RegistroCapacitacion(models.Model):
         blank=True,
         null=True,
         verbose_name="Observaciones / Comentarios"
+    )
+    evaluacion_comprension_aplicada = models.BooleanField(
+        default=False,
+        verbose_name="Evaluación de Comprensión Aplicada"
+    )
+    porcentaje_aprobacion_minimo = models.PositiveIntegerField(
+        default=75,
+        verbose_name="Porcentaje Mínimo de Aprobación (%)"
+    )
+    entidad_capacitadora = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Entidad Capacitadora / OTEC / Mutualidad"
+    )
+    codigo_sence = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        verbose_name="Código SENCE (si aplica)"
+    )
+    certificado_emitido = models.BooleanField(
+        default=False,
+        verbose_name="Certificado Formal Emitido"
     )
     fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Registro")
 
@@ -1635,6 +1693,43 @@ class DenunciaLeyKarin(models.Model):
         verbose_name="Folio DT"
     )
 
+    # Derivación a Organismo Administrador (Compendio SUSESO Libro IV y Anexo 67 - Plazo 5 días hábiles)
+    derivada_mutualidad = models.BooleanField(
+        default=False,
+        verbose_name="Derivada a Mutualidad (Anexo 67)"
+    )
+    fecha_derivacion_mutualidad = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Derivación Mutualidad"
+    )
+    folio_mutualidad = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Folio de Ingreso en Mutualidad"
+    )
+    comprobante_anexo_67 = models.FileField(
+        upload_to="karin_anexo67/",
+        null=True,
+        blank=True,
+        verbose_name="Comprobante Anexo 67 SUSESO"
+    )
+    atencion_psicologica_ofrecida = models.BooleanField(
+        default=False,
+        verbose_name="Atención Psicológica Temprana Ofrecida"
+    )
+    fecha_ofrecimiento_psicologico = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Ofrecimiento Atención Psicológica"
+    )
+    plazo_limite_informe_mutualidad_5d = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Plazo Límite Mutualidad (5 Días Hábiles)"
+    )
+
     class Meta:
         verbose_name = "Denuncia Ley Karin"
         verbose_name_plural = "Denuncias Ley Karin"
@@ -1646,7 +1741,29 @@ class DenunciaLeyKarin(models.Model):
         if not self.plazo_limite_derivacion_dt:
             # 72 horas legales desde el momento de registro
             self.plazo_limite_derivacion_dt = timezone.now() + timedelta(hours=72)
+        if not self.plazo_limite_informe_mutualidad_5d:
+            base_date = timezone.localdate()
+            dias_agregados = 0
+            curr = base_date
+            while dias_agregados < 5:
+                curr += timedelta(days=1)
+                if curr.weekday() < 5:  # Lunes a Viernes
+                    dias_agregados += 1
+            self.plazo_limite_informe_mutualidad_5d = curr
         super().save(*args, **kwargs)
+
+    @property
+    def codigo_seguimiento(self) -> str:
+        year = self.fecha_hora_ingreso.year if self.fecha_hora_ingreso else 2026
+        return f"KARIN-{year}-{str(self.uuid)[:8].upper()}"
+
+    @property
+    def dias_restantes_mutualidad(self) -> int:
+        from django.utils import timezone
+        if not self.plazo_limite_informe_mutualidad_5d:
+            return 5
+        hoy = timezone.localdate()
+        return (self.plazo_limite_informe_mutualidad_5d - hoy).days
 
     @property
     def horas_restantes(self) -> float:
@@ -1741,6 +1858,22 @@ class Contratista(models.Model):
         related_name='contratistas',
         verbose_name="Prevencionista de Riesgos"
     )
+    empresa_principal = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='contratistas',
+        null=True,
+        blank=True,
+        verbose_name="Empresa Principal / Mandante (D.S. N° 76)"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='contratistas',
+        verbose_name="Centro de Trabajo / Faena"
+    )
     razon_social = models.CharField(max_length=200, verbose_name="Razón Social")
     rut = models.CharField(max_length=15, verbose_name="RUT de la Empresa")
     giro = models.CharField(max_length=200, blank=True, verbose_name="Giro / Actividad Económica")
@@ -1795,7 +1928,7 @@ class DocumentoContratista(models.Model):
         (TIPO_F30_1, 'Certificado F30-1 (Detalle de Deuda y Cumplimiento)'),
         (TIPO_SEGURO, 'Certificado Seguro Accidentes (Ley 16.744)'),
         (TIPO_CONTRATO, 'Contrato de Trabajo del Personal'),
-        (TIPO_ODI, 'Obligación de Informar (ODI / DAS)'),
+        (TIPO_ODI, 'Información de los riesgos laborales (ODI Art. 15 D.S. N° 44)'),
         (TIPO_REGLAMENTO, 'Reglamento Interno de Higiene y Seguridad'),
         (TIPO_OTRO, 'Otro Documento'),
     ]
@@ -1902,7 +2035,8 @@ class SolicitudCapacitacion(models.Model):
     TIPO_SEGURIDAD_CRITICA = 'SEGURIDAD_CRITICA'
     TIPO_EXTINTORES = 'EXTINTORES_EMERGENCIAS'
     TIPO_INDUCCION_ODI = 'INDUCCION_ODI'
-    TIPO_CPHS = 'CPHS_DS54'
+    TIPO_CPHS = 'CPHS_DS44'
+    CPHS_DS54 = 'CPHS_DS44'  # Alias de compatibilidad
     TIPO_OTRO = 'A_MEDIDA'
 
     TIPO_CHOICES = [
@@ -1910,8 +2044,8 @@ class SolicitudCapacitacion(models.Model):
         (TIPO_TMERT, 'Ergonomía, TMERT y Manejo Manual de Cargas Ley 20.949 (Kinesiólogo / Ergónomo)'),
         (TIPO_SEGURIDAD_CRITICA, 'Trabajos Críticos: Altura Física, Espacios Confinados, LOTO (Prevencionista Senior)'),
         (TIPO_EXTINTORES, 'Uso y Manejo Práctico de Extintores DS 594 (Instructor en Terreno)'),
-        (TIPO_INDUCCION_ODI, 'Inducción de Obligación de Informar ODI / DAS DS 40 (Prevencionista Registro SEREMI)'),
-        (TIPO_CPHS, 'Capacitación y Asesoría a Comité Paritario DS 54 (Especialista CPHS)'),
+        (TIPO_INDUCCION_ODI, 'Inducción de riesgos laborales (ODI Art. 15 D.S. N° 44)'),
+        (TIPO_CPHS, 'Capacitación y Asesoría a Comité Paritario (D.S. N° 44 Arts. 23 al 49)'),
         (TIPO_OTRO, 'Capacitación Técnica Especializada a Medida'),
     ]
 
@@ -2061,6 +2195,24 @@ class ComiteParitario(models.Model):
         default=ESTADO_VIGENTE,
         verbose_name="Estado del Mandato"
     )
+    folio_registro_rel_dt = models.CharField(
+        max_length=80,
+        blank=True,
+        default="",
+        verbose_name="Folio Registro Electrónico Laboral (REL DT)",
+        help_text="Folio de inscripción del CPHS en el Registro Electrónico Laboral de la DT"
+    )
+    fecha_registro_rel_dt = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Inscripción en REL DT"
+    )
+    alerta_plazo_rel_15dias = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Plazo Máximo Inscripción REL (15 Días Hábiles)",
+        help_text="Plazo máximo de 15 días hábiles desde la elección para subir el acta a la DT"
+    )
     fecha_creacion = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Fecha de Registro"
@@ -2085,6 +2237,15 @@ class ComiteParitario(models.Model):
         if self.fecha_constitucion and not self.fecha_vencimiento_mandato:
             self.fecha_vencimiento_mandato = self.fecha_constitucion + timedelta(days=730)
 
+        if self.fecha_constitucion and not self.alerta_plazo_rel_15dias:
+            dias_agregados = 0
+            curr = self.fecha_constitucion
+            while dias_agregados < 15:
+                curr += timedelta(days=1)
+                if curr.weekday() < 5:  # Lunes a Viernes
+                    dias_agregados += 1
+            self.alerta_plazo_rel_15dias = curr
+
         if self.fecha_vencimiento_mandato and self.estado != self.ESTADO_EN_ELECCION:
             dias = self.dias_restantes_mandato
             if dias < 0:
@@ -2105,9 +2266,11 @@ class MiembroCPHS(models.Model):
     """
     ESTAMENTO_EMPRESA = 'EMPRESA'
     ESTAMENTO_TRABAJADORES = 'TRABAJADORES'
+    ESTAMENTO_EXPERTO_DPR = 'EXPERTO_DPR'
     ESTAMENTO_CHOICES = [
         (ESTAMENTO_EMPRESA, 'Representante del Empleador'),
         (ESTAMENTO_TRABAJADORES, 'Representante de los Trabajadores'),
+        (ESTAMENTO_EXPERTO_DPR, 'Experto en Prevención de Riesgos (Derecho Propio Art. 38 D.S. 44)'),
     ]
 
     REPRESENTACION_TITULAR = 'TITULAR'
@@ -2169,6 +2332,27 @@ class MiembroCPHS(models.Model):
         default=True,
         verbose_name="Miembro Activo"
     )
+    tiene_fuero_laboral = models.BooleanField(
+        default=False,
+        verbose_name="Tiene Fuero Laboral",
+        help_text="Representante titular de los trabajadores con fuero laboral según Art. 243 Código del Trabajo y Art. 33 D.S. 44"
+    )
+    CAUSAL_CESE_TERMINO_CONTRATO = 'TERMINO_CONTRATO'
+    CAUSAL_CESE_INASISTENCIA = 'INASISTENCIA_REITERADA'
+    CAUSAL_CESE_VENCIMIENTO = 'VENCIMIENTO_MANDATO'
+    CAUSAL_CESE_CHOICES = [
+        (CAUSAL_CESE_TERMINO_CONTRATO, 'Término de la relación laboral con la empresa'),
+        (CAUSAL_CESE_INASISTENCIA, 'Inasistencia injustificada a dos sesiones consecutivas (Art. 31 D.S. N° 44)'),
+        (CAUSAL_CESE_VENCIMIENTO, 'Término natural del período de 2 años'),
+    ]
+    causal_cese = models.CharField(
+        max_length=30,
+        choices=CAUSAL_CESE_CHOICES,
+        blank=True,
+        null=True,
+        verbose_name="Causal Legal de Cese",
+        help_text="Causales taxativas según Art. 31 D.S. N° 44 (la renuncia voluntaria simple no es causal legítima)"
+    )
     fecha_designacion = models.DateField(
         null=True,
         blank=True,
@@ -2190,7 +2374,7 @@ class MiembroCPHS(models.Model):
 
 class ActaSesionCPHS(models.Model):
     """
-    Acta formal de sesión del Comité Paritario de Higiene y Seguridad (CPHS) según D.S. N° 44 Art. 16.
+    Acta formal de sesión del Comité Paritario de Higiene y Seguridad (CPHS) según D.S. N° 44 Arts. 39, 40 y 42.
     Reuniones ordinarias mensuales obligatorias (12 anuales) o extraordinarias ante accidentes graves/urgencias.
     """
     TIPO_ORDINARIA = 'ORDINARIA'
@@ -2949,6 +3133,20 @@ class ItemMatrizRiesgo(models.Model):
             val = getattr(self, field_name)
             if val is not None and (val < 1 or val > 5):
                 raise ValidationError({field_name: "El valor debe estar comprendido entre 1 y 5 según la Escala de la Guía Técnica del ISP."})
+
+        # Art. 9 y 10 D.S. N° 44: Jerarquía obligatoria de controles
+        if self.magnitud_residual < self.magnitud_pura:
+            controles = [
+                self.control_eliminacion,
+                self.control_sustitucion,
+                self.control_ingenieria,
+                self.control_administrativo,
+                self.control_epp,
+            ]
+            if not any(c and c.strip() for c in controles):
+                raise ValidationError(
+                    "Artículos 9 y 10 D.S. N° 44: No es legal reducir el riesgo residual sin registrar al menos una medida de control de la jerarquía preventiva (eliminación, sustitución, ingeniería, administrativa o EPP)."
+                )
 
 
 

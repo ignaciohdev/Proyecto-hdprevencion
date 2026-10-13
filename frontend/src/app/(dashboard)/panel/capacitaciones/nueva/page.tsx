@@ -299,13 +299,25 @@ export default function NuevaCapacitacionPage() {
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">Categoría</label>
                   <select
                     value={nuevoTema.categoria}
-                    onChange={(e) => setNuevoTema({ ...nuevoTema, categoria: e.target.value })}
+                    onChange={(e) => {
+                      const cat = e.target.value;
+                      let dur = nuevoTema.duracion_minutos;
+                      if (cat === "CURSO_8H_GENERO") dur = 480;
+                      else if (cat === "CURSO_20H_CPHS") dur = 1200;
+                      else if (cat === "CURSO_1H_EPP") dur = 60;
+                      else if (cat === "CHARLA_5_MIN") dur = 5;
+                      else if (cat === "INDUCCION_ODI") dur = 60;
+                      setNuevoTema({ ...nuevoTema, categoria: cat, duracion_minutos: dur });
+                    }}
                     className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 text-slate-900 dark:text-white"
                   >
-                    <option value="CHARLA_5_MIN">Charla de 5 Minutos</option>
-                    <option value="INDUCCION_ODI">Inducción ODI / DAS</option>
-                    <option value="CURSO_TEORICO">Capacitación Teórica</option>
-                    <option value="CURSO_PRACTICO">Capacitación Práctica</option>
+                    <option value="CHARLA_5_MIN">Charla de 5 Minutos (Operativa)</option>
+                    <option value="INDUCCION_ODI">Inducción ODI (Art. 15 D.S. N° 44)</option>
+                    <option value="CURSO_8H_GENERO">Curso Bienal 8h Género (Art. 16 D.S. N° 44)</option>
+                    <option value="CURSO_20H_CPHS">Curso 20h CPHS (Mutualidad / D.S. N° 44)</option>
+                    <option value="CURSO_1H_EPP">Capacitación Obligatoria EPP 1h (D.S. N° 44)</option>
+                    <option value="CURSO_TEORICO">Capacitación Teórica General</option>
+                    <option value="CURSO_PRACTICO">Capacitación Práctica / Simulacro</option>
                   </select>
                 </div>
                 <div>

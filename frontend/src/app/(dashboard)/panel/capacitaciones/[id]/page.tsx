@@ -194,9 +194,15 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
   const getCategoriaLabel = (cat: string) => {
     switch (cat) {
       case "CHARLA_5_MIN":
-        return "Charla de 5 Minutos";
+        return "Charla de 5 Minutos (Operativa)";
       case "INDUCCION_ODI":
-        return "Inducción ODI / DAS (Derecho a Saber)";
+        return "Información de los riesgos laborales (ODI Art. 15 D.S. N° 44)";
+      case "CURSO_8H_GENERO":
+        return "Curso Bienal 8h con Enfoque de Género (Art. 16 D.S. N° 44)";
+      case "CURSO_20H_CPHS":
+        return "Curso 20h CPHS (Mutualidad / D.S. N° 44)";
+      case "CURSO_1H_EPP":
+        return "Capacitación Obligatoria EPP 1h (D.S. N° 44)";
       case "CURSO_TEORICO":
         return "Capacitación Teórica de Seguridad";
       case "CURSO_PRACTICO":

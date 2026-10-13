@@ -5,10 +5,10 @@ from django.db.models import Sum, Count, Q
 from django.shortcuts import get_object_or_404
 from django.http import Http404, HttpResponse
 from django.utils import timezone
-from rest_framework import generics, permissions, status, viewsets
+from rest_framework import generics, permissions, status, viewsets, exceptions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, MethodNotAllowed
 from rest_framework.views import APIView
 from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -43,7 +43,7 @@ from .serializers import (
     DocumentoContratistaSerializer, TrabajadorSubcontratadoSerializer,
     SolicitudCapacitacionSerializer,
     EmpresaSerializer, CentroTrabajoSerializer, TrabajadorSerializer,
-    SugerenciaLaboralSerializer, DenunciaLeyKarinSerializer,
+    SugerenciaLaboralSerializer, DenunciaLeyKarinSerializer, DenunciaLeyKarinListSerializer,
     AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer,
     ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer,
     EntregaEPPSerializer,
@@ -999,6 +999,18 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
         if 'alta_medica' in request.data:
             accidente.alta_medica = bool(request.data.get('alta_medica'))
 
+        if 'arbol_de_causas' in request.data:
+            accidente.arbol_de_causas = request.data.get('arbol_de_causas')
+
+        if 'reanudacion_autorizada' in request.data:
+            accidente.reanudacion_autorizada = bool(request.data.get('reanudacion_autorizada'))
+
+        if 'resolucion_reanudacion_dt_seremi' in request.data:
+            accidente.resolucion_reanudacion_dt_seremi = request.data.get('resolucion_reanudacion_dt_seremi', '').strip()
+
+        if 'plazo_investigacion_suseso_30d' in request.data:
+            accidente.plazo_investigacion_suseso_30d = request.data.get('plazo_investigacion_suseso_30d')
+
         accidente.save()
         serializer = self.get_serializer(accidente)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -1585,6 +1597,10 @@ class PublicoEmpresasListView(APIView):
             return Response({"error": "Prevencionista no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
         empresas = Empresa.objects.filter(prevencionista=prevencionista, activo=True)
+        empresa_param = request.query_params.get('empresa')
+        if empresa_param:
+            empresas = empresas.filter(id=empresa_param)
+
         res = []
         for emp in empresas:
             centros = list(emp.centros_trabajo.values('id', 'nombre', 'direccion'))
@@ -1607,7 +1623,11 @@ class ContratistaViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Contratista.objects.filter(usuario=self.request.user)
+        qs = Contratista.objects.filter(usuario=self.request.user)
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            qs = qs.filter(empresa_principal_id=empresa_id)
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(usuario=self.request.user)
@@ -1873,6 +1893,21 @@ class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
     serializer_class = DenunciaLeyKarinSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return DenunciaLeyKarinListSerializer
+        return DenunciaLeyKarinSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Bloqueo total de eliminación: Por mandato de la Ley N° 21.643 y la DT,
+        los expedientes de denuncia laboral son inmutables y no pueden ser eliminados.
+        """
+        raise exceptions.MethodNotAllowed(
+            "DELETE",
+            detail="Por disposición de la Ley N° 21.643 y la Dirección del Trabajo (DT), las denuncias laborales no pueden ser eliminadas del sistema."
+        )
+
     def get_queryset(self):
         user = self.request.user
         if not user or user.is_anonymous:
@@ -1951,6 +1986,41 @@ class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
             usuario=request.user,
             ip_origen=get_client_ip(request),
             accion=AuditLogAccesoDenuncia.ACCION_DERIVACION
+        )
+
+        return Response(DenunciaLeyKarinSerializer(denuncia).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post', 'patch'], url_path='derivar-mutualidad')
+    def derivar_mutualidad(self, request, pk=None):
+        """
+        Registra la notificación formal a la mutualidad dentro de 5 días hábiles
+        conforme al Compendio SUSESO Libro IV y Anexo 67.
+        """
+        denuncia = self.get_object()
+        folio_mutualidad = request.data.get('folio_mutualidad', '').strip()
+        atencion_psicologica = request.data.get('atencion_psicologica_ofrecida')
+        fecha_ofrecimiento = request.data.get('fecha_ofrecimiento_psicologico')
+        comprobante_file = request.FILES.get('comprobante_anexo_67')
+
+        denuncia.derivada_mutualidad = True
+        denuncia.fecha_derivacion_mutualidad = timezone.localdate()
+        if folio_mutualidad:
+            denuncia.folio_mutualidad = folio_mutualidad
+        if atencion_psicologica is not None:
+            denuncia.atencion_psicologica_ofrecida = str(atencion_psicologica).lower() in ['true', '1', 't']
+        if fecha_ofrecimiento:
+            denuncia.fecha_ofrecimiento_psicologico = fecha_ofrecimiento
+        elif denuncia.atencion_psicologica_ofrecida and not denuncia.fecha_ofrecimiento_psicologico:
+            denuncia.fecha_ofrecimiento_psicologico = timezone.localdate()
+        if comprobante_file:
+            denuncia.comprobante_anexo_67 = comprobante_file
+        denuncia.save()
+
+        AuditLogAccesoDenuncia.objects.create(
+            denuncia=denuncia,
+            usuario=request.user,
+            ip_origen=get_client_ip(request),
+            accion="DERIVACION_MUTUALIDAD_ANEXO67"
         )
 
         return Response(DenunciaLeyKarinSerializer(denuncia).data, status=status.HTTP_200_OK)
@@ -2180,6 +2250,37 @@ class MiembroCPHSViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
+def validar_quorum_legal_cphs(comite, asistentes):
+    """
+    Art. 40 D.S. N° 44: Prohíbe sesionar válidamente al CPHS si no concurre al menos
+    1 representante de la entidad empleadora y 1 de las personas trabajadoras.
+    """
+    if not asistentes or not isinstance(asistentes, list):
+        raise ValidationError({"quorum": "Infracción al Art. 40 del D.S. N° 44: Se requiere la asistencia de al menos 1 representante de la entidad empleadora y 1 de las personas trabajadoras para sesionar válidamente."})
+
+    asistentes_patronales = 0
+    asistentes_laborales = 0
+
+    miembros_db = list(comite.miembros.filter(activo=True)) if comite else []
+    for a in asistentes:
+        a_str = str(a).upper()
+        if 'EMPRESA' in a_str or 'PATRONAL' in a_str or 'EMPLEADOR' in a_str:
+            asistentes_patronales += 1
+        elif 'TRABAJADOR' in a_str or 'LABORAL' in a_str:
+            asistentes_laborales += 1
+        else:
+            for m in miembros_db:
+                if m.nombre.upper() in a_str:
+                    if m.estamento == MiembroCPHS.ESTAMENTO_EMPRESA:
+                        asistentes_patronales += 1
+                    elif m.estamento == MiembroCPHS.ESTAMENTO_TRABAJADORES:
+                        asistentes_laborales += 1
+                    break
+
+    if asistentes_patronales < 1 or asistentes_laborales < 1:
+        raise ValidationError({"quorum": "Infracción al Art. 40 del D.S. N° 44: Se requiere la asistencia de al menos 1 representante de la entidad empleadora y 1 de las personas trabajadoras para sesionar válidamente."})
+
+
 class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
     """
     ViewSet para el Libro Digital de Actas del CPHS (D.S. N° 44).
@@ -2214,6 +2315,10 @@ class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
         if comite.empresa.prevencionista not in usuarios_grupo:
             raise ValidationError({"comite": "No tienes permiso para registrar actas en este comité."})
 
+        # Art. 40 D.S. N° 44: Quórum legal obligatorio
+        asistentes = serializer.validated_data.get('asistentes', [])
+        validar_quorum_legal_cphs(comite, asistentes)
+
         # Asignar número correlativo automático si no viene asignado
         numero = serializer.validated_data.get('numero_acta')
         if not numero:
@@ -2222,6 +2327,12 @@ class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
             serializer.save(numero_acta=siguiente)
         else:
             serializer.save()
+
+    def perform_update(self, serializer):
+        comite = serializer.instance.comite
+        asistentes = serializer.validated_data.get('asistentes', serializer.instance.asistentes)
+        validar_quorum_legal_cphs(comite, asistentes)
+        serializer.save()
 
     @action(detail=True, methods=['patch'], url_path='cambiar-estado-acuerdo')
     def cambiar_estado_acuerdo(self, request, pk=None):

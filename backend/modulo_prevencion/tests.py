@@ -655,6 +655,59 @@ class LeyKarinComplianceTestCase(APITestCase):
         self.assertEqual(denuncia_creada.empresa, self.empresa_a)
         self.assertEqual(denuncia_creada.nombre_denunciante, 'Ana Morales')
 
+    def test_enmascaramiento_lista_y_bloqueo_delete(self):
+        """P0.1: El endpoint de listado enmascara la identidad y hechos. El método DELETE está bloqueado (405)."""
+        self.client.force_authenticate(user=self.user_a)
+
+        # 1. Listado enmascarado
+        res_list = self.client.get('/api/denuncias-ley-karin/')
+        self.assertEqual(res_list.status_code, status.HTTP_200_OK)
+        items = res_list.data if isinstance(res_list.data, list) else res_list.data.get('results', [])
+        self.assertGreater(len(items), 0)
+        item = items[0]
+        # Debe contener código de seguimiento y semáforo
+        self.assertIn('codigo_seguimiento', item)
+        self.assertTrue(item['codigo_seguimiento'].startswith('KARIN-'))
+        # NO debe exponer datos sensibles en el listado
+        self.assertNotIn('rut_denunciante', item)
+        self.assertNotIn('nombre_denunciante', item)
+        self.assertNotIn('descripcion_circunstanciada', item)
+
+        # 2. Bloqueo total de DELETE
+        res_del = self.client.delete(f'/api/denuncias-ley-karin/{self.denuncia_a.id}/')
+        self.assertEqual(res_del.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(DenunciaLeyKarin.objects.filter(id=self.denuncia_a.id).exists())
+
+    def test_derivacion_mutualidad_5_dias_anexo_67(self):
+        """P0.3: Derivación a la mutualidad dentro de 5 días hábiles, folio y atención psicológica."""
+        self.client.force_authenticate(user=self.user_a)
+
+        # Verifica cálculo automático de 5 días hábiles en modelo
+        self.assertIsNotNone(self.denuncia_a.plazo_limite_informe_mutualidad_5d)
+
+        res_mut = self.client.post(
+            f'/api/denuncias-ley-karin/{self.denuncia_a.id}/derivar-mutualidad/',
+            {
+                'folio_mutualidad': 'ACHS-MUT-2026-99',
+                'atencion_psicologica_ofrecida': True
+            },
+            format='json'
+        )
+        self.assertEqual(res_mut.status_code, status.HTTP_200_OK)
+        self.denuncia_a.refresh_from_db()
+        self.assertTrue(self.denuncia_a.derivada_mutualidad)
+        self.assertEqual(self.denuncia_a.folio_mutualidad, 'ACHS-MUT-2026-99')
+        self.assertTrue(self.denuncia_a.atencion_psicologica_ofrecida)
+        self.assertIsNotNone(self.denuncia_a.fecha_ofrecimiento_psicologico)
+
+        # Verifica log inmutable de derivación a mutualidad
+        self.assertTrue(
+            AuditLogAccesoDenuncia.objects.filter(
+                denuncia=self.denuncia_a,
+                accion="DERIVACION_MUTUALIDAD_ANEXO67"
+            ).exists()
+        )
+
 
 class AccidentesComplianceTestCase(APITestCase):
     """
@@ -1126,6 +1179,58 @@ class ComiteParitarioIntegrationTestCase(APITestCase):
             "tabla_temas": "Intrusión"
         }, format='json', **self.headers_b)
         self.assertEqual(res_post_b.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bloqueo_acta_sin_quorum_legal(self):
+        """P0.4: Impide registrar o sesionar actas si falta al menos 1 representante patronal o 1 laboral (Art. 40 D.S. 44)."""
+        comite = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            nombre="CPHS Quorum Test",
+            fecha_constitucion=timezone.localdate()
+        )
+        MiembroCPHS.objects.create(
+            comite=comite,
+            nombre="Carlos Patronal",
+            rut="11.222.333-4",
+            estamento=MiembroCPHS.ESTAMENTO_EMPRESA,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_TITULAR,
+            cargo=MiembroCPHS.CARGO_PRESIDENTE
+        )
+        MiembroCPHS.objects.create(
+            comite=comite,
+            nombre="Lucia Laboral",
+            rut="12.333.444-5",
+            estamento=MiembroCPHS.ESTAMENTO_TRABAJADORES,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_TITULAR,
+            cargo=MiembroCPHS.CARGO_SECRETARIO
+        )
+
+        # Intento 1: Solo patronal (sin representación laboral) -> Debe fallar 400
+        res_fail1 = self.client.post("/api/actas-cphs/", {
+            "comite": comite.id,
+            "numero_acta": 1,
+            "tipo_sesion": "ORDINARIA",
+            "fecha_hora_sesion": timezone.now().isoformat(),
+            "lugar": "Sala A",
+            "asistentes": ["Carlos Patronal (Presidente - Empresa)"],
+            "tabla_temas": "Revisión mensual"
+        }, format='json', **self.headers_a)
+        self.assertEqual(res_fail1.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("quorum", res_fail1.data)
+
+        # Intento 2: Con quorum válido (1 patronal + 1 laboral) -> Debe aprobar 201
+        res_ok = self.client.post("/api/actas-cphs/", {
+            "comite": comite.id,
+            "numero_acta": 1,
+            "tipo_sesion": "ORDINARIA",
+            "fecha_hora_sesion": timezone.now().isoformat(),
+            "lugar": "Sala A",
+            "asistentes": [
+                "Carlos Patronal (Presidente - Empresa)",
+                "Lucia Laboral (Secretario - Trabajadores)"
+            ],
+            "tabla_temas": "Revisión mensual y acuerdos"
+        }, format='json', **self.headers_a)
+        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
 
     def test_estadisticas_cphs(self):
         """Verifica el cálculo de estadísticas legales de 12 sesiones y acuerdos cumplidos."""
@@ -1806,6 +1911,53 @@ class MatrizRiesgoMiperIntegrationTestCase(APITestCase):
         }, format='json', **self.headers_a)
         self.assertEqual(res_error_s.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('severidad_residual', res_error_s.data)
+
+    def test_validacion_jerarquia_controles_obligatoria(self):
+        """P1.6: Impide registrar riesgo residual inferior al puro si no se declara control preventivo (Art. 9 y 10 D.S. 44)."""
+        matriz = MatrizRiesgoMiper.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            prevencionista=self.user_a,
+            nombre="Matriz Controles D.S. 44",
+            proceso_area="Taller"
+        )
+        # Reducción de riesgo (pura: 3x3=9, residual: 1x1=1) SIN controles -> Debe fallar 400
+        res_fail = self.client.post("/api/items-matriz-riesgo/", {
+            "matriz": matriz.id,
+            "proceso": "Corte de metales",
+            "actividad": "Uso de esmeril angular",
+            "puesto_trabajo": "Operador",
+            "peligro": "Proyección de partículas",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "Lesiones oculares",
+            "probabilidad_pura": 3,
+            "severidad_pura": 3,
+            "probabilidad_residual": 1,
+            "severidad_residual": 1,
+            "control_eliminacion": "",
+            "control_sustitucion": "",
+            "control_ingenieria": "",
+            "control_administrativo": "",
+            "control_epp": ""
+        }, format='json', **self.headers_a)
+        self.assertEqual(res_fail.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Con al menos un control (EPP) -> Debe aprobar 201
+        res_ok = self.client.post("/api/items-matriz-riesgo/", {
+            "matriz": matriz.id,
+            "proceso": "Corte de metales",
+            "actividad": "Uso de esmeril angular",
+            "puesto_trabajo": "Operador",
+            "peligro": "Proyección de partículas",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "Lesiones oculares",
+            "probabilidad_pura": 3,
+            "severidad_pura": 3,
+            "probabilidad_residual": 1,
+            "severidad_residual": 1,
+            "control_epp": "Careta facial de policarbonato y antiparras certificadas"
+        }, format='json', **self.headers_a)
+        self.assertEqual(res_ok.status_code, status.HTTP_201_CREATED)
 
     def test_aislamiento_multitenant_miper(self):
         """Verifica que el usuario B no pueda ver, alterar ni añadir ítems en la matriz de la empresa del usuario A."""
