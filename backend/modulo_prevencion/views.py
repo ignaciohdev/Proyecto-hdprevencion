@@ -1108,7 +1108,11 @@ class TemaCapacitacionViewSet(viewsets.ModelViewSet):
         user: Any = self.request.user
         owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
-        return TemaCapacitacion.objects.filter(usuario__in=usuarios_grupo)
+        return TemaCapacitacion.objects.filter(
+            Q(usuario__in=usuarios_grupo) |
+            Q(es_conferencia_grabada=True) |
+            Q(usuario__isnull=True)
+        ).distinct()
 
     def perform_create(self, serializer):
         user: Any = self.request.user

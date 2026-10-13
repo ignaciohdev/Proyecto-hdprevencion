@@ -57,7 +57,7 @@ export function ModalCrearActa({
 
   if (!isOpen) return null;
 
-  // Verificación de Quorum Legal según D.S. N° 44 Art. 16
+  // Verificación de Quorum Legal según D.S. N° 44 Art. 40
   // Se requiere al menos un representante del empleador y uno de los trabajadores
   const hayAsistenteEmpresa = miembros.some(
     (m) =>

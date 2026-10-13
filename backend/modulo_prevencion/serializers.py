@@ -278,12 +278,21 @@ class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
 
 class TemaCapacitacionSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='usuario.username', read_only=True)
+    categoria_display = serializers.CharField(source='get_categoria_display', read_only=True)
 
     class Meta:
         model = TemaCapacitacion
-        fields = ('id', 'usuario', 'username', 'titulo', 'descripcion', 'categoria', 'duracion_minutos', 'contenido_clave', 'fecha_creacion')
+        fields = (
+            'id', 'usuario', 'username', 'titulo', 'descripcion',
+            'categoria', 'categoria_display', 'duracion_minutos', 'contenido_clave',
+            'es_conferencia_grabada', 'precio_clp', 'video_url',
+            'normativa_legal_vigente', 'organismo_exigente',
+            'requiere_evaluacion', 'porcentaje_aprobacion',
+            'preguntas_evaluacion', 'relator_predeterminado',
+            'fecha_creacion'
+        )
         extra_kwargs = {
-            'usuario': {'required': False}
+            'usuario': {'required': False, 'allow_null': True}
         }
 
 
@@ -403,6 +412,8 @@ class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
     tipo_capacitacion_display = serializers.CharField(source='get_tipo_capacitacion_display', read_only=True)
     modalidad_display = serializers.CharField(source='get_modalidad_display', read_only=True)
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    tema_titulo = serializers.CharField(source='tema.titulo', read_only=True)
+    tema_detalle = TemaCapacitacionSerializer(source='tema', read_only=True)
 
     class Meta:
         model = SolicitudCapacitacion
@@ -410,6 +421,7 @@ class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
             'id', 'usuario', 'username', 'empresa', 'rut_empresa',
             'contacto_nombre', 'contacto_cargo', 'contacto_email', 'contacto_telefono',
             'tipo_capacitacion', 'tipo_capacitacion_display',
+            'tema', 'tema_titulo', 'tema_detalle', 'perfil_relator',
             'modalidad', 'modalidad_display',
             'region_comuna', 'cantidad_trabajadores', 'fecha_tentativa',
             'mensaje_adicional', 'estado', 'estado_display',
@@ -418,6 +430,8 @@ class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
         read_only_fields = ('id', 'fecha_creacion', 'fecha_actualizacion')
         extra_kwargs = {
             'usuario': {'required': False, 'allow_null': True},
+            'tema': {'required': False, 'allow_null': True},
+            'perfil_relator': {'required': False, 'allow_blank': True},
             'notas_internas': {'required': False, 'allow_blank': True},
             'contacto_cargo': {'required': False, 'allow_blank': True},
             'mensaje_adicional': {'required': False, 'allow_blank': True},

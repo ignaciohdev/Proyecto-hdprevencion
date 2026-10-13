@@ -1235,6 +1235,15 @@ class TemaCapacitacion(models.Model):
     CATEGORIA_CURSO_8H_GENERO = 'CURSO_8H_GENERO'
     CATEGORIA_CURSO_20H_CPHS = 'CURSO_20H_CPHS'
     CATEGORIA_CURSO_1H_EPP = 'CURSO_1H_EPP'
+    CATEGORIA_LEY_KARIN = 'LEY_KARIN'
+    CATEGORIA_EXTINTORES = 'EXTINTORES'
+    CATEGORIA_PREXOR = 'PREXOR'
+    CATEGORIA_TMERT = 'TMERT_EESS'
+    CATEGORIA_RADIACION_UV = 'RADIACION_UV'
+    CATEGORIA_PLANESI = 'PLANESI_SILICE'
+    CATEGORIA_PLAGUICIDAS = 'PLAGUICIDAS'
+    CATEGORIA_CEAL_SM = 'CEAL_SM'
+    CATEGORIA_ACCIDENTES_GRAVES = 'ACCIDENTES_GRAVES'
 
     CATEGORIA_CHOICES = [
         (CATEGORIA_CHARLA, 'Charla de 5 Minutos'),
@@ -1244,13 +1253,24 @@ class TemaCapacitacion(models.Model):
         (CATEGORIA_CURSO_8H_GENERO, 'Curso Bienal 8h con Enfoque de Género (Art. 16 D.S. N° 44)'),
         (CATEGORIA_CURSO_20H_CPHS, 'Curso 20h CPHS (Mutualidad / D.S. N° 44)'),
         (CATEGORIA_CURSO_1H_EPP, 'Capacitación Obligatoria EPP 1h (D.S. N° 44)'),
+        (CATEGORIA_LEY_KARIN, 'Prevención del Acoso y Violencia Ley Karin (Ley 21.643)'),
+        (CATEGORIA_EXTINTORES, 'Manejo de Extintores Portátiles (D.S. 594 Arts. 44-52)'),
+        (CATEGORIA_PREXOR, 'Protocolo PREXOR Ruido Ocupacional (MINSAL)'),
+        (CATEGORIA_TMERT, 'Protocolo TMERT-EESS y Cargas Ley 20.949 (MINSAL)'),
+        (CATEGORIA_RADIACION_UV, 'Protocolo Radiación UV Solar (Guía Técnica MINSAL)'),
+        (CATEGORIA_PLANESI, 'Protocolo Silicosis PLANESI (Res. Ex. MINSAL 268)'),
+        (CATEGORIA_PLAGUICIDAS, 'Manejo de Plaguicidas y Sustancias Peligrosas (MINSAL / D.S. 43)'),
+        (CATEGORIA_CEAL_SM, 'Protocolo Psicosocial CEAL-SM (Circular SUSESO 3.705)'),
+        (CATEGORIA_ACCIDENTES_GRAVES, 'Protocolo Accidentes Graves y Fatales (Circular SUSESO 3.336)'),
     ]
 
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='temas_capacitacion',
-        verbose_name="Prevencionista Creador"
+        verbose_name="Prevencionista Creador (o Catálogo Central)"
     )
     titulo = models.CharField(max_length=200, verbose_name="Título de la Capacitación")
     descripcion = models.TextField(verbose_name="Descripción o Resumen del Contenido")
@@ -1266,6 +1286,52 @@ class TemaCapacitacion(models.Model):
         blank=True,
         verbose_name="Puntos Clave del Contenido",
         help_text="Lista de puntos esenciales a tratar durante la charla."
+    )
+    es_conferencia_grabada = models.BooleanField(
+        default=False,
+        verbose_name="Conferencia Grabada On-Demand"
+    )
+    precio_clp = models.DecimalField(
+        max_digits=10,
+        decimal_places=0,
+        default=0,
+        verbose_name="Precio Sugerido (CLP)"
+    )
+    video_url = models.URLField(
+        blank=True,
+        default="",
+        verbose_name="URL de Reproducción de Video"
+    )
+    normativa_legal_vigente = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name="Normativa Legal Vigente (2025/2026)"
+    )
+    organismo_exigente = models.CharField(
+        max_length=50,
+        blank=True,
+        default="DT / MINSAL / SUSESO",
+        verbose_name="Organismo Fiscalizador Exigente"
+    )
+    requiere_evaluacion = models.BooleanField(
+        default=True,
+        verbose_name="Requiere Evaluación de Comprensión"
+    )
+    porcentaje_aprobacion = models.PositiveIntegerField(
+        default=75,
+        verbose_name="Porcentaje Mínimo de Aprobación (%)"
+    )
+    preguntas_evaluacion = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Banco de Preguntas de Evaluación",
+        help_text="Lista de objetos: [{'id': 1, 'pregunta': '...', 'opciones': [...], 'correcta': 0, 'explicacion': '...'}]"
+    )
+    relator_predeterminado = models.CharField(
+        max_length=150,
+        default="Ingeniero en Prevención de Riesgos (Registro SEREMI)",
+        verbose_name="Perfil del Relator Predeterminado"
     )
     fecha_creacion = models.DateTimeField(auto_now_add=True, verbose_name="Fecha de Creación")
 
@@ -2095,6 +2161,20 @@ class SolicitudCapacitacion(models.Model):
         choices=TIPO_CHOICES,
         default=TIPO_LEY_KARIN,
         verbose_name="Programa o Especialidad Requerida"
+    )
+    tema = models.ForeignKey(
+        TemaCapacitacion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='solicitudes_relator',
+        verbose_name="Curso Específico Seleccionado"
+    )
+    perfil_relator = models.CharField(
+        max_length=150,
+        blank=True,
+        default="Ingeniero en Prevención de Riesgos (Registro SEREMI)",
+        verbose_name="Perfil de Especialista Solicitado"
     )
     modalidad = models.CharField(
         max_length=20,
