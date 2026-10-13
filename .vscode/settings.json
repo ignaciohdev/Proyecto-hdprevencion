@@ -12,5 +12,6 @@
     "${workspaceFolder}/agentes",
     "${workspaceFolder}/backend/venv/Lib/site-packages"
   ],
-  "files.autoSave": "afterDelay"
+  "files.autoSave": "afterDelay",
+  "css.lint.unknownAtRules": "ignore"
 }
