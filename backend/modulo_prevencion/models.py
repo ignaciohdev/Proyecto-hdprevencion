@@ -2011,3 +2011,243 @@ class SolicitudCapacitacion(models.Model):
         return f"{self.empresa} - {self.get_tipo_capacitacion_display()} ({self.estado})"
 
 
+class ComiteParitario(models.Model):
+    """
+    Representa un Comité Paritario de Higiene y Seguridad (CPHS) según D.S. N° 44
+    y Ley N° 16.744 (obligatorio para empresas con más de 25 trabajadores).
+    Vigencia legal de mandato: 2 años calendario contados desde la constitución.
+    """
+    ESTADO_VIGENTE = 'VIGENTE'
+    ESTADO_POR_VENCER = 'POR_VENCER'
+    ESTADO_VENCIDO = 'VENCIDO'
+    ESTADO_EN_ELECCION = 'EN_ELECCION'
+    ESTADO_CHOICES = [
+        (ESTADO_VIGENTE, 'Vigente'),
+        (ESTADO_POR_VENCER, 'Por Vencer (< 60 días)'),
+        (ESTADO_VENCIDO, 'Mandato Vencido'),
+        (ESTADO_EN_ELECCION, 'Proceso Eleccionario'),
+    ]
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='comites_paritarios',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='comites_paritarios',
+        verbose_name="Centro de Trabajo / Faena"
+    )
+    nombre = models.CharField(
+        max_length=150,
+        verbose_name="Nombre del Comité",
+        help_text="Ej: CPHS Casa Matriz, CPHS Faena Mina Central"
+    )
+    fecha_constitucion = models.DateField(
+        verbose_name="Fecha de Elección / Constitución"
+    )
+    fecha_vencimiento_mandato = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Vencimiento Mandato (2 Años D.S. 44)"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_VIGENTE,
+        verbose_name="Estado del Mandato"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Registro"
+    )
+
+    class Meta:
+        verbose_name = "Comité Paritario (CPHS)"
+        verbose_name_plural = "Comités Paritarios (CPHS)"
+        ordering = ['-fecha_constitucion']
+
+    def __str__(self) -> str:
+        return f"{self.nombre} - {self.empresa.razon_social}"
+
+    @property
+    def dias_restantes_mandato(self) -> int:
+        if not self.fecha_vencimiento_mandato:
+            return 0
+        hoy = timezone.localdate()
+        return (self.fecha_vencimiento_mandato - hoy).days
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self.fecha_constitucion and not self.fecha_vencimiento_mandato:
+            self.fecha_vencimiento_mandato = self.fecha_constitucion + timedelta(days=730)
+
+        if self.fecha_vencimiento_mandato and self.estado != self.ESTADO_EN_ELECCION:
+            dias = self.dias_restantes_mandato
+            if dias < 0:
+                self.estado = self.ESTADO_VENCIDO
+            elif dias <= 60:
+                self.estado = self.ESTADO_POR_VENCER
+            else:
+                self.estado = self.ESTADO_VIGENTE
+
+        super().save(*args, **kwargs)
+
+
+class MiembroCPHS(models.Model):
+    """
+    Miembro integrante de un Comité Paritario de Higiene y Seguridad (CPHS).
+    Estructura paritaria: 3 titulares y 3 suplentes patronales, y 3 titulares y 3 suplentes laborales.
+    D.S. 44 exige designar Presidente y Secretario obligatoriamente.
+    """
+    ESTAMENTO_EMPRESA = 'EMPRESA'
+    ESTAMENTO_TRABAJADORES = 'TRABAJADORES'
+    ESTAMENTO_CHOICES = [
+        (ESTAMENTO_EMPRESA, 'Representante del Empleador'),
+        (ESTAMENTO_TRABAJADORES, 'Representante de los Trabajadores'),
+    ]
+
+    REPRESENTACION_TITULAR = 'TITULAR'
+    REPRESENTACION_SUPLENTE = 'SUPLENTE'
+    REPRESENTACION_CHOICES = [
+        (REPRESENTACION_TITULAR, 'Miembro Titular'),
+        (REPRESENTACION_SUPLENTE, 'Miembro Suplente'),
+    ]
+
+    CARGO_PRESIDENTE = 'PRESIDENTE'
+    CARGO_SECRETARIO = 'SECRETARIO'
+    CARGO_VOCAL = 'VOCAL'
+    CARGO_CHOICES = [
+        (CARGO_PRESIDENTE, 'Presidente'),
+        (CARGO_SECRETARIO, 'Secretario'),
+        (CARGO_VOCAL, 'Vocal / Integrante'),
+    ]
+
+    comite = models.ForeignKey(
+        ComiteParitario,
+        on_delete=models.CASCADE,
+        related_name='miembros',
+        verbose_name="Comité Paritario"
+    )
+    trabajador = models.ForeignKey(
+        Trabajador,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='participaciones_cphs',
+        verbose_name="Ficha Trabajador Asociada"
+    )
+    nombre = models.CharField(
+        max_length=150,
+        verbose_name="Nombre y Apellidos"
+    )
+    rut = models.CharField(
+        max_length=15,
+        validators=[validar_rut_chileno],
+        verbose_name="RUT del Miembro"
+    )
+    estamento = models.CharField(
+        max_length=20,
+        choices=ESTAMENTO_CHOICES,
+        verbose_name="Estamento Representado"
+    )
+    tipo_representacion = models.CharField(
+        max_length=20,
+        choices=REPRESENTACION_CHOICES,
+        verbose_name="Tipo de Representación"
+    )
+    cargo = models.CharField(
+        max_length=20,
+        choices=CARGO_CHOICES,
+        default=CARGO_VOCAL,
+        verbose_name="Cargo en el Comité"
+    )
+    activo = models.BooleanField(
+        default=True,
+        verbose_name="Miembro Activo"
+    )
+    fecha_designacion = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Designación / Elección"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Registro"
+    )
+
+    class Meta:
+        verbose_name = "Miembro de CPHS"
+        verbose_name_plural = "Miembros de CPHS"
+        ordering = ['estamento', 'tipo_representacion', 'cargo', 'nombre']
+
+    def __str__(self) -> str:
+        return f"{self.nombre} ({self.get_cargo_display()} - {self.get_estamento_display()})"
+
+
+class ActaSesionCPHS(models.Model):
+    """
+    Acta formal de sesión del Comité Paritario de Higiene y Seguridad (CPHS) según D.S. N° 44 Art. 16.
+    Reuniones ordinarias mensuales obligatorias (12 anuales) o extraordinarias ante accidentes graves/urgencias.
+    """
+    TIPO_ORDINARIA = 'ORDINARIA'
+    TIPO_EXTRAORDINARIA = 'EXTRAORDINARIA'
+    TIPO_SESION_CHOICES = [
+        (TIPO_ORDINARIA, 'Sesión Ordinaria Mensual'),
+        (TIPO_EXTRAORDINARIA, 'Sesión Extraordinaria (Accidente Grave / Urgencia)'),
+    ]
+
+    comite = models.ForeignKey(
+        ComiteParitario,
+        on_delete=models.CASCADE,
+        related_name='actas',
+        verbose_name="Comité Paritario"
+    )
+    numero_acta = models.PositiveIntegerField(
+        verbose_name="N° Correlativo de Acta"
+    )
+    tipo_sesion = models.CharField(
+        max_length=20,
+        choices=TIPO_SESION_CHOICES,
+        default=TIPO_ORDINARIA,
+        verbose_name="Tipo de Sesión"
+    )
+    fecha_hora_sesion = models.DateTimeField(
+        verbose_name="Fecha y Hora de la Reunión"
+    )
+    lugar = models.CharField(
+        max_length=200,
+        verbose_name="Lugar o Modalidad de la Reunión"
+    )
+    asistentes = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Lista de miembros asistentes para verificación de quorum legal"
+    )
+    tabla_temas = models.TextField(
+        verbose_name="Puntos Tratados en la Tabla"
+    )
+    acuerdos = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Lista de acuerdos: [{'acuerdo': '...', 'responsable': '...', 'plazo': 'YYYY-MM-DD', 'cumplido': false}]"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+
+    class Meta:
+        verbose_name = "Acta de Sesión CPHS"
+        verbose_name_plural = "Actas de Sesiones CPHS"
+        ordering = ['-fecha_hora_sesion', '-numero_acta']
+        unique_together = [['comite', 'numero_acta']]
+
+    def __str__(self) -> str:
+        return f"Acta N°{self.numero_acta} ({self.get_tipo_sesion_display()}) - {self.comite.nombre}"
+
+
+

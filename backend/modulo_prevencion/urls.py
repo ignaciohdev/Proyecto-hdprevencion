@@ -13,7 +13,8 @@ from .views import (
     ContratistaViewSet, DocumentoContratistaViewSet, TrabajadorSubcontratadoViewSet,
     SolicitudCapacitacionViewSet,
     EmpresaViewSet, CentroTrabajoViewSet, TrabajadorViewSet,
-    DenunciaLeyKarinViewSet, SugerenciaLaboralViewSet, PublicoEmpresasListView
+    DenunciaLeyKarinViewSet, SugerenciaLaboralViewSet, PublicoEmpresasListView,
+    ComiteParitarioViewSet, MiembroCPHSViewSet, ActaSesionCPHSViewSet
 )
 
 router = DefaultRouter()
@@ -40,6 +41,10 @@ router.register(r'centros-trabajo', CentroTrabajoViewSet, basename='centrotrabaj
 router.register(r'trabajadores', TrabajadorViewSet, basename='trabajador')
 router.register(r'sugerencias-laborales', SugerenciaLaboralViewSet, basename='sugerencialaboral')
 router.register(r'denuncias-ley-karin', DenunciaLeyKarinViewSet, basename='denuncialeykarin')
+router.register(r'comites-paritarios', ComiteParitarioViewSet, basename='comiteparitario')
+router.register(r'miembros-cphs', MiembroCPHSViewSet, basename='miembrocphs')
+router.register(r'actas-cphs', ActaSesionCPHSViewSet, basename='actasesioncphs')
+
 
 urlpatterns = [
     # Endpoints de autenticación y registro con JWT

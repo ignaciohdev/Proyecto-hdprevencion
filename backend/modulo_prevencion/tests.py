@@ -2,13 +2,15 @@ from datetime import timedelta
 from typing import Any
 from django.urls import reverse
 from django.utils import timezone
+from django.core.cache import cache
 from rest_framework import status
 from rest_framework.test import APITestCase
 from .models import (
     TemaCapacitacion, RegistroCapacitacion, Plan, Suscripcion, Usuario,
     Empresa, CentroTrabajo, Trabajador,
     DenunciaLeyKarin, SugerenciaLaboral, AuditLogAccesoDenuncia,
-    InvestigacionAccidente
+    InvestigacionAccidente,
+    ComiteParitario, MiembroCPHS, ActaSesionCPHS
 )
 
 class CapacitacionIntegrationTestCase(APITestCase):
@@ -271,6 +273,7 @@ class JWTAuthSecurityTestCase(APITestCase):
     client: Any
 
     def setUp(self):
+        cache.clear()
         self.user = Usuario.objects.create_user(
             username="jwt_user_test",
             email="jwt@hdprevencion.cl",
@@ -507,6 +510,7 @@ class LeyKarinComplianceTestCase(APITestCase):
     5. Canal público QR: envío guiado de denuncias formales y sugerencias abiertas.
     """
     def setUp(self):
+        cache.clear()
         self.user_a = Usuario.objects.create_user(
             username="prevencionista_karin_a",
             email="karina@prevencion.cl",
@@ -965,6 +969,234 @@ class AccidentesComplianceTestCase(APITestCase):
         self.assertEqual(data['graves_o_fatales_count'], 1)
         # Total eventos de usuario A (2 trabajo + 1 incidente = 3)
         self.assertEqual(data['total_eventos'], 3)
+
+
+class ComiteParitarioIntegrationTestCase(APITestCase):
+    """
+    Casos de prueba para verificar:
+    1. Aislamiento Multi-Tenant estricto de Comités Paritarios, Miembros y Actas.
+    2. Auto-cálculo de 2 años de mandato (730 días) según D.S. 44.
+    3. Cómputo de días restantes y actualización de estados.
+    4. Estadísticas anuales (meta 12 sesiones, acuerdos cumplidos vs pendientes).
+    5. Cambio de estado de acuerdos en actas.
+    """
+    client: Any
+
+    def setUp(self):
+        cache.clear()
+        self.plan = Plan.objects.create(
+            nombre="Plan Test CPHS",
+            codigo="plan-test-cphs",
+            precio=15000.00,
+            limite_semanal=20,
+            asientos=5
+        )
+
+        # Usuario Prevencionista A
+        self.user_a = Usuario.objects.create_user(
+            username="prevencionista_cphs_a",
+            email="prev_cphs_a@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.empresa_a = Empresa.objects.create(
+            prevencionista=self.user_a,
+            razon_social="Constructora Andina SpA",
+            rut="76.123.456-7"
+        )
+        self.centro_a = CentroTrabajo.objects.create(
+            empresa=self.empresa_a,
+            nombre="Faena Edificio Central",
+            direccion="Av. Los Leones 1234"
+        )
+
+        res_a = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prevencionista_cphs_a',
+            'password': 'securepassword123'
+        })
+        self.token_a = res_a.data['access']
+        self.headers_a = {'HTTP_AUTHORIZATION': f'Bearer {self.token_a}'}
+
+        # Usuario Prevencionista B (Tenant ajeno)
+        self.user_b = Usuario.objects.create_user(
+            username="prevencionista_cphs_b",
+            email="prev_cphs_b@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.empresa_b = Empresa.objects.create(
+            prevencionista=self.user_b,
+            razon_social="Minera del Norte S.A.",
+            rut="77.987.654-3"
+        )
+
+        res_b = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prevencionista_cphs_b',
+            'password': 'securepassword123'
+        })
+        self.token_b = res_b.data['access']
+        self.headers_b = {'HTTP_AUTHORIZATION': f'Bearer {self.token_b}'}
+
+    def test_calculo_vigencia_dos_anos_mandato(self):
+        """Verifica que al guardar un CPHS sin fecha_vencimiento_mandato, se calculan 730 días."""
+        hoy = timezone.localdate()
+        comite = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            nombre="CPHS Faena Central",
+            fecha_constitucion=hoy
+        )
+        self.assertEqual(comite.fecha_vencimiento_mandato, hoy + timedelta(days=730))
+        self.assertEqual(comite.dias_restantes_mandato, 730)
+        self.assertEqual(comite.estado, ComiteParitario.ESTADO_VIGENTE)
+
+    def test_cambio_estado_segun_dias_restantes(self):
+        """Verifica que si quedan <= 60 días pasa a POR_VENCER, y si vence pasa a VENCIDO."""
+        hoy = timezone.localdate()
+        # Caso por vencer
+        comite_por_vencer = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            nombre="CPHS Por Vencer",
+            fecha_constitucion=hoy - timedelta(days=700),
+            fecha_vencimiento_mandato=hoy + timedelta(days=30)
+        )
+        self.assertEqual(comite_por_vencer.estado, ComiteParitario.ESTADO_POR_VENCER)
+
+        # Caso vencido
+        comite_vencido = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            nombre="CPHS Vencido",
+            fecha_constitucion=hoy - timedelta(days=800),
+            fecha_vencimiento_mandato=hoy - timedelta(days=70)
+        )
+        self.assertEqual(comite_vencido.estado, ComiteParitario.ESTADO_VENCIDO)
+
+    def test_aislamiento_multitenant_estricto(self):
+        """Verifica que Prevencionista B no pueda ver comités ni actas de Prevencionista A."""
+        hoy = timezone.localdate()
+        comite_a = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            nombre="CPHS Privado Tenant A",
+            fecha_constitucion=hoy
+        )
+        MiembroCPHS.objects.create(
+            comite=comite_a,
+            nombre="Juan Perez",
+            rut="12.345.678-5",
+            estamento=MiembroCPHS.ESTAMENTO_EMPRESA,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_TITULAR,
+            cargo=MiembroCPHS.CARGO_PRESIDENTE
+        )
+        acta_a = ActaSesionCPHS.objects.create(
+            comite=comite_a,
+            numero_acta=1,
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion=timezone.now(),
+            lugar="Sala de Reuniones",
+            tabla_temas="Constitución",
+            acuerdos=[{"acuerdo": "Revisar extintores", "responsable": "Juan", "plazo": "2026-11-01", "cumplido": False}]
+        )
+
+        # Usuario A ve su comité
+        res_a = self.client.get("/api/comites-paritarios/", **self.headers_a)
+        self.assertEqual(res_a.status_code, status.HTTP_200_OK)
+        results_a = res_a.data.get('results', res_a.data) if isinstance(res_a.data, dict) else res_a.data
+        self.assertEqual(len(results_a), 1)
+
+        # Usuario B no ve el comité de A
+        res_b = self.client.get("/api/comites-paritarios/", **self.headers_b)
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+        results_b = res_b.data.get('results', res_b.data) if isinstance(res_b.data, dict) else res_b.data
+        self.assertEqual(len(results_b), 0)
+
+        # Usuario B no puede ver el acta de A
+        res_acta_b = self.client.get(f"/api/actas-cphs/{acta_a.id}/", **self.headers_b)
+        self.assertEqual(res_acta_b.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B no puede crear actas en el comité de A
+        res_post_b = self.client.post("/api/actas-cphs/", {
+            "comite": comite_a.id,
+            "tipo_sesion": "ORDINARIA",
+            "fecha_hora_sesion": timezone.now().isoformat(),
+            "lugar": "Infiltrado",
+            "tabla_temas": "Intrusión"
+        }, format='json', **self.headers_b)
+        self.assertEqual(res_post_b.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_estadisticas_cphs(self):
+        """Verifica el cálculo de estadísticas legales de 12 sesiones y acuerdos cumplidos."""
+        hoy = timezone.localdate()
+        comite = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            nombre="CPHS Estadísticas",
+            fecha_constitucion=hoy
+        )
+        # Crear 2 actas ordinarias con acuerdos
+        ActaSesionCPHS.objects.create(
+            comite=comite,
+            numero_acta=1,
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion=timezone.now(),
+            lugar="Sala A",
+            tabla_temas="Tema 1",
+            acuerdos=[
+                {"acuerdo": "A1", "responsable": "R1", "plazo": "2026-11-01", "cumplido": True},
+                {"acuerdo": "A2", "responsable": "R2", "plazo": "2026-11-02", "cumplido": False}
+            ]
+        )
+        ActaSesionCPHS.objects.create(
+            comite=comite,
+            numero_acta=2,
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion=timezone.now(),
+            lugar="Sala A",
+            tabla_temas="Tema 2",
+            acuerdos=[
+                {"acuerdo": "A3", "responsable": "R3", "plazo": "2026-11-03", "cumplido": True}
+            ]
+        )
+
+        res = self.client.get(f"/api/comites-paritarios/{comite.id}/estadisticas/", **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.data
+        self.assertEqual(data['sesiones_ordinarias_ano'], 2)
+        self.assertEqual(data['meta_legal_anual'], 12)
+        self.assertEqual(data['total_acuerdos'], 3)
+        self.assertEqual(data['acuerdos_cumplidos'], 2)
+        self.assertEqual(data['acuerdos_pendientes'], 1)
+        self.assertEqual(data['tasa_cumplimiento_acuerdos'], 66.7)
+
+    def test_cambiar_estado_acuerdo_acta(self):
+        """Verifica la acción para cambiar el estado de un acuerdo de pendiente a cumplido."""
+        comite = ComiteParitario.objects.create(
+            empresa=self.empresa_a,
+            nombre="CPHS Acuerdos",
+            fecha_constitucion=timezone.localdate()
+        )
+        acta = ActaSesionCPHS.objects.create(
+            comite=comite,
+            numero_acta=1,
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion=timezone.now(),
+            lugar="Oficina",
+            tabla_temas="Puntos Varios",
+            acuerdos=[
+                {"acuerdo": "Instalar barandas", "responsable": "Jefe Obra", "plazo": "2026-10-20", "cumplido": False}
+            ]
+        )
+
+        # Marcar acuerdo índice 0 como cumplido
+        res = self.client.patch(
+            f"/api/actas-cphs/{acta.id}/cambiar-estado-acuerdo/",
+            {"indice_acuerdo": 0, "cumplido": True},
+            format='json',
+            **self.headers_a
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        acta.refresh_from_db()
+        self.assertTrue(acta.acuerdos[0]['cumplido'])
+        self.assertIn('fecha_cumplimiento', acta.acuerdos[0])
+
 
 
 

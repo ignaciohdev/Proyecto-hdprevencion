@@ -13,7 +13,8 @@ from .models import (
     Contratista, DocumentoContratista, TrabajadorSubcontratado,
     SolicitudCapacitacion,
     Empresa, CentroTrabajo, Trabajador,
-    SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia
+    SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
+    ComiteParitario, MiembroCPHS, ActaSesionCPHS
 )
 
 Usuario = get_user_model()
@@ -554,6 +555,80 @@ class DenunciaLeyKarinPublicaCreateSerializer(serializers.ModelSerializer):
         from .models import validar_rut_chileno
         validar_rut_chileno(value)
         return value
+
+
+class MiembroCPHSSerializer(serializers.ModelSerializer):
+    estamento_display = serializers.CharField(source='get_estamento_display', read_only=True)
+    tipo_representacion_display = serializers.CharField(source='get_tipo_representacion_display', read_only=True)
+    cargo_display = serializers.CharField(source='get_cargo_display', read_only=True)
+
+    class Meta:
+        model = MiembroCPHS
+        fields = (
+            'id', 'comite', 'trabajador', 'nombre', 'rut',
+            'estamento', 'estamento_display',
+            'tipo_representacion', 'tipo_representacion_display',
+            'cargo', 'cargo_display', 'activo',
+            'fecha_designacion', 'fecha_creacion'
+        )
+
+    def validate_rut(self, value):
+        from .models import validar_rut_chileno
+        validar_rut_chileno(value)
+        return value
+
+
+class ActaSesionCPHSSerializer(serializers.ModelSerializer):
+    comite_nombre = serializers.CharField(source='comite.nombre', read_only=True)
+    tipo_sesion_display = serializers.CharField(source='get_tipo_sesion_display', read_only=True)
+    total_acuerdos = serializers.SerializerMethodField()
+    acuerdos_cumplidos = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ActaSesionCPHS
+        fields = (
+            'id', 'comite', 'comite_nombre', 'numero_acta',
+            'tipo_sesion', 'tipo_sesion_display', 'fecha_hora_sesion',
+            'lugar', 'asistentes', 'tabla_temas', 'acuerdos',
+            'fecha_creacion', 'total_acuerdos', 'acuerdos_cumplidos'
+        )
+
+    def get_total_acuerdos(self, obj):
+        if isinstance(obj.acuerdos, list):
+            return len(obj.acuerdos)
+        return 0
+
+    def get_acuerdos_cumplidos(self, obj):
+        if isinstance(obj.acuerdos, list):
+            return sum(1 for a in obj.acuerdos if isinstance(a, dict) and a.get('cumplido') is True)
+        return 0
+
+
+class ComiteParitarioSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+    dias_restantes_mandato = serializers.IntegerField(read_only=True)
+    miembros = MiembroCPHSSerializer(many=True, read_only=True)
+    total_miembros = serializers.SerializerMethodField()
+    total_actas = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ComiteParitario
+        fields = (
+            'id', 'empresa', 'empresa_nombre',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'nombre', 'fecha_constitucion', 'fecha_vencimiento_mandato',
+            'estado', 'estado_display', 'dias_restantes_mandato',
+            'miembros', 'total_miembros', 'total_actas', 'fecha_creacion'
+        )
+
+    def get_total_miembros(self, obj):
+        return obj.miembros.filter(activo=True).count()
+
+    def get_total_actas(self, obj):
+        return obj.actas.count()
+
 
 
 

@@ -25,7 +25,8 @@ from .models import (
     Contratista, DocumentoContratista, TrabajadorSubcontratado,
     SolicitudCapacitacion,
     Empresa, CentroTrabajo, Trabajador,
-    SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia
+    SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
+    ComiteParitario, MiembroCPHS, ActaSesionCPHS
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -40,7 +41,8 @@ from .serializers import (
     SolicitudCapacitacionSerializer,
     EmpresaSerializer, CentroTrabajoSerializer, TrabajadorSerializer,
     SugerenciaLaboralSerializer, DenunciaLeyKarinSerializer,
-    AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer
+    AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer,
+    ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer
 )
 
 Usuario: Any = get_user_model()
@@ -1990,6 +1992,271 @@ class SugerenciaLaboralViewSet(viewsets.ModelViewSet):
             sugerencia.estado = estado
         sugerencia.save()
         return Response(SugerenciaLaboralSerializer(sugerencia).data, status=status.HTTP_200_OK)
+
+
+class ComiteParitarioViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión de Comités Paritarios de Higiene y Seguridad (CPHS) según D.S. N° 44.
+    Aislamiento Multi-Tenant: solo comités de empresas asesoradas por el usuario / grupo del prevencionista.
+    """
+    queryset = ComiteParitario.objects.all()
+    serializer_class = ComiteParitarioSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return ComiteParitario.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = ComiteParitario.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo
+        ).select_related('empresa', 'centro_trabajo').prefetch_related('miembros', 'actas')
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado=estado)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        empresa = serializer.validated_data.get('empresa')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"empresa": "No tienes permiso para constituir comités en esta empresa."})
+
+        centro_trabajo = serializer.validated_data.get('centro_trabajo')
+        if centro_trabajo and centro_trabajo.empresa != empresa:
+            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa seleccionada."})
+
+        serializer.save()
+
+    @action(detail=True, methods=['get'], url_path='estadisticas')
+    def estadisticas(self, request, pk=None):
+        """
+        Retorna estadísticas normativas del CPHS:
+        - Sesiones ordinarias del año en curso vs meta legal (12 anuales según D.S. 44).
+        - Acuerdos totales, cumplidos y pendientes.
+        - Días restantes de mandato legal (2 años).
+        - Estructura y paridad de miembros.
+        """
+        comite = self.get_object()
+        hoy = timezone.localdate()
+
+        # 1. Sesiones ordinarias en el año actual (meta 12)
+        sesiones_ordinarias_ano = comite.actas.filter(
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion__year=hoy.year
+        ).count()
+        meta_legal_anual = 12
+        porcentaje_sesiones = min(100.0, round((sesiones_ordinarias_ano / meta_legal_anual) * 100, 1))
+
+        # 2. Acuerdos preventivos
+        total_acuerdos = 0
+        acuerdos_cumplidos = 0
+        for acta in comite.actas.all():
+            if isinstance(acta.acuerdos, list):
+                total_acuerdos += len(acta.acuerdos)
+                acuerdos_cumplidos += sum(1 for a in acta.acuerdos if isinstance(a, dict) and a.get('cumplido') is True)
+
+        acuerdos_pendientes = total_acuerdos - acuerdos_cumplidos
+        tasa_cumplimiento_acuerdos = round((acuerdos_cumplidos / total_acuerdos) * 100, 1) if total_acuerdos > 0 else 100.0
+
+        # 3. Composición paritaria
+        miembros_activos = comite.miembros.filter(activo=True)
+        titulares_empresa = miembros_activos.filter(
+            estamento=MiembroCPHS.ESTAMENTO_EMPRESA,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_TITULAR
+        ).count()
+        titulares_trabajadores = miembros_activos.filter(
+            estamento=MiembroCPHS.ESTAMENTO_TRABAJADORES,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_TITULAR
+        ).count()
+        suplentes_empresa = miembros_activos.filter(
+            estamento=MiembroCPHS.ESTAMENTO_EMPRESA,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_SUPLENTE
+        ).count()
+        suplentes_trabajadores = miembros_activos.filter(
+            estamento=MiembroCPHS.ESTAMENTO_TRABAJADORES,
+            tipo_representacion=MiembroCPHS.REPRESENTACION_SUPLENTE
+        ).count()
+
+        presidente = miembros_activos.filter(cargo=MiembroCPHS.CARGO_PRESIDENTE).first()
+        secretario = miembros_activos.filter(cargo=MiembroCPHS.CARGO_SECRETARIO).first()
+
+        return Response({
+            "comite_id": comite.id,
+            "comite_nombre": comite.nombre,
+            "empresa_nombre": comite.empresa.razon_social,
+            "fecha_constitucion": comite.fecha_constitucion,
+            "fecha_vencimiento_mandato": comite.fecha_vencimiento_mandato,
+            "dias_restantes_mandato": comite.dias_restantes_mandato,
+            "estado_mandato": comite.estado,
+            "estado_mandato_display": comite.get_estado_display(),
+            # Sesiones mensuales
+            "sesiones_ordinarias_ano": sesiones_ordinarias_ano,
+            "meta_legal_anual": meta_legal_anual,
+            "porcentaje_cumplimiento_sesiones": porcentaje_sesiones,
+            "total_actas": comite.actas.count(),
+            # Acuerdos
+            "total_acuerdos": total_acuerdos,
+            "acuerdos_cumplidos": acuerdos_cumplidos,
+            "acuerdos_pendientes": acuerdos_pendientes,
+            "tasa_cumplimiento_acuerdos": tasa_cumplimiento_acuerdos,
+            # Estructura paritaria
+            "total_miembros": miembros_activos.count(),
+            "titulares_empresa": titulares_empresa,
+            "titulares_trabajadores": titulares_trabajadores,
+            "suplentes_empresa": suplentes_empresa,
+            "suplentes_trabajadores": suplentes_trabajadores,
+            "tiene_presidente": presidente is not None,
+            "tiene_secretario": secretario is not None,
+            "presidente_nombre": presidente.nombre if presidente else None,
+            "secretario_nombre": secretario.nombre if secretario else None,
+            "paridad_completa": (titulares_empresa == 3 and titulares_trabajadores == 3)
+        }, status=status.HTTP_200_OK)
+
+
+class MiembroCPHSViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión de integrantes del Comité Paritario (CPHS).
+    Permite registrar titulares, suplentes y cargos de Presidente/Secretario.
+    """
+    queryset = MiembroCPHS.objects.all()
+    serializer_class = MiembroCPHSSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return MiembroCPHS.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = MiembroCPHS.objects.filter(
+            comite__empresa__prevencionista__in=usuarios_grupo
+        ).select_related('comite', 'trabajador')
+
+        comite_id = self.request.query_params.get('comite')
+        if comite_id:
+            queryset = queryset.filter(comite_id=comite_id)
+
+        estamento = self.request.query_params.get('estamento')
+        if estamento:
+            queryset = queryset.filter(estamento=estamento)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        comite = serializer.validated_data.get('comite')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if comite.empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"comite": "No tienes permiso para agregar miembros a este comité."})
+
+        trabajador = serializer.validated_data.get('trabajador')
+        if trabajador and trabajador.empresa != comite.empresa:
+            raise ValidationError({"trabajador": "El trabajador no pertenece a la empresa de este comité."})
+
+        # Si se asigna cargo Presidente o Secretario, actualizar al anterior a VOCAL si existiese
+        cargo = serializer.validated_data.get('cargo')
+        if cargo in [MiembroCPHS.CARGO_PRESIDENTE, MiembroCPHS.CARGO_SECRETARIO]:
+            MiembroCPHS.objects.filter(comite=comite, cargo=cargo).update(cargo=MiembroCPHS.CARGO_VOCAL)
+
+        serializer.save()
+
+    def perform_update(self, serializer):
+        cargo = serializer.validated_data.get('cargo')
+        instance = self.get_object()
+        if cargo in [MiembroCPHS.CARGO_PRESIDENTE, MiembroCPHS.CARGO_SECRETARIO]:
+            MiembroCPHS.objects.filter(comite=instance.comite, cargo=cargo).exclude(id=instance.id).update(cargo=MiembroCPHS.CARGO_VOCAL)
+        serializer.save()
+
+
+class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para el Libro Digital de Actas del CPHS (D.S. N° 44).
+    Aislamiento Multi-Tenant: solo actas de comités de empresas del prevencionista.
+    """
+    queryset = ActaSesionCPHS.objects.all()
+    serializer_class = ActaSesionCPHSSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return ActaSesionCPHS.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = ActaSesionCPHS.objects.filter(
+            comite__empresa__prevencionista__in=usuarios_grupo
+        ).select_related('comite')
+
+        comite_id = self.request.query_params.get('comite')
+        if comite_id:
+            queryset = queryset.filter(comite_id=comite_id)
+
+        tipo_sesion = self.request.query_params.get('tipo_sesion')
+        if tipo_sesion:
+            queryset = queryset.filter(tipo_sesion=tipo_sesion)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        comite = serializer.validated_data.get('comite')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if comite.empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"comite": "No tienes permiso para registrar actas en este comité."})
+
+        # Asignar número correlativo automático si no viene asignado
+        numero = serializer.validated_data.get('numero_acta')
+        if not numero:
+            ultimo = ActaSesionCPHS.objects.filter(comite=comite).order_by('-numero_acta').first()
+            siguiente = (ultimo.numero_acta + 1) if ultimo else 1
+            serializer.save(numero_acta=siguiente)
+        else:
+            serializer.save()
+
+    @action(detail=True, methods=['patch'], url_path='cambiar-estado-acuerdo')
+    def cambiar_estado_acuerdo(self, request, pk=None):
+        """
+        Marca un acuerdo preventivo del acta como cumplido o pendiente.
+        Body: {"indice_acuerdo": 0, "cumplido": true}
+        """
+        acta = self.get_object()
+        indice = request.data.get('indice_acuerdo')
+        cumplido = request.data.get('cumplido')
+
+        if indice is None or not isinstance(acta.acuerdos, list):
+            return Response(
+                {"error": "Debe especificar el 'indice_acuerdo' a actualizar."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            indice = int(indice)
+        except (ValueError, TypeError):
+            return Response({"error": "El 'indice_acuerdo' debe ser un número entero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if indice < 0 or indice >= len(acta.acuerdos):
+            return Response(
+                {"error": f"Índice fuera de rango. El acta posee {len(acta.acuerdos)} acuerdo(s)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        acuerdos_modificados = list(acta.acuerdos)
+        if isinstance(acuerdos_modificados[indice], dict):
+            es_cumplido = bool(cumplido)
+            acuerdos_modificados[indice]['cumplido'] = es_cumplido
+            if es_cumplido:
+                acuerdos_modificados[indice]['fecha_cumplimiento'] = timezone.localdate().isoformat()
+            else:
+                acuerdos_modificados[indice].pop('fecha_cumplimiento', None)
+
+        acta.acuerdos = acuerdos_modificados
+        acta.save(update_fields=['acuerdos'])
+
+        return Response(ActaSesionCPHSSerializer(acta).data, status=status.HTTP_200_OK)
+
 
 
 
