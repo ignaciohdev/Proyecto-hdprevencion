@@ -26,7 +26,8 @@ from .models import (
     SolicitudCapacitacion,
     Empresa, CentroTrabajo, Trabajador,
     SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
-    ComiteParitario, MiembroCPHS, ActaSesionCPHS
+    ComiteParitario, MiembroCPHS, ActaSesionCPHS,
+    EntregaEPP
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -42,7 +43,8 @@ from .serializers import (
     EmpresaSerializer, CentroTrabajoSerializer, TrabajadorSerializer,
     SugerenciaLaboralSerializer, DenunciaLeyKarinSerializer,
     AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer,
-    ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer
+    ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer,
+    EntregaEPPSerializer
 )
 
 Usuario: Any = get_user_model()
@@ -2256,6 +2258,139 @@ class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
         acta.save(update_fields=['acuerdos'])
 
         return Response(ActaSesionCPHSSerializer(acta).data, status=status.HTTP_200_OK)
+
+
+class EntregaEPPViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la Gestión y Registro de Entrega de EPP y RIOHS con Firma Digital.
+    Cumple con el Art. 68 de la Ley 16.744 y Art. 53 del D.S. 594.
+    Aislamiento Multi-Tenant estricto para el prevencionista y sus empresas asesoradas.
+    """
+    queryset = EntregaEPP.objects.all()
+    serializer_class = EntregaEPPSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user or user.is_anonymous:
+            return EntregaEPP.objects.none()
+        usuarios_grupo = get_usuarios_grupo(user)
+        queryset = EntregaEPP.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo
+        ).select_related('empresa', 'centro_trabajo', 'trabajador', 'responsable_entrega')
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            queryset = queryset.filter(empresa_id=empresa_id)
+
+        trabajador_id = self.request.query_params.get('trabajador')
+        if trabajador_id:
+            queryset = queryset.filter(trabajador_id=trabajador_id)
+
+        riohs = self.request.query_params.get('entrega_riohs')
+        if riohs is not None:
+            queryset = queryset.filter(entrega_riohs=(riohs.lower() in ['true', '1']))
+
+        return queryset
+
+    def perform_create(self, serializer):
+        empresa = serializer.validated_data.get('empresa')
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"empresa": "No tienes permiso para registrar entregas de EPP en esta empresa."})
+
+        trabajador = serializer.validated_data.get('trabajador')
+        if trabajador.empresa != empresa:
+            raise ValidationError({"trabajador": "El trabajador no pertenece a la empresa indicada."})
+
+        centro_trabajo = serializer.validated_data.get('centro_trabajo')
+        if centro_trabajo and centro_trabajo.empresa != empresa:
+            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa indicada."})
+
+        ip = get_client_ip(self.request)
+        serializer.save(
+            responsable_entrega=self.request.user,
+            ip_registro=ip
+        )
+
+    @action(detail=False, methods=['get'], url_path='estadisticas')
+    def estadisticas(self, request):
+        """
+        Retorna métricas preventivas:
+        - Entregas de EPP realizadas en el mes en curso.
+        - Total de trabajadores de la empresa con RIOHS firmado vs pendientes de entrega.
+        - Total histórico de entregas y equipos entregados.
+        """
+        user = request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        entregas_qs = EntregaEPP.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+        trabajadores_qs = Trabajador.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo,
+            estado=Trabajador.ESTADO_ACTIVO
+        )
+
+        empresa_id = request.query_params.get('empresa')
+        if empresa_id:
+            entregas_qs = entregas_qs.filter(empresa_id=empresa_id)
+            trabajadores_qs = trabajadores_qs.filter(empresa_id=empresa_id)
+
+        hoy = timezone.localdate()
+        entregas_mes = entregas_qs.filter(
+            fecha_hora_entrega__year=hoy.year,
+            fecha_hora_entrega__month=hoy.month
+        ).count()
+
+        total_trabajadores = trabajadores_qs.count()
+        trabajadores_con_riohs_ids = set(
+            entregas_qs.filter(entrega_riohs=True)
+            .values_list('trabajador_id', flat=True)
+        )
+        trabajadores_activos_ids = set(trabajadores_qs.values_list('id', flat=True))
+        con_riohs_count = len(trabajadores_con_riohs_ids.intersection(trabajadores_activos_ids))
+        pendientes_riohs_count = max(0, total_trabajadores - con_riohs_count)
+        porcentaje_riohs = round((con_riohs_count / total_trabajadores) * 100, 1) if total_trabajadores > 0 else 0.0
+
+        total_entregas = entregas_qs.count()
+        total_items_epp = 0
+        for entrega in entregas_qs:
+            if isinstance(entrega.items_epp, list):
+                total_items_epp += sum(int(item.get('cantidad', 1)) for item in entrega.items_epp if isinstance(item, dict))
+
+        return Response({
+            "entregas_mes": entregas_mes,
+            "total_trabajadores": total_trabajadores,
+            "trabajadores_con_riohs": con_riohs_count,
+            "trabajadores_pendientes_riohs": pendientes_riohs_count,
+            "porcentaje_cumplimiento_riohs": porcentaje_riohs,
+            "total_entregas_historico": total_entregas,
+            "total_items_epp_entregados": total_items_epp,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path='historial-trabajador/(?P<trabajador_id>[^/.]+)')
+    def historial_trabajador(self, request, trabajador_id=None):
+        """
+        Retorna todas las entregas de EPP y RIOHS correspondientes a un trabajador específico.
+        """
+        user = request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        trabajador = get_object_or_404(
+            Trabajador.objects.filter(empresa__prevencionista__in=usuarios_grupo),
+            pk=trabajador_id
+        )
+        entregas = EntregaEPP.objects.filter(trabajador=trabajador).order_by('-fecha_hora_entrega')
+        serializer = self.get_serializer(entregas, many=True)
+        return Response({
+            "trabajador": {
+                "id": trabajador.id,
+                "nombres": trabajador.nombres,
+                "apellidos": trabajador.apellidos,
+                "rut": trabajador.rut,
+                "cargo": trabajador.cargo,
+                "empresa_nombre": trabajador.empresa.razon_social
+            },
+            "entregas": serializer.data
+        }, status=status.HTTP_200_OK)
+
 
 
 

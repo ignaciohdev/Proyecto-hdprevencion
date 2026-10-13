@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getApiUrl } from "../../utils/api";
+import { getApiUrl, parseJsonResponse } from "../../utils/api";
 
 function IngresoInner() {
   const router = useRouter();
@@ -41,7 +41,7 @@ function IngresoInner() {
         body: JSON.stringify(formData),
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(data.detail || "Credenciales incorrectas.");

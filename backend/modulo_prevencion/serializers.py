@@ -14,7 +14,8 @@ from .models import (
     SolicitudCapacitacion,
     Empresa, CentroTrabajo, Trabajador,
     SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
-    ComiteParitario, MiembroCPHS, ActaSesionCPHS
+    ComiteParitario, MiembroCPHS, ActaSesionCPHS,
+    EntregaEPP
 )
 
 Usuario = get_user_model()
@@ -628,6 +629,44 @@ class ComiteParitarioSerializer(serializers.ModelSerializer):
 
     def get_total_actas(self, obj):
         return obj.actas.count()
+
+
+class EntregaEPPSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    empresa_rut = serializers.CharField(source='empresa.rut', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+    trabajador_nombres = serializers.CharField(source='trabajador.nombres', read_only=True)
+    trabajador_apellidos = serializers.CharField(source='trabajador.apellidos', read_only=True)
+    trabajador_nombre_completo = serializers.SerializerMethodField()
+    trabajador_rut = serializers.CharField(source='trabajador.rut', read_only=True)
+    trabajador_cargo = serializers.CharField(source='trabajador.cargo', read_only=True)
+    responsable_nombre = serializers.CharField(source='responsable_entrega.username', read_only=True)
+    total_items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = EntregaEPP
+        fields = (
+            'id', 'empresa', 'empresa_nombre', 'empresa_rut',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'trabajador', 'trabajador_nombres', 'trabajador_apellidos',
+            'trabajador_nombre_completo', 'trabajador_rut', 'trabajador_cargo',
+            'responsable_entrega', 'responsable_nombre',
+            'items_epp', 'entrega_riohs', 'version_riohs',
+            'declaracion_capacitacion', 'firma_digital',
+            'ip_registro', 'fecha_hora_entrega', 'total_items'
+        )
+        read_only_fields = ('id', 'responsable_entrega', 'ip_registro', 'fecha_hora_entrega')
+
+    def get_trabajador_nombre_completo(self, obj):
+        if obj.trabajador:
+            return f"{obj.trabajador.nombres} {obj.trabajador.apellidos}".strip()
+        return ""
+
+    def get_total_items(self, obj):
+        if isinstance(obj.items_epp, list):
+            return sum(int(item.get('cantidad', 1)) for item in obj.items_epp if isinstance(item, dict))
+        return 0
+
 
 
 

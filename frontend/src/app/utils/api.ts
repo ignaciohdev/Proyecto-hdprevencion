@@ -13,11 +13,41 @@ export const getApiUrl = (path: string): string => {
   if (typeof window !== "undefined") {
     // Si estamos en el navegador, usamos el hostname actual (ej: localhost o IP de red local)
     const hostname = window.location.hostname;
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1" || hostname.startsWith("192.168.") || hostname.startsWith("10.");
+    if (!isLocal) {
+      console.warn(
+        `[HD Prevención] ADVERTENCIA: NEXT_PUBLIC_API_URL no está configurada en el entorno de despliegue (Vercel). Las peticiones hacia ${apiPath} podrían fallar si el backend está en otro dominio (ej. Render).`
+      );
+    }
     return `http://${hostname}:8000${apiPath}`;
   }
   // Fallback para ejecución del lado del servidor (SSR)
   return `http://localhost:8000${apiPath}`;
 };
+
+/**
+ * Parser seguro de respuestas HTTP para evitar errores de sintaxis 'Unexpected token <'
+ * cuando el servidor responde con HTML (404 de Vercel o 502/503/504 por spin-down de Render).
+ */
+export async function parseJsonResponse<T = any>(response: Response): Promise<T> {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    if (response.status === 404) {
+      throw new Error(
+        "No se encontró el servicio backend (Error 404). Verifica que NEXT_PUBLIC_API_URL esté configurado en Vercel y que el backend de Render esté desplegado."
+      );
+    }
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new Error(
+        "El servidor en Render se está iniciando (arranque en frío del plan gratuito). Por favor, espera 30 segundos y vuelve a intentar."
+      );
+    }
+    throw new Error(
+      `El servidor respondió con formato inesperado (Código HTTP ${response.status}). Posible falla en el servicio o cold-start de Render.`
+    );
+  }
+  return response.json();
+}
 
 // Singleton Promise para evitar múltiples llamadas concurrentes de refresh
 let refreshPromise: Promise<string | null> | null = null;

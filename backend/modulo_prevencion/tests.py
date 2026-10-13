@@ -10,7 +10,8 @@ from .models import (
     Empresa, CentroTrabajo, Trabajador,
     DenunciaLeyKarin, SugerenciaLaboral, AuditLogAccesoDenuncia,
     InvestigacionAccidente,
-    ComiteParitario, MiembroCPHS, ActaSesionCPHS
+    ComiteParitario, MiembroCPHS, ActaSesionCPHS,
+    EntregaEPP
 )
 
 class CapacitacionIntegrationTestCase(APITestCase):
@@ -1196,6 +1197,224 @@ class ComiteParitarioIntegrationTestCase(APITestCase):
         acta.refresh_from_db()
         self.assertTrue(acta.acuerdos[0]['cumplido'])
         self.assertIn('fecha_cumplimiento', acta.acuerdos[0])
+
+
+class EntregaEPPTestCase(APITestCase):
+    """
+    Casos de prueba para verificar:
+    1. Aislamiento Multi-Tenant estricto en el registro e historial de entregas de EPP.
+    2. Guardado íntegro de la firma digital Base64 e IP del firmante.
+    3. Estadísticas preventivas (entregas del mes, trabajadores con RIOHS).
+    4. Historial por trabajador individual.
+    """
+    client: Any
+
+    def setUp(self):
+        cache.clear()
+        self.plan = Plan.objects.create(
+            nombre="Plan Test EPP",
+            codigo="plan-test-epp",
+            precio=12000.00,
+            limite_semanal=20,
+            asientos=5
+        )
+
+        # Usuario Prevencionista A
+        self.user_a = Usuario.objects.create_user(
+            username="prevencionista_epp_a",
+            email="prev_epp_a@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.empresa_a = Empresa.objects.create(
+            prevencionista=self.user_a,
+            razon_social="Constructora Fortaleza S.A.",
+            rut="76.543.210-K"
+        )
+        self.centro_a = CentroTrabajo.objects.create(
+            empresa=self.empresa_a,
+            nombre="Obra Costanera",
+            direccion="Av. Andrés Bello 2000"
+        )
+        self.trabajador_a1 = Trabajador.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            nombres="Pedro",
+            apellidos="González",
+            rut="15.678.901-2",
+            cargo="Enfierrador"
+        )
+        self.trabajador_a2 = Trabajador.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            nombres="Esteban",
+            apellidos="Muñoz",
+            rut="16.789.012-3",
+            cargo="Carpintero"
+        )
+
+        res_a = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prevencionista_epp_a',
+            'password': 'securepassword123'
+        })
+        self.token_a = res_a.data['access']
+        self.headers_a = {'HTTP_AUTHORIZATION': f'Bearer {self.token_a}'}
+
+        # Usuario Prevencionista B (Tenant ajeno)
+        self.user_b = Usuario.objects.create_user(
+            username="prevencionista_epp_b",
+            email="prev_epp_b@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.empresa_b = Empresa.objects.create(
+            prevencionista=self.user_b,
+            razon_social="Agrícola del Valle Ltda.",
+            rut="77.111.222-3"
+        )
+        self.trabajador_b = Trabajador.objects.create(
+            empresa=self.empresa_b,
+            nombres="Rodrigo",
+            apellidos="Silva",
+            rut="17.890.123-4",
+            cargo="Operador Maquinaria"
+        )
+
+        res_b = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prevencionista_epp_b',
+            'password': 'securepassword123'
+        })
+        self.token_b = res_b.data['access']
+        self.headers_b = {'HTTP_AUTHORIZATION': f'Bearer {self.token_b}'}
+
+    def test_creacion_entrega_con_firma_digital(self):
+        """Verifica la creación exitosa con firma en Base64, captura de IP y asignación de responsable."""
+        firma_mock = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        payload = {
+            "empresa": self.empresa_a.id,
+            "centro_trabajo": self.centro_a.id,
+            "trabajador": self.trabajador_a1.id,
+            "items_epp": [
+                {
+                    "tipo": "Casco de seguridad (NCh 461)",
+                    "marca_modelo": "MSA V-Gard",
+                    "certificacion": "CESMEC",
+                    "cantidad": 1,
+                    "motivo": "ENTREGA_INICIAL"
+                },
+                {
+                    "tipo": "Calzado de seguridad (NCh 772)",
+                    "marca_modelo": "Norseg Energy",
+                    "talla": "42",
+                    "cantidad": 1,
+                    "motivo": "ENTREGA_INICIAL"
+                }
+            ],
+            "entrega_riohs": True,
+            "version_riohs": "Versión 2026.1",
+            "declaracion_capacitacion": True,
+            "firma_digital": firma_mock
+        }
+
+        res = self.client.post("/api/entregas-epp/", payload, format='json', **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        data = res.data
+
+        self.assertEqual(data['trabajador'], self.trabajador_a1.id)
+        self.assertEqual(data['responsable_entrega'], self.user_a.id)
+        self.assertEqual(data['total_items'], 2)
+        self.assertTrue(data['entrega_riohs'])
+        self.assertEqual(data['firma_digital'], firma_mock)
+        self.assertIsNotNone(data['ip_registro'])
+
+        entrega = EntregaEPP.objects.get(id=data['id'])
+        self.assertEqual(entrega.responsable_entrega, self.user_a)
+        self.assertEqual(len(entrega.items_epp), 2)
+
+    def test_aislamiento_multitenant_entregas(self):
+        """Prevencionista B no puede ver entregas de A ni registrar EPP a trabajadores de A."""
+        firma_mock = "data:image/png;base64,mock"
+        entrega_a = EntregaEPP.objects.create(
+            empresa=self.empresa_a,
+            trabajador=self.trabajador_a1,
+            responsable_entrega=self.user_a,
+            items_epp=[{"tipo": "Guantes", "cantidad": 2}],
+            firma_digital=firma_mock
+        )
+
+        # Usuario B intenta listar -> debe recibir 0
+        res_b = self.client.get("/api/entregas-epp/", **self.headers_b)
+        self.assertEqual(res_b.status_code, status.HTTP_200_OK)
+        results_b = res_b.data.get('results', res_b.data) if isinstance(res_b.data, dict) else res_b.data
+        self.assertEqual(len(results_b), 0)
+
+        # Usuario B intenta ver el detalle de la entrega de A -> 404
+        res_det_b = self.client.get(f"/api/entregas-epp/{entrega_a.id}/", **self.headers_b)
+        self.assertEqual(res_det_b.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B intenta crear entrega asociando empresa o trabajador de A -> 400
+        res_post_b = self.client.post("/api/entregas-epp/", {
+            "empresa": self.empresa_a.id,
+            "trabajador": self.trabajador_a1.id,
+            "items_epp": [{"tipo": "Casco", "cantidad": 1}],
+            "firma_digital": firma_mock
+        }, format='json', **self.headers_b)
+        self.assertEqual(res_post_b.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_estadisticas_y_cobertura_riohs(self):
+        """Verifica conteo de entregas en el mes y cobertura de trabajadores con RIOHS firmado."""
+        firma_mock = "data:image/png;base64,mock"
+        # Entrega a Pedro con RIOHS
+        EntregaEPP.objects.create(
+            empresa=self.empresa_a,
+            trabajador=self.trabajador_a1,
+            responsable_entrega=self.user_a,
+            items_epp=[{"tipo": "Casco", "cantidad": 1}],
+            entrega_riohs=True,
+            firma_digital=firma_mock
+        )
+        # Entrega a Esteban sin RIOHS
+        EntregaEPP.objects.create(
+            empresa=self.empresa_a,
+            trabajador=self.trabajador_a2,
+            responsable_entrega=self.user_a,
+            items_epp=[{"tipo": "Lentes", "cantidad": 2}],
+            entrega_riohs=False,
+            firma_digital=firma_mock
+        )
+
+        res = self.client.get("/api/entregas-epp/estadisticas/", **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.data
+
+        self.assertEqual(data['entregas_mes'], 2)
+        self.assertEqual(data['total_trabajadores'], 2)
+        self.assertEqual(data['trabajadores_con_riohs'], 1)
+        self.assertEqual(data['trabajadores_pendientes_riohs'], 1)
+        self.assertEqual(data['porcentaje_cumplimiento_riohs'], 50.0)
+        self.assertEqual(data['total_items_epp_entregados'], 3)
+
+    def test_historial_por_trabajador(self):
+        """Verifica endpoint de historial de EPP por trabajador."""
+        firma_mock = "data:image/png;base64,mock"
+        EntregaEPP.objects.create(
+            empresa=self.empresa_a,
+            trabajador=self.trabajador_a1,
+            responsable_entrega=self.user_a,
+            items_epp=[{"tipo": "Arnés de Seguridad", "cantidad": 1}],
+            firma_digital=firma_mock
+        )
+
+        # Usuario A consulta historial de trabajador A1
+        res = self.client.get(f"/api/entregas-epp/historial-trabajador/{self.trabajador_a1.id}/", **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data['entregas']), 1)
+        self.assertEqual(res.data['trabajador']['rut'], self.trabajador_a1.rut)
+
+        # Usuario B intenta consultar historial de trabajador A1 -> 404
+        res_b = self.client.get(f"/api/entregas-epp/historial-trabajador/{self.trabajador_a1.id}/", **self.headers_b)
+        self.assertEqual(res_b.status_code, status.HTTP_404_NOT_FOUND)
+
 
 
 

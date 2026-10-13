@@ -14,7 +14,8 @@ from .views import (
     SolicitudCapacitacionViewSet,
     EmpresaViewSet, CentroTrabajoViewSet, TrabajadorViewSet,
     DenunciaLeyKarinViewSet, SugerenciaLaboralViewSet, PublicoEmpresasListView,
-    ComiteParitarioViewSet, MiembroCPHSViewSet, ActaSesionCPHSViewSet
+    ComiteParitarioViewSet, MiembroCPHSViewSet, ActaSesionCPHSViewSet,
+    EntregaEPPViewSet
 )
 
 router = DefaultRouter()
@@ -44,6 +45,8 @@ router.register(r'denuncias-ley-karin', DenunciaLeyKarinViewSet, basename='denun
 router.register(r'comites-paritarios', ComiteParitarioViewSet, basename='comiteparitario')
 router.register(r'miembros-cphs', MiembroCPHSViewSet, basename='miembrocphs')
 router.register(r'actas-cphs', ActaSesionCPHSViewSet, basename='actasesioncphs')
+router.register(r'entregas-epp', EntregaEPPViewSet, basename='entregaepp')
+
 
 
 urlpatterns = [

@@ -2250,4 +2250,80 @@ class ActaSesionCPHS(models.Model):
         return f"Acta N°{self.numero_acta} ({self.get_tipo_sesion_display()}) - {self.comite.nombre}"
 
 
+class EntregaEPP(models.Model):
+    """
+    Registro formal e inmutable de Entrega de Elementos de Protección Personal (EPP)
+    y ejemplar del Reglamento Interno de Orden, Higiene y Seguridad (RIOHS) con Firma Digital.
+    Cumple con:
+    - Art. 68 Ley N° 16.744: Gratuidad obligatoria de los EPP por el empleador.
+    - Art. 53 D.S. N° 594: Obligación de capacitar en el uso correcto y conservación adecuada.
+    - Art. 153 a 157 Código del Trabajo: Constancia firmada de entrega del RIOHS.
+    """
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='entregas_epp',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='entregas_epp',
+        verbose_name="Centro de Trabajo / Faena"
+    )
+    trabajador = models.ForeignKey(
+        Trabajador,
+        on_delete=models.CASCADE,
+        related_name='entregas_epp',
+        verbose_name="Trabajador Receptor"
+    )
+    responsable_entrega = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='entregas_epp_realizadas',
+        verbose_name="Prevencionista / Bodega"
+    )
+    items_epp = models.JSONField(
+        default=list,
+        help_text="Lista de EPPs: [{'tipo': '...', 'marca_modelo': '...', 'certificacion': '...', 'talla': '...', 'cantidad': 1, 'motivo': 'ENTREGA_INICIAL|RECAMBIO_DESGASTE|DETERIORO'}]"
+    )
+    entrega_riohs = models.BooleanField(
+        default=False,
+        verbose_name="Se hizo entrega de ejemplar de RIOHS"
+    )
+    version_riohs = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name="Versión o Año del RIOHS entregado"
+    )
+    declaracion_capacitacion = models.BooleanField(
+        default=True,
+        verbose_name="Declara haber recibido inducción de uso y mantención adecuada (Art. 53 D.S. 594)"
+    )
+    firma_digital = models.TextField(
+        verbose_name="Firma Digitalizada (Base64 PNG)"
+    )
+    ip_registro = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name="IP del dispositivo firmante"
+    )
+    fecha_hora_entrega = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha y Hora Legal de Recepción"
+    )
+
+    class Meta:
+        verbose_name = "Entrega de EPP y RIOHS"
+        verbose_name_plural = "Entregas de EPP y RIOHS"
+        ordering = ['-fecha_hora_entrega']
+
+    def __str__(self) -> str:
+        return f"Entrega EPP a {self.trabajador.nombres} {self.trabajador.apellidos} - {self.fecha_hora_entrega.strftime('%d/%m/%Y %H:%M')}"
+
+
+
 

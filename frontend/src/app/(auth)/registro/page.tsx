@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../utils/api";
+import { getApiUrl, parseJsonResponse } from "../../utils/api";
 
 export default function Registro() {
   const router = useRouter();
@@ -57,7 +57,7 @@ export default function Registro() {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const data = await parseJsonResponse(response);
 
       if (!response.ok) {
         // Manejar errores de validación de Django
