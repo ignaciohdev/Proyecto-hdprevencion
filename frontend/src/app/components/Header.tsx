@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 export default function Header() {
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -39,44 +40,65 @@ export default function Header() {
   };
 
   return (
-    <header className="bg-slate-950 text-white shadow-lg print:hidden">
-      <nav className="container mx-auto px-4 py-4 flex items-center justify-between">
-        <a href="/" className="flex items-center space-x-2 text-2xl font-bold text-orange-650 hover:text-orange-500 transition-colors">
+    <header className="bg-slate-950 text-white shadow-lg print:hidden sticky top-0 z-40 border-b border-slate-800/80 backdrop-blur-md bg-slate-950/95">
+      <nav className="container mx-auto px-4 py-3.5 flex items-center justify-between">
+        {/* Logo de HD Prevención */}
+        <a
+          href="/"
+          className="flex items-center space-x-2 text-xl sm:text-2xl font-bold text-orange-600 hover:text-orange-500 transition-colors"
+        >
           <img src="/logo_dark.png" alt="HD Prevención Logo" className="h-8 w-auto" />
-          <span>HD Prevención</span>
+          <span className="font-extrabold tracking-tight">HD Prevención</span>
         </a>
-        <div className="flex items-center space-x-6">
-          <div className="hidden md:flex items-center space-x-6">
-            <a href="/" className="hover:text-orange-600 transition-colors duration-300">
-              Inicio
-            </a>
-            <a href="/capacitaciones" className="hover:text-orange-600 transition-colors duration-300">
-              Capacitaciones
-            </a>
-            <a href="/documentos" className="hover:text-orange-600 transition-colors duration-300">
-              Documentos
-            </a>
-            <a href="/planes" className="hover:text-orange-600 transition-colors duration-300">
-              Planes
-            </a>
-            <a href="/noticias" className="hover:text-orange-600 transition-colors duration-300">
-              Noticias
-            </a>
-            <a href="/contacto" className="hover:text-orange-600 transition-colors duration-300">
-              Contacto
-            </a>
-          </div>
-          {/* Toggle de Modo Oscuro */}
+
+        {/* Enlaces Centrales de Navegación (Orden Ergonómico del Prevencionista) */}
+        <div className="hidden lg:flex items-center space-x-7 text-sm font-semibold text-slate-300">
+          <a
+            href="/"
+            className="hover:text-orange-500 transition-colors duration-200"
+          >
+            Inicio
+          </a>
+          <a
+            href="/documentos"
+            className="hover:text-orange-500 transition-colors duration-200"
+          >
+            Formatos y Matrices
+          </a>
+          <a
+            href="/noticias"
+            className="hover:text-orange-500 transition-colors duration-200"
+          >
+            Actualidad Normativa
+          </a>
+          <a
+            href="/planes"
+            className="hover:text-orange-500 transition-colors duration-200"
+          >
+            Planes y Precios
+          </a>
+          <a
+            href="/contacto"
+            className="hover:text-orange-500 transition-colors duration-200"
+          >
+            Contacto
+          </a>
+        </div>
+
+        {/* Acciones de Usuario + Toggle Tema */}
+        <div className="flex items-center space-x-3 sm:space-x-4">
+          {/* Toggle de Modo Oscuro/Claro */}
           <button
             id="theme-toggle"
             type="button"
             onClick={toggleTheme}
-            className="text-slate-400 hover:bg-slate-700 focus:outline-none focus:ring-4 focus:ring-slate-300 font-medium rounded-lg text-sm p-2.5 flex items-center justify-center cursor-pointer"
+            aria-label="Alternar tema claro y oscuro"
+            className="text-slate-400 hover:text-white hover:bg-slate-800/80 focus:outline-none font-medium rounded-xl text-sm p-2 flex items-center justify-center transition-colors cursor-pointer"
           >
             {theme === "dark" ? (
               <svg
                 id="theme-toggle-light-icon"
-                className="w-5 h-5"
+                className="w-5 h-5 text-amber-400"
                 fill="currentColor"
                 viewBox="0 0 20 20"
                 xmlns="http://www.w3.org/2000/svg"
@@ -86,7 +108,7 @@ export default function Header() {
             ) : theme === "light" ? (
               <svg
                 id="theme-toggle-dark-icon"
-                className="w-5 h-5"
+                className="w-5 h-5 text-slate-300"
                 fill="currentColor"
                 viewBox="0 0 20 20"
                 xmlns="http://www.w3.org/2000/svg"
@@ -97,23 +119,91 @@ export default function Header() {
               <div className="w-5 h-5" />
             )}
           </button>
+
+          {/* Botones Condicionales de Sesión */}
           {isLoggedIn ? (
             <a
               href="/panel"
-              className="bg-orange-655 hover:bg-orange-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition-colors duration-300"
+              className="bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-4 sm:px-5 rounded-xl shadow-md shadow-orange-600/20 transition-all hover:scale-[1.02] text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer"
             >
-              Ir al Panel
+              <span>Ir a mi Panel</span>
+              <span>→</span>
             </a>
           ) : (
-            <a
-              href="/ingreso"
-              className="bg-orange-655 hover:bg-orange-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md transition-colors duration-300"
-            >
-              Ingresar
-            </a>
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <a
+                href="/ingreso"
+                className="text-slate-300 hover:text-white font-semibold text-xs sm:text-sm transition-colors py-2 px-2.5 sm:px-3 rounded-lg hover:bg-slate-900"
+              >
+                Iniciar Sesión
+              </a>
+              <a
+                href="/registro"
+                className="bg-orange-600 hover:bg-orange-500 text-white font-bold py-2 px-3.5 sm:px-4.5 rounded-xl shadow-md shadow-orange-600/20 transition-all hover:scale-[1.02] text-xs sm:text-sm cursor-pointer whitespace-nowrap"
+              >
+                Comenzar Gratis
+              </a>
+            </div>
           )}
+
+          {/* Botón Menú Móvil */}
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="lg:hidden text-slate-400 hover:text-white p-2 rounded-lg hover:bg-slate-900"
+            aria-label="Abrir menú"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isMobileMenuOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
         </div>
       </nav>
+
+      {/* Menú Desplegable Móvil */}
+      {isMobileMenuOpen && (
+        <div className="lg:hidden bg-slate-950 border-t border-slate-800 px-4 py-4 space-y-2 text-sm font-semibold">
+          <a
+            href="/"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="block py-2 px-3 rounded-lg hover:bg-slate-900 text-slate-200 hover:text-orange-500"
+          >
+            Inicio
+          </a>
+          <a
+            href="/documentos"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="block py-2 px-3 rounded-lg hover:bg-slate-900 text-slate-200 hover:text-orange-500"
+          >
+            Formatos y Matrices
+          </a>
+          <a
+            href="/noticias"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="block py-2 px-3 rounded-lg hover:bg-slate-900 text-slate-200 hover:text-orange-500"
+          >
+            Actualidad Normativa
+          </a>
+          <a
+            href="/planes"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="block py-2 px-3 rounded-lg hover:bg-slate-900 text-slate-200 hover:text-orange-500"
+          >
+            Planes y Precios
+          </a>
+          <a
+            href="/contacto"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="block py-2 px-3 rounded-lg hover:bg-slate-900 text-slate-200 hover:text-orange-500"
+          >
+            Contacto
+          </a>
+        </div>
+      )}
     </header>
   );
 }
