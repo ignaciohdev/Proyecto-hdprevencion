@@ -8,7 +8,8 @@ from .models import (
     PlantillaMaestra, DocumentoUsuario, 
     Noticia, MensajeContacto, Servicio,
     TemaCapacitacion, RegistroCapacitacion,
-    SugerenciaConsulta, SolicitudCapacitacion
+    SugerenciaConsulta, SolicitudCapacitacion,
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
 )
 
 @admin.register(Usuario)
@@ -282,6 +283,65 @@ class SolicitudCapacitacionAdmin(admin.ModelAdmin):
             'COORDINADO': ('#dbeafe', '#1e40af'),
             'FINALIZADO': ('#d1fae5', '#065f46'),
             'CANCELADO': ('#fee2e2', '#991b1b'),
+        }
+        bg, text = colores.get(obj.estado, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-size:0.8rem;font-weight:600;">{obj.get_estado_display()}</span>'
+        )
+
+
+@admin.register(RequisitoLegalBase)
+class RequisitoLegalBaseAdmin(admin.ModelAdmin):
+    list_display = ('identificacion_norma', 'articulo', 'titulo', 'organismo', 'rubro_aplicable', 'activo', 'orden')
+    list_filter = ('organismo', 'tipo_norma', 'rubro_aplicable', 'activo')
+    search_fields = ('identificacion_norma', 'articulo', 'titulo', 'descripcion_exigencia')
+    ordering = ('orden', 'identificacion_norma', 'articulo')
+
+
+class ItemMatrizLegalInline(admin.TabularInline):
+    model = ItemMatrizLegal
+    extra = 0
+    fields = ('identificacion_norma', 'articulo', 'titulo', 'organismo', 'estado', 'responsable')
+    readonly_fields = ('identificacion_norma', 'articulo', 'titulo', 'organismo')
+
+
+@admin.register(MatrizLegal)
+class MatrizLegalAdmin(admin.ModelAdmin):
+    list_display = ('empresa', 'centro_trabajo', 'rubro_principal', 'prevencionista', 'porcentaje_cumplimiento_label', 'estado_semaforo_badge', 'fecha_actualizacion')
+    list_filter = ('rubro_principal', 'fecha_actualizacion')
+    search_fields = ('empresa__razon_social', 'empresa__rut', 'prevencionista__username')
+    inlines = [ItemMatrizLegalInline]
+
+    @admin.display(description="% Cumplimiento")
+    def porcentaje_cumplimiento_label(self, obj):
+        return f"{obj.porcentaje_cumplimiento}%"
+
+    @admin.display(description="Semáforo")
+    def estado_semaforo_badge(self, obj):
+        colores = {
+            'OPTIMO': ('#d1fae5', '#065f46'),
+            'REGULAR': ('#fef3c7', '#92400e'),
+            'CRITICO': ('#fee2e2', '#991b1b'),
+        }
+        bg, text = colores.get(obj.estado_semaforo, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-size:0.8rem;font-weight:600;">{obj.estado_semaforo}</span>'
+        )
+
+
+@admin.register(ItemMatrizLegal)
+class ItemMatrizLegalAdmin(admin.ModelAdmin):
+    list_display = ('matriz', 'identificacion_norma', 'articulo', 'organismo', 'estado_badge', 'responsable', 'fecha_compromiso')
+    list_filter = ('estado', 'organismo', 'tipo_norma')
+    search_fields = ('identificacion_norma', 'articulo', 'titulo', 'responsable', 'evidencia_cumplimiento')
+
+    @admin.display(description="Estado", ordering="estado")
+    def estado_badge(self, obj):
+        colores = {
+            'CUMPLE': ('#d1fae5', '#065f46'),
+            'EN_PROCESO': ('#fef3c7', '#92400e'),
+            'NO_CUMPLE': ('#fee2e2', '#991b1b'),
+            'NO_APLICA': ('#e5e7eb', '#374151'),
         }
         bg, text = colores.get(obj.estado, ('#f3f4f6', '#374151'))
         return mark_safe(

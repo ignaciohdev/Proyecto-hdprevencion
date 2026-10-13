@@ -27,7 +27,8 @@ from .models import (
     Empresa, CentroTrabajo, Trabajador,
     SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
-    EntregaEPP
+    EntregaEPP,
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -44,8 +45,10 @@ from .serializers import (
     SugerenciaLaboralSerializer, DenunciaLeyKarinSerializer,
     AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer,
     ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer,
-    EntregaEPPSerializer
+    EntregaEPPSerializer,
+    RequisitoLegalBaseSerializer, MatrizLegalSerializer, ItemMatrizLegalSerializer
 )
+from .seeder_requisitos import asegurar_requisitos_base
 
 Usuario: Any = get_user_model()
 
@@ -2390,6 +2393,221 @@ class EntregaEPPViewSet(viewsets.ModelViewSet):
             },
             "entregas": serializer.data
         }, status=status.HTTP_200_OK)
+
+
+class RequisitoLegalBaseViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet de solo lectura para consultar el catálogo oficial de Requisitos Legales Base SST de Chile.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = RequisitoLegalBaseSerializer
+    queryset = RequisitoLegalBase.objects.filter(activo=True)
+
+    def get_queryset(self):
+        if not RequisitoLegalBase.objects.exists():
+            asegurar_requisitos_base()
+        qs = RequisitoLegalBase.objects.filter(activo=True)
+        rubro = self.request.query_params.get('rubro_aplicable')
+        if rubro:
+            qs = qs.filter(Q(rubro_aplicable=rubro) | Q(rubro_aplicable=RequisitoLegalBase.RUBRO_TRANSVERSAL))
+        organismo = self.request.query_params.get('organismo')
+        if organismo:
+            qs = qs.filter(organismo=organismo)
+        return qs.order_by('orden', 'identificacion_norma', 'articulo')
+
+
+class MatrizLegalViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión de Matrices Legales por empresa y faena.
+    Aislamiento Multi-Tenant estricto para el prevencionista / grupo corporativo.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = MatrizLegalSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        qs = MatrizLegal.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            qs = qs.filter(empresa_id=empresa_id)
+
+        centro_trabajo_id = self.request.query_params.get('centro_trabajo')
+        if centro_trabajo_id:
+            qs = qs.filter(centro_trabajo_id=centro_trabajo_id)
+
+        return qs.order_by('-fecha_actualizacion')
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        empresa = serializer.validated_data.get('empresa')
+        if empresa and empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError("No tienes autorización para asociar una matriz legal a esta empresa.")
+        serializer.save(prevencionista=user)
+
+    @action(detail=False, methods=['post'], url_path='generar-automatica')
+    def generar_automatica(self, request):
+        """
+        Genera en 1 segundo una matriz legal completa con ítems individualizados
+        según el rubro de la empresa (CIIU) y las condiciones particulares de su faena.
+        """
+        user = request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+
+        empresa_id = request.data.get('empresa_id')
+        if not empresa_id:
+            return Response({"error": "Debe indicar el ID de la empresa evaluada."}, status=status.HTTP_400_BAD_REQUEST)
+
+        empresa = get_object_or_404(
+            Empresa.objects.filter(prevencionista__in=usuarios_grupo),
+            pk=empresa_id
+        )
+
+        centro_trabajo_id = request.data.get('centro_trabajo_id')
+        centro_trabajo = None
+        if centro_trabajo_id:
+            centro_trabajo = get_object_or_404(
+                CentroTrabajo.objects.filter(empresa=empresa),
+                pk=centro_trabajo_id
+            )
+
+        rubro = request.data.get('rubro', RequisitoLegalBase.RUBRO_TRANSVERSAL)
+        condiciones = request.data.get('condiciones', {})
+        if not isinstance(condiciones, dict):
+            condiciones = {}
+
+        # Asegurar catálogo base disponible
+        if not RequisitoLegalBase.objects.exists():
+            asegurar_requisitos_base()
+
+        # Crear la cabecera de la matriz
+        matriz = MatrizLegal.objects.create(
+            empresa=empresa,
+            centro_trabajo=centro_trabajo,
+            prevencionista=user,
+            rubro_principal=rubro,
+            condiciones_faena=condiciones,
+            observacion_general=request.data.get('observacion_general', '')
+        )
+
+        # Seleccionar requisitos aplicables
+        requisitos_candidatos = RequisitoLegalBase.objects.filter(
+            activo=True
+        ).filter(
+            Q(rubro_aplicable=RequisitoLegalBase.RUBRO_TRANSVERSAL) | Q(rubro_aplicable=rubro)
+        )
+
+        items_to_create = []
+        for req in requisitos_candidatos:
+            cond = req.condicion_activacion.strip().upper() if req.condicion_activacion else ""
+            if cond:
+                activar = False
+                if cond == "MAS_25_TRABAJADORES" and (condiciones.get("mas_25_trabajadores") or condiciones.get("mas_25")):
+                    activar = True
+                elif cond == "MAS_10_TRABAJADORES" and (condiciones.get("mas_10_trabajadores") or condiciones.get("mas_10")):
+                    activar = True
+                elif cond == "MAS_100_TRABAJADORES" and (condiciones.get("mas_100_trabajadores") or condiciones.get("mas_100")):
+                    activar = True
+                elif cond == "TRABAJO_ALTURA" and (condiciones.get("trabajo_altura") or condiciones.get("altura")):
+                    activar = True
+                elif cond == "SUSTANCIAS_PELIGROSAS" and (condiciones.get("sustancias_peligrosas") or condiciones.get("suspel")):
+                    activar = True
+                elif cond == "SUBCONTRATACION" and (condiciones.get("subcontratacion") or condiciones.get("subcontratistas")):
+                    activar = True
+                elif cond == "ESPACIOS_CONFINADOS" and (condiciones.get("espacios_confinados") or condiciones.get("confinados")):
+                    activar = True
+                elif cond == "RUIDO_OCUPACIONAL" and (condiciones.get("ruido_ocupacional") or condiciones.get("prexor") or condiciones.get("ruido")):
+                    activar = True
+                elif cond == "SILICE_POLVO" and (condiciones.get("silice_polvo") or condiciones.get("planesi") or condiciones.get("silice")):
+                    activar = True
+
+                if not activar:
+                    continue
+
+            items_to_create.append(ItemMatrizLegal(
+                matriz=matriz,
+                requisito_base=req,
+                organismo=req.organismo,
+                tipo_norma=req.tipo_norma,
+                identificacion_norma=req.identificacion_norma,
+                articulo=req.articulo,
+                titulo=req.titulo,
+                descripcion_exigencia=req.descripcion_exigencia,
+                sancion_multa=req.sancion_multa,
+                estado=ItemMatrizLegal.ESTADO_PROCESO,
+                orden=req.orden
+            ))
+
+        ItemMatrizLegal.objects.bulk_create(items_to_create)
+
+        serializer = self.get_serializer(matriz)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], url_path='estadisticas')
+    def estadisticas(self, request, pk=None):
+        """
+        Retorna estadísticas ejecutivas de cumplimiento y desglose por organismo fiscalizador.
+        """
+        matriz = self.get_object()
+        items = matriz.items.exclude(estado=ItemMatrizLegal.ESTADO_NO_APLICA)
+
+        desglose_organismo = {}
+        for org_code, org_name in RequisitoLegalBase.ORGANISMO_CHOICES:
+            org_items = items.filter(organismo=org_code)
+            total_org = org_items.count()
+            if total_org > 0:
+                cumplidos_org = org_items.filter(estado=ItemMatrizLegal.ESTADO_CUMPLE).count()
+                pct_org = round((cumplidos_org / total_org) * 100, 1)
+                desglose_organismo[org_code] = {
+                    "organismo_nombre": org_name,
+                    "total": total_org,
+                    "cumplidos": cumplidos_org,
+                    "en_proceso": org_items.filter(estado=ItemMatrizLegal.ESTADO_PROCESO).count(),
+                    "brechas_criticas": org_items.filter(estado=ItemMatrizLegal.ESTADO_NO_CUMPLE).count(),
+                    "porcentaje_cumplimiento": pct_org
+                }
+
+        return Response({
+            "matriz_id": matriz.id,
+            "empresa_nombre": matriz.empresa.razon_social,
+            "rubro": matriz.get_rubro_principal_display(),
+            "total_requisitos": matriz.total_requisitos,
+            "cumplidos": matriz.cumplidos,
+            "en_proceso": matriz.en_proceso,
+            "brechas_criticas": matriz.brechas_criticas,
+            "porcentaje_cumplimiento": matriz.porcentaje_cumplimiento,
+            "estado_semaforo": matriz.estado_semaforo,
+            "desglose_organismo": desglose_organismo
+        }, status=status.HTTP_200_OK)
+
+
+class ItemMatrizLegalViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para actualizar el estado de cumplimiento, evidencia y plazos de un ítem de matriz legal.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ItemMatrizLegalSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        qs = ItemMatrizLegal.objects.filter(matriz__empresa__prevencionista__in=usuarios_grupo)
+
+        matriz_id = self.request.query_params.get('matriz')
+        if matriz_id:
+            qs = qs.filter(matriz_id=matriz_id)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            qs = qs.filter(estado=estado)
+
+        organismo = self.request.query_params.get('organismo')
+        if organismo:
+            qs = qs.filter(organismo=organismo)
+
+        return qs.order_by('orden', 'identificacion_norma', 'articulo')
 
 
 

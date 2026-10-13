@@ -2325,5 +2325,333 @@ class EntregaEPP(models.Model):
         return f"Entrega EPP a {self.trabajador.nombres} {self.trabajador.apellidos} - {self.fecha_hora_entrega.strftime('%d/%m/%Y %H:%M')}"
 
 
+class RequisitoLegalBase(models.Model):
+    """
+    Catálogo maestro de requisitos legales y técnicos de Seguridad y Salud en el Trabajo (SST)
+    vigentes en Chile (D.S. 594, Ley 16.744, D.S. 44, Ley Karin 21.643, etc.).
+    """
+    ORGANISMO_DT = 'DT'
+    ORGANISMO_SEREMI = 'SEREMI'
+    ORGANISMO_SUSESO = 'SUSESO'
+    ORGANISMO_SERNAGEOMIN = 'SERNAGEOMIN'
+    ORGANISMO_SAG = 'SAG'
+    ORGANISMO_SEC = 'SEC'
+    ORGANISMO_DIRECTEMAR = 'DIRECTEMAR'
+    ORGANISMO_SMA = 'SMA'
+
+    ORGANISMO_CHOICES = [
+        (ORGANISMO_DT, 'Dirección del Trabajo (DT)'),
+        (ORGANISMO_SEREMI, 'Seremi de Salud / MINSAL'),
+        (ORGANISMO_SUSESO, 'Superintendencia de Seguridad Social (SUSESO)'),
+        (ORGANISMO_SERNAGEOMIN, 'Sernageomin (Minería)'),
+        (ORGANISMO_SAG, 'Servicio Agrícola y Ganadero (SAG)'),
+        (ORGANISMO_SEC, 'Superintendencia de Electricidad y Combustibles (SEC)'),
+        (ORGANISMO_DIRECTEMAR, 'Directemar (Armada de Chile)'),
+        (ORGANISMO_SMA, 'Superintendencia del Medio Ambiente (SMA)'),
+    ]
+
+    TIPO_LEY = 'LEY'
+    TIPO_DS = 'DECRETO_SUPREMO'
+    TIPO_RESOLUCION = 'RESOLUCION'
+    TIPO_PROTOCOLO = 'PROTOCOLO_MINSAL'
+    TIPO_CIRCULAR = 'CIRCULAR_SUSESO'
+    TIPO_CODIGO = 'CODIGO_TRABAJO'
+
+    TIPO_NORMA_CHOICES = [
+        (TIPO_LEY, 'Ley de la República'),
+        (TIPO_DS, 'Decreto Supremo (D.S.)'),
+        (TIPO_RESOLUCION, 'Resolución Exenta'),
+        (TIPO_PROTOCOLO, 'Protocolo Técnico MINSAL'),
+        (TIPO_CIRCULAR, 'Circular SUSESO'),
+        (TIPO_CODIGO, 'Código del Trabajo'),
+    ]
+
+    RUBRO_TRANSVERSAL = 'TRANSVERSAL'
+    RUBRO_CONSTRUCCION = 'CONSTRUCCION'
+    RUBRO_MINERIA = 'MINERIA'
+    RUBRO_INDUSTRIA = 'INDUSTRIA'
+    RUBRO_AGRICOLA = 'AGRICOLA'
+    RUBRO_TRANSPORTE = 'TRANSPORTE'
+    RUBRO_SALUD = 'SALUD'
+    RUBRO_COMERCIO = 'COMERCIO'
+    RUBRO_QUIMICA = 'QUIMICA'
+    RUBRO_ALIMENTOS = 'ALIMENTOS'
+
+    RUBRO_CHOICES = [
+        (RUBRO_TRANSVERSAL, 'Transversal (Aplica a todas las empresas)'),
+        (RUBRO_CONSTRUCCION, 'Construcción y Obras Civiles'),
+        (RUBRO_MINERIA, 'Minería y Sondajes'),
+        (RUBRO_INDUSTRIA, 'Industria Manufacturera y Metalmecánica'),
+        (RUBRO_AGRICOLA, 'Agrícola y Forestal'),
+        (RUBRO_TRANSPORTE, 'Transporte y Logística'),
+        (RUBRO_SALUD, 'Salud y Clínicas'),
+        (RUBRO_COMERCIO, 'Comercio y Retail'),
+        (RUBRO_QUIMICA, 'Química y Bodegas de Sustancias Peligrosas'),
+        (RUBRO_ALIMENTOS, 'Alimentos y Gastronomía'),
+    ]
+
+    organismo = models.CharField(
+        max_length=20,
+        choices=ORGANISMO_CHOICES,
+        verbose_name="Organismo Fiscalizador"
+    )
+    tipo_norma = models.CharField(
+        max_length=20,
+        choices=TIPO_NORMA_CHOICES,
+        verbose_name="Tipo de Norma Jurídica"
+    )
+    identificacion_norma = models.CharField(
+        max_length=120,
+        verbose_name="Identificación de la Norma",
+        help_text="Ej: D.S. N° 594, Ley N° 21.643, D.S. N° 44"
+    )
+    articulo = models.CharField(
+        max_length=80,
+        verbose_name="Artículo / Párrafo",
+        help_text="Ej: Art. 53, Art. 21, Art. 153"
+    )
+    titulo = models.CharField(
+        max_length=255,
+        verbose_name="Título / Materia del Requisito"
+    )
+    descripcion_exigencia = models.TextField(
+        verbose_name="Descripción de la Exigencia Legal Obligatoria"
+    )
+    sancion_multa = models.CharField(
+        max_length=255,
+        verbose_name="Sanción / Multa Legal Aplicable",
+        help_text="Ej: 10 a 60 UTM por infracción gravísima; suspensión de faena"
+    )
+    rubro_aplicable = models.CharField(
+        max_length=30,
+        choices=RUBRO_CHOICES,
+        default=RUBRO_TRANSVERSAL,
+        verbose_name="Rubro o Actividad Económica"
+    )
+    condicion_activacion = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        verbose_name="Condición de Activación en Faena",
+        help_text="Flags: MAS_25_TRABAJADORES, MAS_10_TRABAJADORES, TRABAJO_ALTURA, SUSTANCIAS_PELIGROSAS, SUBCONTRATACION, ESPACIOS_CONFINADOS"
+    )
+    orden = models.PositiveIntegerField(
+        default=100,
+        verbose_name="Orden de Despliegue"
+    )
+    activo = models.BooleanField(
+        default=True,
+        verbose_name="Requisito Vigente / Activo"
+    )
+
+    class Meta:
+        verbose_name = "Requisito Legal Base SST"
+        verbose_name_plural = "Requisitos Legales Base SST"
+        ordering = ['orden', 'identificacion_norma', 'articulo']
+
+    def __str__(self) -> str:
+        return f"{self.identificacion_norma} {self.articulo} - {self.titulo}"
+
+
+class MatrizLegal(models.Model):
+    """
+    Matriz de Cumplimiento Legal personalizada para una empresa y centro de trabajo específico.
+    Generada automáticamente según rubro económico (CIIU) y condiciones operativas.
+    """
+    SEMAFORO_OPTIMO = 'OPTIMO'
+    SEMAFORO_REGULAR = 'REGULAR'
+    SEMAFORO_CRITICO = 'CRITICO'
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='matrices_legales',
+        verbose_name="Empresa Evaluada"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='matrices_legales',
+        verbose_name="Centro de Trabajo / Faena"
+    )
+    prevencionista = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='matrices_legales_creadas',
+        verbose_name="Prevencionista Auditor"
+    )
+    rubro_principal = models.CharField(
+        max_length=30,
+        choices=RequisitoLegalBase.RUBRO_CHOICES,
+        verbose_name="Rubro Principal Aplicado"
+    )
+    condiciones_faena = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Flags activados en faena: {'trabajo_altura': true, 'mas_25_trabajadores': true, ...}"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+    fecha_actualizacion = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última Actualización"
+    )
+    observacion_general = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Observaciones Generales de la Auditoría"
+    )
+
+    class Meta:
+        verbose_name = "Matriz Legal SST"
+        verbose_name_plural = "Matrices Legales SST"
+        ordering = ['-fecha_actualizacion']
+
+    def __str__(self) -> str:
+        ct_str = f" - {self.centro_trabajo.nombre}" if self.centro_trabajo else ""
+        return f"Matriz Legal {self.get_rubro_principal_display()} - {self.empresa.razon_social}{ct_str}"
+
+    @property
+    def total_requisitos(self) -> int:
+        return self.items.exclude(estado=ItemMatrizLegal.ESTADO_NO_APLICA).count()
+
+    @property
+    def cumplidos(self) -> int:
+        return self.items.filter(estado=ItemMatrizLegal.ESTADO_CUMPLE).count()
+
+    @property
+    def en_proceso(self) -> int:
+        return self.items.filter(estado=ItemMatrizLegal.ESTADO_PROCESO).count()
+
+    @property
+    def brechas_criticas(self) -> int:
+        return self.items.filter(estado=ItemMatrizLegal.ESTADO_NO_CUMPLE).count()
+
+    @property
+    def porcentaje_cumplimiento(self) -> float:
+        tot = self.total_requisitos
+        if tot <= 0:
+            return 0.0
+        return round((self.cumplidos / tot) * 100, 1)
+
+    @property
+    def estado_semaforo(self) -> str:
+        pct = self.porcentaje_cumplimiento
+        if pct >= 85.0:
+            return self.SEMAFORO_OPTIMO
+        elif pct >= 60.0:
+            return self.SEMAFORO_REGULAR
+        return self.SEMAFORO_CRITICO
+
+
+class ItemMatrizLegal(models.Model):
+    """
+    Ítem individual de requisito evaluado en la matriz legal de una empresa.
+    Mantiene snapshot de la exigencia legal, estado de cumplimiento, evidencia y responsable.
+    """
+    ESTADO_CUMPLE = 'CUMPLE'
+    ESTADO_PROCESO = 'EN_PROCESO'
+    ESTADO_NO_CUMPLE = 'NO_CUMPLE'
+    ESTADO_NO_APLICA = 'NO_APLICA'
+
+    ESTADO_CHOICES = [
+        (ESTADO_CUMPLE, 'Cumple Totalmente'),
+        (ESTADO_PROCESO, 'En Proceso de Implementación'),
+        (ESTADO_NO_CUMPLE, 'No Cumple (Brecha Crítica)'),
+        (ESTADO_NO_APLICA, 'No Aplica a la Operación'),
+    ]
+
+    matriz = models.ForeignKey(
+        MatrizLegal,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="Matriz Legal"
+    )
+    requisito_base = models.ForeignKey(
+        RequisitoLegalBase,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='instancias_matriz',
+        verbose_name="Requisito Base Catálogo"
+    )
+    organismo = models.CharField(
+        max_length=20,
+        verbose_name="Organismo Fiscalizador"
+    )
+    tipo_norma = models.CharField(
+        max_length=20,
+        verbose_name="Tipo de Norma"
+    )
+    identificacion_norma = models.CharField(
+        max_length=120,
+        verbose_name="Identificación de la Norma"
+    )
+    articulo = models.CharField(
+        max_length=80,
+        verbose_name="Artículo / Párrafo"
+    )
+    titulo = models.CharField(
+        max_length=255,
+        verbose_name="Título del Requisito"
+    )
+    descripcion_exigencia = models.TextField(
+        verbose_name="Descripción de la Exigencia"
+    )
+    sancion_multa = models.CharField(
+        max_length=255,
+        verbose_name="Sanción o Multa DT/Seremi"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_PROCESO,
+        verbose_name="Estado de Cumplimiento"
+    )
+    evidencia_cumplimiento = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Evidencia de Cumplimiento Documentada",
+        help_text="Ej: Copia de RIOHS depositado en DT folio 49202, registro digital de EPP, acta CPHS N°5"
+    )
+    responsable = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Responsable de Implementación / Custodia"
+    )
+    fecha_compromiso = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Compromiso de Subsanación"
+    )
+    fecha_verificacion = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Verificación de Cumplimiento"
+    )
+    observaciones = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Observaciones Técnicas"
+    )
+    orden = models.PositiveIntegerField(
+        default=100,
+        verbose_name="Orden"
+    )
+
+    class Meta:
+        verbose_name = "Ítem de Matriz Legal"
+        verbose_name_plural = "Ítems de Matriz Legal"
+        ordering = ['orden', 'identificacion_norma', 'articulo']
+
+    def __str__(self) -> str:
+        return f"[{self.get_estado_display()}] {self.identificacion_norma} {self.articulo} - {self.titulo}"
+
+
 
 

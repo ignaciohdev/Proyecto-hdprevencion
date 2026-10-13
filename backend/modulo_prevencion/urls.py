@@ -15,7 +15,8 @@ from .views import (
     EmpresaViewSet, CentroTrabajoViewSet, TrabajadorViewSet,
     DenunciaLeyKarinViewSet, SugerenciaLaboralViewSet, PublicoEmpresasListView,
     ComiteParitarioViewSet, MiembroCPHSViewSet, ActaSesionCPHSViewSet,
-    EntregaEPPViewSet
+    EntregaEPPViewSet,
+    RequisitoLegalBaseViewSet, MatrizLegalViewSet, ItemMatrizLegalViewSet
 )
 
 router = DefaultRouter()
@@ -46,6 +47,9 @@ router.register(r'comites-paritarios', ComiteParitarioViewSet, basename='comitep
 router.register(r'miembros-cphs', MiembroCPHSViewSet, basename='miembrocphs')
 router.register(r'actas-cphs', ActaSesionCPHSViewSet, basename='actasesioncphs')
 router.register(r'entregas-epp', EntregaEPPViewSet, basename='entregaepp')
+router.register(r'requisitos-legales-base', RequisitoLegalBaseViewSet, basename='requisitolegalbase')
+router.register(r'matrices-legales', MatrizLegalViewSet, basename='matrizlegal')
+router.register(r'items-matriz-legal', ItemMatrizLegalViewSet, basename='itemmatrizlegal')
 
 
 

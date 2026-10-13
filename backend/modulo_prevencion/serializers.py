@@ -15,7 +15,8 @@ from .models import (
     Empresa, CentroTrabajo, Trabajador,
     SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
-    EntregaEPP
+    EntregaEPP,
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
 )
 
 Usuario = get_user_model()
@@ -666,6 +667,83 @@ class EntregaEPPSerializer(serializers.ModelSerializer):
         if isinstance(obj.items_epp, list):
             return sum(int(item.get('cantidad', 1)) for item in obj.items_epp if isinstance(item, dict))
         return 0
+
+
+class RequisitoLegalBaseSerializer(serializers.ModelSerializer):
+    organismo_display = serializers.CharField(source='get_organismo_display', read_only=True)
+    tipo_norma_display = serializers.CharField(source='get_tipo_norma_display', read_only=True)
+    rubro_display = serializers.CharField(source='get_rubro_aplicable_display', read_only=True)
+
+    class Meta:
+        model = RequisitoLegalBase
+        fields = (
+            'id', 'organismo', 'organismo_display',
+            'tipo_norma', 'tipo_norma_display',
+            'identificacion_norma', 'articulo', 'titulo',
+            'descripcion_exigencia', 'sancion_multa',
+            'rubro_aplicable', 'rubro_display',
+            'condicion_activacion', 'orden', 'activo'
+        )
+
+
+class ItemMatrizLegalSerializer(serializers.ModelSerializer):
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+
+    class Meta:
+        model = ItemMatrizLegal
+        fields = (
+            'id', 'matriz', 'requisito_base',
+            'organismo', 'tipo_norma', 'identificacion_norma',
+            'articulo', 'titulo', 'descripcion_exigencia',
+            'sancion_multa', 'estado', 'estado_display',
+            'evidencia_cumplimiento', 'responsable',
+            'fecha_compromiso', 'fecha_verificacion',
+            'observaciones', 'orden'
+        )
+        read_only_fields = (
+            'id', 'matriz', 'requisito_base',
+            'organismo', 'tipo_norma', 'identificacion_norma',
+            'articulo', 'titulo', 'descripcion_exigencia', 'sancion_multa'
+        )
+
+
+class MatrizLegalSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    empresa_rut = serializers.CharField(source='empresa.rut', read_only=True)
+    empresa_mutualidad = serializers.CharField(source='empresa.mutualidad', read_only=True)
+    empresa_giro = serializers.CharField(source='empresa.giro', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+    prevencionista_nombre = serializers.CharField(source='prevencionista.username', read_only=True)
+    rubro_principal_display = serializers.CharField(source='get_rubro_principal_display', read_only=True)
+
+    total_requisitos = serializers.IntegerField(read_only=True)
+    cumplidos = serializers.IntegerField(read_only=True)
+    en_proceso = serializers.IntegerField(read_only=True)
+    brechas_criticas = serializers.IntegerField(read_only=True)
+    porcentaje_cumplimiento = serializers.FloatField(read_only=True)
+    estado_semaforo = serializers.CharField(read_only=True)
+
+    items = ItemMatrizLegalSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MatrizLegal
+        fields = (
+            'id', 'empresa', 'empresa_nombre', 'empresa_rut',
+            'empresa_mutualidad', 'empresa_giro',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'prevencionista', 'prevencionista_nombre',
+            'rubro_principal', 'rubro_principal_display',
+            'condiciones_faena', 'observacion_general',
+            'fecha_creacion', 'fecha_actualizacion',
+            'total_requisitos', 'cumplidos', 'en_proceso',
+            'brechas_criticas', 'porcentaje_cumplimiento',
+            'estado_semaforo', 'items'
+        )
+        read_only_fields = (
+            'id', 'prevencionista', 'fecha_creacion', 'fecha_actualizacion',
+            'total_requisitos', 'cumplidos', 'en_proceso',
+            'brechas_criticas', 'porcentaje_cumplimiento', 'estado_semaforo'
+        )
 
 
 

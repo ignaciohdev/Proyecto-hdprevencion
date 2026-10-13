@@ -11,8 +11,10 @@ from .models import (
     DenunciaLeyKarin, SugerenciaLaboral, AuditLogAccesoDenuncia,
     InvestigacionAccidente,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
-    EntregaEPP
+    EntregaEPP,
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
 )
+from .seeder_requisitos import asegurar_requisitos_base
 
 class CapacitacionIntegrationTestCase(APITestCase):
     """
@@ -1414,6 +1416,204 @@ class EntregaEPPTestCase(APITestCase):
         # Usuario B intenta consultar historial de trabajador A1 -> 404
         res_b = self.client.get(f"/api/entregas-epp/historial-trabajador/{self.trabajador_a1.id}/", **self.headers_b)
         self.assertEqual(res_b.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class MatrizLegalIntegrationTestCase(APITestCase):
+    """
+    Casos de prueba para verificar el Módulo de Matriz Legal Automatizada por Rubro:
+    - Precarga y consulta de RequisitoLegalBase.
+    - Generación automática según rubro y condiciones de faena (Construcción, CPHS, Altura).
+    - Recálculo dinámico de porcentaje de cumplimiento y estado de semáforo.
+    - Aislamiento multi-tenant estricto entre empresas y prevencionistas.
+    """
+    client: Any
+
+    def setUp(self):
+        asegurar_requisitos_base()
+
+        # Usuario Prevencionista A
+        self.user_a = Usuario.objects.create_user(
+            username="prevencionista_matriz_a",
+            email="prev_matriz_a@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.empresa_a = Empresa.objects.create(
+            prevencionista=self.user_a,
+            razon_social="Constructora Aconcagua SpA",
+            rut="76.123.456-7",
+            mutualidad="ACHS",
+            giro="Construcción de edificios completos"
+        )
+        self.centro_a = CentroTrabajo.objects.create(
+            empresa=self.empresa_a,
+            nombre="Edificio Mirador Norte",
+            direccion="Av. Apoquindo 4500",
+            comuna="Las Condes"
+        )
+        res_a = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prevencionista_matriz_a',
+            'password': 'securepassword123'
+        })
+        self.token_a = res_a.data['access']
+        self.headers_a = {'HTTP_AUTHORIZATION': f'Bearer {self.token_a}'}
+
+        # Usuario Prevencionista B (Tenant ajeno)
+        self.user_b = Usuario.objects.create_user(
+            username="prevencionista_matriz_b",
+            email="prev_matriz_b@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.empresa_b = Empresa.objects.create(
+            prevencionista=self.user_b,
+            razon_social="Minera Los Bronces Ltda.",
+            rut="77.987.654-3",
+            mutualidad="Mutual de Seguridad",
+            giro="Extracción de cobre"
+        )
+        res_b = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prevencionista_matriz_b',
+            'password': 'securepassword123'
+        })
+        self.token_b = res_b.data['access']
+        self.headers_b = {'HTTP_AUTHORIZATION': f'Bearer {self.token_b}'}
+
+    def test_catalogo_requisitos_base(self):
+        """Verifica la consulta y filtrado del catálogo oficial de requisitos base."""
+        res = self.client.get("/api/requisitos-legales-base/", **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res.data), 20)
+
+        # Filtrar por rubro CONSTRUCCION (debe incluir transversales + construcción)
+        res_const = self.client.get("/api/requisitos-legales-base/?rubro_aplicable=CONSTRUCCION", **self.headers_a)
+        self.assertEqual(res_const.status_code, status.HTTP_200_OK)
+        rubros = {item['rubro_aplicable'] for item in res_const.data}
+        self.assertTrue(rubros.issubset({'CONSTRUCCION', 'TRANSVERSAL'}))
+
+        # Filtrar por organismo DT
+        res_dt = self.client.get("/api/requisitos-legales-base/?organismo=DT", **self.headers_a)
+        self.assertEqual(res_dt.status_code, status.HTTP_200_OK)
+        for item in res_dt.data:
+            self.assertEqual(item['organismo'], 'DT')
+
+    def test_generar_matriz_automatica_construccion(self):
+        """Verifica la generación automática de matriz legal con condiciones de faena."""
+        payload = {
+            "empresa_id": self.empresa_a.id,
+            "centro_trabajo_id": self.centro_a.id,
+            "rubro": "CONSTRUCCION",
+            "condiciones": {
+                "mas_25_trabajadores": True,
+                "mas_10_trabajadores": True,
+                "trabajo_altura": True,
+                "subcontratacion": True,
+                "sustancias_peligrosas": False
+            },
+            "observacion_general": "Auditoría legal de inicio de faena constructiva."
+        }
+        res = self.client.post("/api/matrices-legales/generar-automatica/", payload, format='json', **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        data = res.data
+
+        self.assertEqual(data['empresa'], self.empresa_a.id)
+        self.assertEqual(data['rubro_principal'], 'CONSTRUCCION')
+        self.assertGreater(data['total_requisitos'], 10)
+        self.assertEqual(data['cumplidos'], 0)
+        self.assertEqual(data['porcentaje_cumplimiento'], 0.0)
+        self.assertEqual(data['estado_semaforo'], 'CRITICO')
+
+        # Verificar presencia de ítems clave
+        titulos = [item['titulo'] for item in data['items']]
+        identificaciones = [item['identificacion_norma'] for item in data['items']]
+
+        # Ítem transversal básico
+        self.assertTrue(any("Reglamento Interno" in t for t in titulos))
+        # Ítem por condición mas_25_trabajadores (CPHS)
+        self.assertTrue(any("Comité Paritario" in t for t in titulos))
+        # Ítem por condición trabajo_altura (Andamios)
+        self.assertTrue(any("Andamios" in t or "NCh 998" in i for t, i in zip(titulos, identificaciones)))
+        # Ítem específico de construcción (Excavaciones)
+        self.assertTrue(any("NCh 349" in i for i in identificaciones))
+
+    def test_recalculo_porcentaje_y_semaforo(self):
+        """Verifica que el porcentaje de cumplimiento y semáforo se recalculan al actualizar ítems."""
+        # Generar matriz
+        payload = {
+            "empresa_id": self.empresa_a.id,
+            "rubro": "TRANSVERSAL",
+            "condiciones": {"mas_10_trabajadores": True}
+        }
+        res_crear = self.client.post("/api/matrices-legales/generar-automatica/", payload, format='json', **self.headers_a)
+        self.assertEqual(res_crear.status_code, status.HTTP_201_CREATED)
+        matriz_id = res_crear.data['id']
+        items = res_crear.data['items']
+        self.assertGreater(len(items), 0)
+
+        # Inicialmente 0% -> CRITICO
+        res_stats = self.client.get(f"/api/matrices-legales/{matriz_id}/estadisticas/", **self.headers_a)
+        self.assertEqual(res_stats.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_stats.data['porcentaje_cumplimiento'], 0.0)
+        self.assertEqual(res_stats.data['estado_semaforo'], 'CRITICO')
+
+        # Pasar todos los ítems a CUMPLE
+        for item in items:
+            res_patch = self.client.patch(
+                f"/api/items-matriz-legal/{item['id']}/",
+                {
+                    "estado": "CUMPLE",
+                    "evidencia_cumplimiento": "Documento depositado en DT folio 12345",
+                    "responsable": "Juan Prevencionista"
+                },
+                format='json',
+                **self.headers_a
+            )
+            self.assertEqual(res_patch.status_code, status.HTTP_200_OK)
+
+        # Verificar recálculo a 100% -> OPTIMO
+        res_stats_updated = self.client.get(f"/api/matrices-legales/{matriz_id}/estadisticas/", **self.headers_a)
+        self.assertEqual(res_stats_updated.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_stats_updated.data['porcentaje_cumplimiento'], 100.0)
+        self.assertEqual(res_stats_updated.data['estado_semaforo'], 'OPTIMO')
+        self.assertEqual(res_stats_updated.data['cumplidos'], len(items))
+        self.assertEqual(res_stats_updated.data['brechas_criticas'], 0)
+        self.assertIn('DT', res_stats_updated.data['desglose_organismo'])
+
+    def test_aislamiento_multitenant(self):
+        """Verifica que el usuario B no puede ver ni modificar matrices ni ítems de la empresa del usuario A."""
+        payload = {
+            "empresa_id": self.empresa_a.id,
+            "rubro": "CONSTRUCCION",
+            "condiciones": {}
+        }
+        res_crear = self.client.post("/api/matrices-legales/generar-automatica/", payload, format='json', **self.headers_a)
+        self.assertEqual(res_crear.status_code, status.HTTP_201_CREATED)
+        matriz_id = res_crear.data['id']
+        primer_item_id = res_crear.data['items'][0]['id']
+
+        # Usuario B intenta ver la matriz de Usuario A -> 404
+        res_b_ver = self.client.get(f"/api/matrices-legales/{matriz_id}/", **self.headers_b)
+        self.assertEqual(res_b_ver.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B intenta ver estadísticas de la matriz de Usuario A -> 404
+        res_b_stats = self.client.get(f"/api/matrices-legales/{matriz_id}/estadisticas/", **self.headers_b)
+        self.assertEqual(res_b_stats.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B intenta generar matriz para la empresa de Usuario A -> 404
+        res_b_generar = self.client.post("/api/matrices-legales/generar-automatica/", {
+            "empresa_id": self.empresa_a.id,
+            "rubro": "MINERIA"
+        }, format='json', **self.headers_b)
+        self.assertEqual(res_b_generar.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B intenta modificar un ítem de la matriz de Usuario A -> 404
+        res_b_patch = self.client.patch(
+            f"/api/items-matriz-legal/{primer_item_id}/",
+            {"estado": "CUMPLE"},
+            format='json',
+            **self.headers_b
+        )
+        self.assertEqual(res_b_patch.status_code, status.HTTP_404_NOT_FOUND)
 
 
 
