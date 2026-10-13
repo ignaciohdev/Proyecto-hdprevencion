@@ -56,7 +56,11 @@ function IngresoInner() {
         router.push(nextPath);
       }, 1500);
     } catch (err: any) {
-      setError(err.message || "Ocurrió un error al iniciar sesión.");
+      if (err.name === "TypeError" || err.message === "Failed to fetch") {
+        setError(`No se pudo conectar con el backend (${getApiUrl("/api/auth/login/")}). Verifica que el servicio en Render esté encendido en estado 'Live'.`);
+      } else {
+        setError(err.message || "Ocurrió un error al iniciar sesión.");
+      }
     } finally {
       setLoading(false);
     }

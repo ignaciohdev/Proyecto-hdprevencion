@@ -78,7 +78,11 @@ export default function Registro() {
         router.push("/panel");
       }, 2000);
     } catch (err: any) {
-      setError(err.message || "Ocurrió un error inesperado.");
+      if (err.name === "TypeError" || err.message === "Failed to fetch") {
+        setError(`No se pudo conectar con el backend (${getApiUrl("/api/auth/register/")}). Verifica que el servicio en Render esté encendido en estado 'Live'.`);
+      } else {
+        setError(err.message || "Ocurrió un error inesperado.");
+      }
     } finally {
       setLoading(false);
     }
