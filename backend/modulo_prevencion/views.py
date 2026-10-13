@@ -1265,9 +1265,11 @@ class DashboardStatsView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        from datetime import timedelta
         user = request.user
         owner = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
+        empresas_usuario = Empresa.objects.filter(prevencionista__in=usuarios_grupo)
 
         # 1. Riesgos
         riesgos_qs = ReporteRiesgo.objects.filter(usuario__in=usuarios_grupo)
@@ -1360,6 +1362,192 @@ class DashboardStatsView(APIView):
                 "asistentes_count": len(cap.asistentes) if isinstance(cap.asistentes, list) else 0
             })
 
+        # 6. Comité Paritario (CPHS - D.S. 44)
+        comites_qs = ComiteParitario.objects.filter(
+            Q(empresa__prevencionista__in=usuarios_grupo) | Q(empresa__in=empresas_usuario)
+        ).distinct()
+        tiene_comite = comites_qs.exists()
+        comite_principal = comites_qs.order_by('-fecha_constitucion').first()
+
+        dias_restantes_mandato = None
+        en_periodo_eleccionario = False
+        if comite_principal:
+            dias_restantes_mandato = comite_principal.dias_restantes_mandato
+            en_periodo_eleccionario = (
+                (dias_restantes_mandato is not None and dias_restantes_mandato <= 60)
+                or (comite_principal.estado == ComiteParitario.ESTADO_EN_ELECCION)
+            )
+
+        sesiones_ordinarias_anio = ActaSesionCPHS.objects.filter(
+            comite__in=comites_qs,
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion__year=now.year
+        ).count()
+        meta_sesiones_anual = 12
+        cumplimiento_sesiones_pct = round(min(100.0, (sesiones_ordinarias_anio / 12.0) * 100.0), 1)
+
+        meses_con_acta = set(ActaSesionCPHS.objects.filter(
+            comite__in=comites_qs,
+            tipo_sesion=ActaSesionCPHS.TIPO_ORDINARIA,
+            fecha_hora_sesion__year=now.year
+        ).values_list('fecha_hora_sesion__month', flat=True))
+        sesiones_meses = [m in meses_con_acta for m in range(1, 13)]
+
+        cphs_data = {
+            "tiene_comite": tiene_comite,
+            "dias_restantes_mandato": dias_restantes_mandato,
+            "en_periodo_eleccionario": en_periodo_eleccionario,
+            "sesiones_ordinarias_anio": sesiones_ordinarias_anio,
+            "meta_sesiones_anual": meta_sesiones_anual,
+            "cumplimiento_sesiones_pct": cumplimiento_sesiones_pct,
+            "sesiones_meses": sesiones_meses,
+        }
+
+        # 7. Ley Karin (Canal de Denuncias - Ley 21.643) - ESTRICTA RESERVA ART. 211-B CÓDIGO DEL TRABAJO
+        # NOTA DE SEGURIDAD: NO RETORNAR NOMBRES, RUTS NI DESCRIPCIONES DE DENUNCIAS
+        denuncias_qs = DenunciaLeyKarin.objects.filter(
+            Q(empresa__prevencionista__in=usuarios_grupo) | Q(empresa__in=empresas_usuario)
+        ).distinct()
+        denuncias_activas = denuncias_qs.exclude(estado_tramite=DenunciaLeyKarin.ESTADO_FINALIZADA)
+        total_activas_karin = denuncias_activas.count()
+
+        alertas_72h_criticas = 0
+        for d in denuncias_activas.filter(estado_tramite__in=[
+            DenunciaLeyKarin.ESTADO_RECEPCIONADA,
+            DenunciaLeyKarin.ESTADO_MEDIDAS_RESGUARDO
+        ]):
+            if d.plazo_limite_derivacion_dt:
+                if now >= d.plazo_limite_derivacion_dt - timedelta(hours=24):
+                    alertas_72h_criticas += 1
+            elif d.fecha_hora_ingreso and now >= d.fecha_hora_ingreso + timedelta(hours=48):
+                alertas_72h_criticas += 1
+
+        alertas_5d_mutual = denuncias_activas.filter(derivada_mutualidad=False).count()
+
+        ley_karin_data = {
+            "total_activas": total_activas_karin,
+            "alertas_72h_criticas": alertas_72h_criticas,
+            "alertas_5d_mutual": alertas_5d_mutual,
+        }
+
+        # 8. Entrega de EPP y RIOHS con Firma Digital (Ley 19.799 / D.S. 594)
+        entregas_qs = EntregaEPP.objects.filter(
+            Q(empresa__prevencionista__in=usuarios_grupo) |
+            Q(responsable_entrega__in=usuarios_grupo)
+        ).distinct()
+        total_entregas = entregas_qs.count()
+        entregas_firmadas = entregas_qs.exclude(firma_digital__isnull=True).exclude(firma_digital="").count()
+        porcentaje_firmados = round((entregas_firmadas / total_entregas * 100.0), 1) if total_entregas > 0 else 100.0
+        constancias_riohs_firmadas = entregas_qs.filter(
+            entrega_riohs=True
+        ).exclude(firma_digital__isnull=True).exclude(firma_digital="").count()
+
+        historial_epp = []
+        for e in entregas_qs.select_related('trabajador').order_by('-fecha_hora_entrega')[:5]:
+            historial_epp.append({
+                "id": e.pk,
+                "trabajador": f"{e.trabajador.nombres} {e.trabajador.apellidos}" if e.trabajador else "Trabajador",
+                "rut": e.trabajador.rut if e.trabajador else "",
+                "fecha": e.fecha_hora_entrega,
+                "firmado": bool(e.firma_digital and len(e.firma_digital.strip()) > 0),
+                "entrega_riohs": e.entrega_riohs,
+                "items_count": len(e.items_epp) if isinstance(e.items_epp, list) else 0
+            })
+
+        epp_riohs_data = {
+            "total_entregas": total_entregas,
+            "porcentaje_firmados": porcentaje_firmados,
+            "constancias_riohs_firmadas": constancias_riohs_firmadas,
+            "historial": historial_epp,
+        }
+
+        # 9. Contratistas (Subcontratación - D.S. 76)
+        contratistas_qs = Contratista.objects.filter(
+            Q(usuario__in=usuarios_grupo) |
+            Q(empresa_principal__prevencionista__in=usuarios_grupo)
+        ).distinct()
+        total_empresas_contratistas = contratistas_qs.count()
+
+        acreditadas_al_dia = 0
+        contratistas_criticas = 0
+        for c in contratistas_qs:
+            estado_c = c.estado_cumplimiento
+            if estado_c in ['AL_DIA', 'VIGENTE', 'APROBADO']:
+                acreditadas_al_dia += 1
+            elif estado_c == 'CRITICO':
+                contratistas_criticas += 1
+
+        porcentaje_cumplimiento_contratistas = (
+            round((acreditadas_al_dia / total_empresas_contratistas * 100.0), 1)
+            if total_empresas_contratistas > 0 else 100.0
+        )
+
+        contratistas_data = {
+            "total_empresas": total_empresas_contratistas,
+            "acreditadas_al_dia": acreditadas_al_dia,
+            "porcentaje_cumplimiento": porcentaje_cumplimiento_contratistas,
+        }
+
+        # 10. Alertas Perentorias (Semáforo Legal SST en Tiempo Real)
+        alertas_perentorias = []
+
+        # A. Accidentes con DIAT pendiente 24h
+        accidentes_diat_pendientes = accidentes_qs.filter(
+            diat_presentada=False,
+            tipo_evento__in=[InvestigacionAccidente.TIPO_TRABAJO, InvestigacionAccidente.TIPO_TRAYECTO]
+        )
+        if accidentes_diat_pendientes.exists():
+            vencidos = [a for a in accidentes_diat_pendientes if a.plazo_limite_diat_24h and now > a.plazo_limite_diat_24h]
+            if vencidos:
+                alertas_perentorias.append({
+                    "tipo": "CRITICA",
+                    "titulo": "Plazo DIAT 24h Vencido",
+                    "descripcion": f"{len(vencidos)} accidente(s) superaron el plazo legal perentorio de 24 horas sin constancia de DIAT en la mutualidad (D.S. 44).",
+                    "enlace": "/panel/accidentes"
+                })
+            else:
+                alertas_perentorias.append({
+                    "tipo": "ADVERTENCIA",
+                    "titulo": "DIAT 24h Pendiente",
+                    "descripcion": f"{accidentes_diat_pendientes.count()} accidente(s) deben formalizarse ante la mutualidad antes de cumplir 24h.",
+                    "enlace": "/panel/accidentes"
+                })
+
+        # B. Denuncias Ley Karin cerca o pasadas de 72h
+        if alertas_72h_criticas > 0:
+            alertas_perentorias.append({
+                "tipo": "CRITICA",
+                "titulo": "Ley Karin: Plazo Perentorio 72h",
+                "descripcion": f"{alertas_72h_criticas} denuncia(s) en curso requieren pronunciamiento, medidas cautelares o derivación a la DT (Art. 211-B).",
+                "enlace": "/panel/buzon-digital"
+            })
+
+        # C. Mandato CPHS por vencer o vencido
+        if comite_principal:
+            if dias_restantes_mandato is not None and dias_restantes_mandato < 0:
+                alertas_perentorias.append({
+                    "tipo": "CRITICA",
+                    "titulo": "CPHS: Mandato Legal Vencido",
+                    "descripcion": f"El mandato de 2 años de '{comite_principal.nombre}' ha caducado. Es urgente constituir una nueva directiva (D.S. 44).",
+                    "enlace": "/panel/comite-paritario"
+                })
+            elif dias_restantes_mandato is not None and dias_restantes_mandato <= 60:
+                alertas_perentorias.append({
+                    "tipo": "ADVERTENCIA",
+                    "titulo": "CPHS: Proceso Eleccionario (60 Días)",
+                    "descripcion": f"Mandato CPHS vence en {dias_restantes_mandato} días. Debe convocarse a elecciones paritarias de trabajadores.",
+                    "enlace": "/panel/comite-paritario"
+                })
+
+        # D. Contratistas no acreditadas o críticas operando
+        if contratistas_criticas > 0:
+            alertas_perentorias.append({
+                "tipo": "CRITICA",
+                "titulo": "Contratistas: Documentos Vencidos",
+                "descripcion": f"{contratistas_criticas} empresa(s) colaboradora(s) registran certificados F30/F30-1 o seguros vencidos en faena (D.S. 76).",
+                "enlace": "/panel/contratistas"
+            })
+
         return Response({
             "riesgos": {
                 "total": total_riesgos,
@@ -1396,7 +1584,12 @@ class DashboardStatsView(APIView):
                 "asistentes_alcanzados": asistentes_alcanzados,
                 "cumplimiento_pac": pct_cumplimiento_pac,
                 "historial": historial_capacitaciones
-            }
+            },
+            "cphs": cphs_data,
+            "ley_karin": ley_karin_data,
+            "epp_riohs": epp_riohs_data,
+            "contratistas": contratistas_data,
+            "alertas_perentorias": alertas_perentorias,
         })
 
 class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
