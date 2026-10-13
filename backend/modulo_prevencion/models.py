@@ -2653,5 +2653,303 @@ class ItemMatrizLegal(models.Model):
         return f"[{self.get_estado_display()}] {self.identificacion_norma} {self.articulo} - {self.titulo}"
 
 
+class MatrizRiesgoMiper(models.Model):
+    """
+    Matriz de Identificación de Peligros y Evaluación de Riesgos (MIPER / IPER)
+    según Guía Técnica del ISP, D.S. N° 44 (2025/2026), ISO 45001 y D.S. N° 594.
+    """
+    ESTADO_BORRADOR = 'BORRADOR'
+    ESTADO_VIGENTE = 'VIGENTE'
+    ESTADO_EN_REVISION = 'EN_REVISION'
+    ESTADO_CHOICES = [
+        (ESTADO_BORRADOR, 'Borrador en Elaboración'),
+        (ESTADO_VIGENTE, 'Vigente y Aprobada'),
+        (ESTADO_EN_REVISION, 'En Revisión Periódica / Post-Incidente'),
+    ]
+
+    empresa = models.ForeignKey(
+        Empresa,
+        on_delete=models.CASCADE,
+        related_name='matrices_miper',
+        verbose_name="Empresa"
+    )
+    centro_trabajo = models.ForeignKey(
+        CentroTrabajo,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='matrices_miper',
+        verbose_name="Centro de Trabajo / Faena"
+    )
+    prevencionista = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='matrices_miper_creadas',
+        verbose_name="Prevencionista Responsable"
+    )
+    nombre = models.CharField(
+        max_length=200,
+        verbose_name="Nombre de la Matriz IPER"
+    )
+    proceso_area = models.CharField(
+        max_length=150,
+        verbose_name="Área / Proceso Evaluado"
+    )
+    version = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Versión de la Matriz"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default=ESTADO_VIGENTE,
+        verbose_name="Estado de la Matriz"
+    )
+    fecha_aprobacion = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Aprobación"
+    )
+    fecha_proxima_revision = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Próxima Revisión"
+    )
+    fecha_creacion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Creación"
+    )
+    fecha_actualizacion = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última Actualización"
+    )
+
+    class Meta:
+        verbose_name = "Matriz de Riesgo MIPER"
+        verbose_name_plural = "Matrices de Riesgo MIPER"
+        ordering = ['-fecha_actualizacion']
+
+    def __str__(self) -> str:
+        return f"{self.nombre} (v{self.version}) - {self.empresa.razon_social}"
+
+    @property
+    def total_peligros(self) -> int:
+        return self.items.count()
+
+    @property
+    def criticos_puros(self) -> int:
+        return sum(1 for it in self.items.all() if it.magnitud_pura >= 17)
+
+    @property
+    def altos_puros(self) -> int:
+        return sum(1 for it in self.items.all() if 10 <= it.magnitud_pura <= 16)
+
+    @property
+    def criticos_residuales(self) -> int:
+        return sum(1 for it in self.items.all() if it.magnitud_residual >= 17)
+
+    @property
+    def altos_residuales(self) -> int:
+        return sum(1 for it in self.items.all() if 10 <= it.magnitud_residual <= 16)
+
+    @property
+    def medios_residuales(self) -> int:
+        return sum(1 for it in self.items.all() if 5 <= it.magnitud_residual <= 9)
+
+    @property
+    def bajos_residuales(self) -> int:
+        return sum(1 for it in self.items.all() if it.magnitud_residual <= 4)
+
+    @property
+    def porcentaje_reduccion_riesgo(self) -> float:
+        items = list(self.items.all())
+        if not items:
+            return 0.0
+        sum_pura = sum(it.magnitud_pura for it in items)
+        if sum_pura <= 0:
+            return 0.0
+        sum_residual = sum(it.magnitud_residual for it in items)
+        reduccion = ((sum_pura - sum_residual) / sum_pura) * 100
+        return round(max(0.0, reduccion), 1)
+
+
+class ItemMatrizRiesgo(models.Model):
+    """
+    Evaluación individual de peligro, riesgo puro, jerarquía de controles
+    y riesgo residual bajo escala ISP 1 a 5 y metodología D.S. N° 44.
+    """
+    TIPO_RUTINARIA = 'RUTINARIA'
+    TIPO_NO_RUTINARIA = 'NO_RUTINARIA'
+    TIPO_EMERGENCIA = 'EMERGENCIA'
+    TIPO_ACTIVIDAD_CHOICES = [
+        (TIPO_RUTINARIA, 'Rutinaria (Operación Habitual)'),
+        (TIPO_NO_RUTINARIA, 'No Rutinaria (Ocasional / Mantenimiento)'),
+        (TIPO_EMERGENCIA, 'Emergencia / Contingencia'),
+    ]
+
+    CONTROL_IMPLEMENTADO = 'IMPLEMENTADO'
+    CONTROL_EN_PROCESO = 'EN_PROCESO'
+    CONTROL_PENDIENTE = 'PENDIENTE'
+    ESTADO_CONTROL_CHOICES = [
+        (CONTROL_IMPLEMENTADO, 'Control Implementado y Verificado'),
+        (CONTROL_EN_PROCESO, 'En Proceso de Implementación'),
+        (CONTROL_PENDIENTE, 'Pendiente de Presupuesto / Adquisición'),
+    ]
+
+    matriz = models.ForeignKey(
+        MatrizRiesgoMiper,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name="Matriz MIPER"
+    )
+    proceso = models.CharField(
+        max_length=150,
+        verbose_name="Proceso"
+    )
+    actividad = models.CharField(
+        max_length=200,
+        verbose_name="Actividad / Tarea"
+    )
+    tipo_actividad = models.CharField(
+        max_length=20,
+        choices=TIPO_ACTIVIDAD_CHOICES,
+        default=TIPO_RUTINARIA,
+        verbose_name="Tipo de Actividad"
+    )
+    puesto_trabajo = models.CharField(
+        max_length=150,
+        verbose_name="Puesto de Trabajo / Ocupación Expuesta"
+    )
+    peligro = models.TextField(
+        verbose_name="Descripción del Peligro Identificado"
+    )
+    clasificacion_peligro = models.CharField(
+        max_length=30,
+        choices=ReporteRiesgo.PELIGRO_CHOICES,
+        verbose_name="Clasificación del Peligro"
+    )
+    riesgo_consecuencia = models.TextField(
+        verbose_name="Riesgo / Evento No Deseado y Consecuencia"
+    )
+
+    # Evaluación Riesgo Puro (Escala 1 a 5)
+    probabilidad_pura = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="1: Rara vez, 2: Improbable, 3: Posible, 4: Probable, 5: Casi seguro",
+        verbose_name="Probabilidad Pura (P)"
+    )
+    severidad_pura = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="1: Insignificante, 2: Menor, 3: Moderado, 4: Mayor, 5: Catastrófico",
+        verbose_name="Severidad Pura (S)"
+    )
+
+    # Jerarquía Legal de Controles (Guía ISP / ISO 45001)
+    control_eliminacion = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="1. Control por Eliminación"
+    )
+    control_sustitucion = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="2. Control por Sustitución"
+    )
+    control_ingenieria = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="3. Control de Ingeniería"
+    )
+    control_administrativo = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="4. Control Administrativo / Señalización"
+    )
+    control_epp = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="5. Elementos de Protección Personal (EPP)"
+    )
+
+    # Evaluación Riesgo Residual (con controles aplicados)
+    probabilidad_residual = models.PositiveSmallIntegerField(
+        default=2,
+        help_text="1 a 5",
+        verbose_name="Probabilidad Residual (Pr)"
+    )
+    severidad_residual = models.PositiveSmallIntegerField(
+        default=2,
+        help_text="1 a 5",
+        verbose_name="Severidad Residual (Sr)"
+    )
+
+    responsable = models.CharField(
+        max_length=150,
+        blank=True,
+        default="",
+        verbose_name="Responsable de Implementación / Seguimiento"
+    )
+    plazo_implementacion = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Plazo de Implementación"
+    )
+    estado_control = models.CharField(
+        max_length=20,
+        choices=ESTADO_CONTROL_CHOICES,
+        default=CONTROL_IMPLEMENTADO,
+        verbose_name="Estado del Control"
+    )
+    orden = models.PositiveIntegerField(
+        default=10,
+        verbose_name="Orden de Despliegue"
+    )
+
+    class Meta:
+        verbose_name = "Ítem de Matriz de Riesgo MIPER"
+        verbose_name_plural = "Ítems de Matriz de Riesgo MIPER"
+        ordering = ['orden', '-id']
+
+    def __str__(self) -> str:
+        return f"{self.actividad} - {self.peligro[:40]}"
+
+    @property
+    def magnitud_pura(self) -> int:
+        return self.probabilidad_pura * self.severidad_pura
+
+    @property
+    def clasificacion_pura(self) -> str:
+        mag = self.magnitud_pura
+        if mag >= 17:
+            return 'CRITICO'
+        elif mag >= 10:
+            return 'ALTO'
+        elif mag >= 5:
+            return 'MEDIO'
+        return 'BAJO'
+
+    @property
+    def magnitud_residual(self) -> int:
+        return self.probabilidad_residual * self.severidad_residual
+
+    @property
+    def clasificacion_residual(self) -> str:
+        mag = self.magnitud_residual
+        if mag >= 17:
+            return 'CRITICO'
+        elif mag >= 10:
+            return 'ALTO'
+        elif mag >= 5:
+            return 'MEDIO'
+        return 'BAJO'
+
+    def clean(self):
+        super().clean()
+        for field_name in ['probabilidad_pura', 'severidad_pura', 'probabilidad_residual', 'severidad_residual']:
+            val = getattr(self, field_name)
+            if val is not None and (val < 1 or val > 5):
+                raise ValidationError({field_name: "El valor debe estar comprendido entre 1 y 5 según la Escala de la Guía Técnica del ISP."})
+
+
 
 

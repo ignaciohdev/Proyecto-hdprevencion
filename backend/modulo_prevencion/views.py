@@ -28,7 +28,8 @@ from .models import (
     SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
     EntregaEPP,
-    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
+    MatrizRiesgoMiper, ItemMatrizRiesgo
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -46,7 +47,8 @@ from .serializers import (
     AuditLogAccesoDenunciaSerializer, DenunciaLeyKarinPublicaCreateSerializer,
     ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer,
     EntregaEPPSerializer,
-    RequisitoLegalBaseSerializer, MatrizLegalSerializer, ItemMatrizLegalSerializer
+    RequisitoLegalBaseSerializer, MatrizLegalSerializer, ItemMatrizLegalSerializer,
+    MatrizRiesgoMiperSerializer, ItemMatrizRiesgoSerializer
 )
 from .seeder_requisitos import asegurar_requisitos_base
 
@@ -2608,6 +2610,160 @@ class ItemMatrizLegalViewSet(viewsets.ModelViewSet):
             qs = qs.filter(organismo=organismo)
 
         return qs.order_by('orden', 'identificacion_norma', 'articulo')
+
+
+class MatrizRiesgoMiperViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión de Matrices de Riesgo MIPER (Guía Técnica ISP / D.S. N° 44).
+    Aislamiento Multi-Tenant estricto para el prevencionista / grupo corporativo.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = MatrizRiesgoMiperSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        qs = MatrizRiesgoMiper.objects.filter(empresa__prevencionista__in=usuarios_grupo)
+
+        empresa_id = self.request.query_params.get('empresa')
+        if empresa_id:
+            qs = qs.filter(empresa_id=empresa_id)
+
+        centro_trabajo_id = self.request.query_params.get('centro_trabajo')
+        if centro_trabajo_id:
+            qs = qs.filter(centro_trabajo_id=centro_trabajo_id)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            qs = qs.filter(estado=estado)
+
+        return qs.order_by('-fecha_actualizacion')
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        empresa = serializer.validated_data.get('empresa')
+        if empresa and empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError("No tienes autorización para asociar una matriz MIPER a esta empresa.")
+        serializer.save(prevencionista=user)
+
+    @action(detail=True, methods=['get'], url_path='matriz-calor')
+    def matriz_calor(self, request, pk=None):
+        """
+        Retorna la matriz de distribución 5x5 del ISP para Riesgo Puro vs. Riesgo Residual
+        (conteo de peligros en cada celda de probabilidad x severidad para renderizar el mapa de calor).
+        """
+        matriz = self.get_object()
+        items = list(matriz.items.all())
+
+        grid = []
+        for severidad in range(5, 0, -1):  # 5 (Catastrófico) down to 1 (Insignificante)
+            for probabilidad in range(1, 6):  # 1 (Rara vez) to 5 (Casi seguro)
+                mag = probabilidad * severidad
+                if mag >= 17:
+                    clasificacion = 'CRITICO'
+                elif mag >= 10:
+                    clasificacion = 'ALTO'
+                elif mag >= 5:
+                    clasificacion = 'MEDIO'
+                else:
+                    clasificacion = 'BAJO'
+
+                count_puro = sum(
+                    1 for it in items
+                    if it.probabilidad_pura == probabilidad and it.severidad_pura == severidad
+                )
+                count_residual = sum(
+                    1 for it in items
+                    if it.probabilidad_residual == probabilidad and it.severidad_residual == severidad
+                )
+
+                grid.append({
+                    "probabilidad": probabilidad,
+                    "severidad": severidad,
+                    "magnitud": mag,
+                    "clasificacion": clasificacion,
+                    "count_puro": count_puro,
+                    "count_residual": count_residual,
+                })
+
+        return Response({
+            "matriz_id": matriz.id,
+            "matriz_nombre": matriz.nombre,
+            "total_peligros": matriz.total_peligros,
+            "porcentaje_reduccion_riesgo": matriz.porcentaje_reduccion_riesgo,
+            "totales": {
+                "puro": {
+                    "critico": matriz.criticos_puros,
+                    "alto": matriz.altos_puros,
+                    "medio": sum(1 for it in items if 5 <= it.magnitud_pura <= 9),
+                    "bajo": sum(1 for it in items if it.magnitud_pura <= 4),
+                },
+                "residual": {
+                    "critico": matriz.criticos_residuales,
+                    "alto": matriz.altos_residuales,
+                    "medio": matriz.medios_residuales,
+                    "bajo": matriz.bajos_residuales,
+                }
+            },
+            "grid": grid
+        }, status=status.HTTP_200_OK)
+
+
+class ItemMatrizRiesgoViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para la gestión de ítems individuales de la Matriz MIPER.
+    Permite CRUD completo de ítems con reordenamiento y aislamiento multi-tenant.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ItemMatrizRiesgoSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        qs = ItemMatrizRiesgo.objects.filter(matriz__empresa__prevencionista__in=usuarios_grupo)
+
+        matriz_id = self.request.query_params.get('matriz')
+        if matriz_id:
+            qs = qs.filter(matriz_id=matriz_id)
+
+        tipo_actividad = self.request.query_params.get('tipo_actividad')
+        if tipo_actividad:
+            qs = qs.filter(tipo_actividad=tipo_actividad)
+
+        clasificacion_peligro = self.request.query_params.get('clasificacion_peligro')
+        if clasificacion_peligro:
+            qs = qs.filter(clasificacion_peligro=clasificacion_peligro)
+
+        estado_control = self.request.query_params.get('estado_control')
+        if estado_control:
+            qs = qs.filter(estado_control=estado_control)
+
+        return qs.order_by('orden', 'id')
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        matriz = serializer.validated_data.get('matriz')
+        if matriz and matriz.empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError("No tienes autorización para agregar ítems a esta matriz MIPER.")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        matriz = serializer.instance.matriz
+        if matriz and matriz.empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError("No tienes autorización para modificar ítems de esta matriz MIPER.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        usuarios_grupo = get_usuarios_grupo(user)
+        if instance.matriz.empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError("No tienes autorización para eliminar ítems de esta matriz MIPER.")
+        instance.delete()
+
 
 
 

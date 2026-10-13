@@ -9,7 +9,8 @@ from .models import (
     Noticia, MensajeContacto, Servicio,
     TemaCapacitacion, RegistroCapacitacion,
     SugerenciaConsulta, SolicitudCapacitacion,
-    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
+    MatrizRiesgoMiper, ItemMatrizRiesgo
 )
 
 @admin.register(Usuario)
@@ -347,4 +348,95 @@ class ItemMatrizLegalAdmin(admin.ModelAdmin):
         return mark_safe(
             f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-size:0.8rem;font-weight:600;">{obj.get_estado_display()}</span>'
         )
+
+
+class ItemMatrizRiesgoInline(admin.TabularInline):
+    model = ItemMatrizRiesgo
+    extra = 0
+    fields = ('proceso', 'actividad', 'peligro', 'clasificacion_peligro', 'magnitud_pura_badge', 'magnitud_residual_badge', 'estado_control')
+    readonly_fields = ('magnitud_pura_badge', 'magnitud_residual_badge')
+
+    @admin.display(description="Riesgo Puro")
+    def magnitud_pura_badge(self, obj):
+        colors = {
+            'CRITICO': ('#fee2e2', '#991b1b'),
+            'ALTO': ('#ffedd5', '#9a3412'),
+            'MEDIO': ('#fef3c7', '#92400e'),
+            'BAJO': ('#d1fae5', '#065f46')
+        }
+        bg, text = colors.get(obj.clasificacion_pura, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:2px 6px;border-radius:4px;font-weight:bold;">{obj.magnitud_pura} ({obj.clasificacion_pura})</span>'
+        )
+
+    @admin.display(description="Riesgo Residual")
+    def magnitud_residual_badge(self, obj):
+        colors = {
+            'CRITICO': ('#fee2e2', '#991b1b'),
+            'ALTO': ('#ffedd5', '#9a3412'),
+            'MEDIO': ('#fef3c7', '#92400e'),
+            'BAJO': ('#d1fae5', '#065f46')
+        }
+        bg, text = colors.get(obj.clasificacion_residual, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:2px 6px;border-radius:4px;font-weight:bold;">{obj.magnitud_residual} ({obj.clasificacion_residual})</span>'
+        )
+
+
+@admin.register(MatrizRiesgoMiper)
+class MatrizRiesgoMiperAdmin(admin.ModelAdmin):
+    list_display = ('nombre', 'empresa', 'centro_trabajo', 'prevencionista', 'estado_badge', 'total_peligros', 'porcentaje_reduccion_label', 'fecha_actualizacion')
+    list_filter = ('estado', 'fecha_actualizacion')
+    search_fields = ('nombre', 'proceso_area', 'empresa__razon_social', 'empresa__rut', 'prevencionista__username')
+    inlines = [ItemMatrizRiesgoInline]
+
+    @admin.display(description="Estado")
+    def estado_badge(self, obj):
+        colors = {
+            'VIGENTE': ('#d1fae5', '#065f46'),
+            'BORRADOR': ('#fef3c7', '#92400e'),
+            'EN_REVISION': ('#fee2e2', '#991b1b'),
+        }
+        bg, text = colors.get(obj.estado, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-size:0.8rem;font-weight:600;">{obj.get_estado_display()}</span>'
+        )
+
+    @admin.display(description="% Mitigación")
+    def porcentaje_reduccion_label(self, obj):
+        return f"{obj.porcentaje_reduccion_riesgo}%"
+
+
+@admin.register(ItemMatrizRiesgo)
+class ItemMatrizRiesgoAdmin(admin.ModelAdmin):
+    list_display = ('matriz', 'proceso', 'actividad', 'clasificacion_peligro', 'magnitud_pura_badge', 'magnitud_residual_badge', 'estado_control', 'responsable')
+    list_filter = ('clasificacion_peligro', 'estado_control', 'tipo_actividad')
+    search_fields = ('proceso', 'actividad', 'peligro', 'riesgo_consecuencia', 'responsable')
+
+    @admin.display(description="Riesgo Puro")
+    def magnitud_pura_badge(self, obj):
+        colors = {
+            'CRITICO': ('#fee2e2', '#991b1b'),
+            'ALTO': ('#ffedd5', '#9a3412'),
+            'MEDIO': ('#fef3c7', '#92400e'),
+            'BAJO': ('#d1fae5', '#065f46')
+        }
+        bg, text = colors.get(obj.clasificacion_pura, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:2px 6px;border-radius:4px;font-weight:bold;">{obj.magnitud_pura} ({obj.clasificacion_pura})</span>'
+        )
+
+    @admin.display(description="Riesgo Residual")
+    def magnitud_residual_badge(self, obj):
+        colors = {
+            'CRITICO': ('#fee2e2', '#991b1b'),
+            'ALTO': ('#ffedd5', '#9a3412'),
+            'MEDIO': ('#fef3c7', '#92400e'),
+            'BAJO': ('#d1fae5', '#065f46')
+        }
+        bg, text = colors.get(obj.clasificacion_residual, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:2px 6px;border-radius:4px;font-weight:bold;">{obj.magnitud_residual} ({obj.clasificacion_residual})</span>'
+        )
+
 

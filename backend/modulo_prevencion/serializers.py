@@ -16,7 +16,8 @@ from .models import (
     SugerenciaLaboral, DenunciaLeyKarin, AuditLogAccesoDenuncia,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
     EntregaEPP,
-    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
+    MatrizRiesgoMiper, ItemMatrizRiesgo
 )
 
 Usuario = get_user_model()
@@ -744,6 +745,96 @@ class MatrizLegalSerializer(serializers.ModelSerializer):
             'total_requisitos', 'cumplidos', 'en_proceso',
             'brechas_criticas', 'porcentaje_cumplimiento', 'estado_semaforo'
         )
+
+
+class ItemMatrizRiesgoSerializer(serializers.ModelSerializer):
+    magnitud_pura = serializers.IntegerField(read_only=True)
+    clasificacion_pura = serializers.CharField(read_only=True)
+    magnitud_residual = serializers.IntegerField(read_only=True)
+    clasificacion_residual = serializers.CharField(read_only=True)
+    tipo_actividad_display = serializers.CharField(source='get_tipo_actividad_display', read_only=True)
+    clasificacion_peligro_display = serializers.CharField(source='get_clasificacion_peligro_display', read_only=True)
+    estado_control_display = serializers.CharField(source='get_estado_control_display', read_only=True)
+
+    class Meta:
+        model = ItemMatrizRiesgo
+        fields = (
+            'id', 'matriz', 'proceso', 'actividad', 'tipo_actividad', 'tipo_actividad_display',
+            'puesto_trabajo', 'peligro', 'clasificacion_peligro', 'clasificacion_peligro_display',
+            'riesgo_consecuencia',
+            'probabilidad_pura', 'severidad_pura', 'magnitud_pura', 'clasificacion_pura',
+            'control_eliminacion', 'control_sustitucion', 'control_ingenieria',
+            'control_administrativo', 'control_epp',
+            'probabilidad_residual', 'severidad_residual', 'magnitud_residual', 'clasificacion_residual',
+            'responsable', 'plazo_implementacion', 'estado_control', 'estado_control_display',
+            'orden'
+        )
+        read_only_fields = (
+            'id', 'magnitud_pura', 'clasificacion_pura', 'magnitud_residual', 'clasificacion_residual'
+        )
+
+    def validate_probabilidad_pura(self, value):
+        if value < 1 or value > 5:
+            raise ValidationError("La probabilidad pura debe estar entre 1 y 5.")
+        return value
+
+    def validate_severidad_pura(self, value):
+        if value < 1 or value > 5:
+            raise ValidationError("La severidad pura debe estar entre 1 y 5.")
+        return value
+
+    def validate_probabilidad_residual(self, value):
+        if value < 1 or value > 5:
+            raise ValidationError("La probabilidad residual debe estar entre 1 y 5.")
+        return value
+
+    def validate_severidad_residual(self, value):
+        if value < 1 or value > 5:
+            raise ValidationError("La severidad residual debe estar entre 1 y 5.")
+        return value
+
+
+class MatrizRiesgoMiperSerializer(serializers.ModelSerializer):
+    empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
+    empresa_rut = serializers.CharField(source='empresa.rut', read_only=True)
+    empresa_giro = serializers.CharField(source='empresa.giro', read_only=True)
+    centro_trabajo_nombre = serializers.CharField(source='centro_trabajo.nombre', read_only=True)
+    prevencionista_nombre = serializers.CharField(source='prevencionista.username', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+
+    total_peligros = serializers.IntegerField(read_only=True)
+    criticos_puros = serializers.IntegerField(read_only=True)
+    altos_puros = serializers.IntegerField(read_only=True)
+    criticos_residuales = serializers.IntegerField(read_only=True)
+    altos_residuales = serializers.IntegerField(read_only=True)
+    medios_residuales = serializers.IntegerField(read_only=True)
+    bajos_residuales = serializers.IntegerField(read_only=True)
+    porcentaje_reduccion_riesgo = serializers.FloatField(read_only=True)
+
+    items = ItemMatrizRiesgoSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = MatrizRiesgoMiper
+        fields = (
+            'id', 'empresa', 'empresa_nombre', 'empresa_rut', 'empresa_giro',
+            'centro_trabajo', 'centro_trabajo_nombre',
+            'prevencionista', 'prevencionista_nombre',
+            'nombre', 'proceso_area', 'version',
+            'estado', 'estado_display',
+            'fecha_aprobacion', 'fecha_proxima_revision',
+            'fecha_creacion', 'fecha_actualizacion',
+            'total_peligros', 'criticos_puros', 'altos_puros',
+            'criticos_residuales', 'altos_residuales', 'medios_residuales', 'bajos_residuales',
+            'porcentaje_reduccion_riesgo',
+            'items'
+        )
+        read_only_fields = (
+            'id', 'prevencionista', 'fecha_creacion', 'fecha_actualizacion',
+            'total_peligros', 'criticos_puros', 'altos_puros',
+            'criticos_residuales', 'altos_residuales', 'medios_residuales', 'bajos_residuales',
+            'porcentaje_reduccion_riesgo'
+        )
+
 
 
 

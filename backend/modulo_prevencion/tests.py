@@ -12,7 +12,8 @@ from .models import (
     InvestigacionAccidente,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
     EntregaEPP,
-    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal
+    RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
+    MatrizRiesgoMiper, ItemMatrizRiesgo
 )
 from .seeder_requisitos import asegurar_requisitos_base
 
@@ -1614,6 +1615,325 @@ class MatrizLegalIntegrationTestCase(APITestCase):
             **self.headers_b
         )
         self.assertEqual(res_b_patch.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class MatrizRiesgoMiperIntegrationTestCase(APITestCase):
+    """
+    Casos de prueba para el Módulo de Matriz de Identificación de Peligros
+    y Evaluación de Riesgos (MIPER / IPER - Guía Técnica ISP y D.S. N° 44).
+    """
+    client: Any
+
+    def setUp(self):
+        self.user_a = Usuario.objects.create_user(
+            username="prev_miper_a",
+            email="prev_miper_a@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.user_b = Usuario.objects.create_user(
+            username="prev_miper_b",
+            email="prev_miper_b@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+
+        res_a = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prev_miper_a',
+            'password': 'securepassword123'
+        })
+        self.headers_a = {'HTTP_AUTHORIZATION': f"Bearer {res_a.data['access']}"}
+
+        res_b = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prev_miper_b',
+            'password': 'securepassword123'
+        })
+        self.headers_b = {'HTTP_AUTHORIZATION': f"Bearer {res_b.data['access']}"}
+
+        self.empresa_a = Empresa.objects.create(
+            prevencionista=self.user_a,
+            razon_social="Constructora Andina SpA",
+            rut="76.123.456-7",
+            mutualidad="ACHS",
+            giro="Construcción de edificios"
+        )
+        self.centro_a = CentroTrabajo.objects.create(
+            empresa=self.empresa_a,
+            nombre="Faena Los Conquistadores",
+            direccion="Av. Los Conquistadores 1234, Providencia",
+            comuna="Providencia"
+        )
+
+        self.empresa_b = Empresa.objects.create(
+            prevencionista=self.user_b,
+            razon_social="Servicios Mineros del Norte SpA",
+            rut="77.987.654-3",
+            mutualidad="MUTUAL",
+            giro="Servicios de apoyo a la minería"
+        )
+
+    def test_creacion_matriz_e_items_calculo_magnitudes(self):
+        """
+        Verifica la creación de Matriz MIPER, agregado de ítems y cálculo automático
+        de magnitudes puras/residuales y clasificaciones según escala ISP.
+        """
+        # Crear matriz para Empresa A
+        payload_matriz = {
+            "empresa": self.empresa_a.id,
+            "centro_trabajo": self.centro_a.id,
+            "nombre": "Matriz IPER Faena Obras Civiles y Excavaciones",
+            "proceso_area": "Operaciones en Terreno / Movimiento de Tierras",
+            "version": 1,
+            "estado": "VIGENTE"
+        }
+        res_matriz = self.client.post("/api/matrices-riesgo-miper/", payload_matriz, format='json', **self.headers_a)
+        self.assertEqual(res_matriz.status_code, status.HTTP_201_CREATED)
+        matriz_id = res_matriz.data['id']
+        self.assertEqual(res_matriz.data['prevencionista_nombre'], "prev_miper_a")
+        self.assertEqual(res_matriz.data['empresa_nombre'], "Constructora Andina SpA")
+
+        # Agregar ítem crítico: P=5, S=5 (25 -> CRITICO), residual P=2, S=2 (4 -> BAJO)
+        item_critico = {
+            "matriz": matriz_id,
+            "proceso": "Movimiento de Tierras",
+            "actividad": "Excavación de zanjas y perfilado",
+            "tipo_actividad": "RUTINARIA",
+            "puesto_trabajo": "Jornalero / Operador Retroexcavadora",
+            "peligro": "Derrumbe de taludes y paredes de excavación",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "Atrapamiento, asfixia por aplastamiento, lesiones graves o fatales",
+            "probabilidad_pura": 5,
+            "severidad_pura": 5,
+            "control_eliminacion": "",
+            "control_sustitucion": "",
+            "control_ingenieria": "Entibaciones continuas de madera y metal según NCh 349",
+            "control_administrativo": "Procedimiento de trabajo seguro (PTS) y delimitación perimetral",
+            "control_epp": "Casco de seguridad, calzado con puntera NCh 772, chaleco reflectante",
+            "probabilidad_residual": 2,
+            "severidad_residual": 2,
+            "responsable": "Jefe de Terreno / Prevencionista",
+            "estado_control": "IMPLEMENTADO",
+            "orden": 1
+        }
+        res_item_1 = self.client.post("/api/items-matriz-riesgo/", item_critico, format='json', **self.headers_a)
+        self.assertEqual(res_item_1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_item_1.data['magnitud_pura'], 25)
+        self.assertEqual(res_item_1.data['clasificacion_pura'], 'CRITICO')
+        self.assertEqual(res_item_1.data['magnitud_residual'], 4)
+        self.assertEqual(res_item_1.data['clasificacion_residual'], 'BAJO')
+
+        # Agregar ítem alto: P=4, S=3 (12 -> ALTO), residual P=2, S=3 (6 -> MEDIO)
+        item_alto = {
+            "matriz": matriz_id,
+            "proceso": "Hormigonado",
+            "actividad": "Vaciado de losa en altura",
+            "tipo_actividad": "RUTINARIA",
+            "puesto_trabajo": "Concretero",
+            "peligro": "Caída a distinto nivel desde borde de losa",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "Politraumastismo, fracturas, muerte",
+            "probabilidad_pura": 4,
+            "severidad_pura": 3,
+            "control_ingenieria": "Instalación de barandas rígidas perimetrales",
+            "control_administrativo": "Permiso de trabajo en altura",
+            "control_epp": "Arnés de seguridad con doble cabo de vida",
+            "probabilidad_residual": 2,
+            "severidad_residual": 3,
+            "responsable": "Supervisor de Obra",
+            "estado_control": "IMPLEMENTADO",
+            "orden": 2
+        }
+        res_item_2 = self.client.post("/api/items-matriz-riesgo/", item_alto, format='json', **self.headers_a)
+        self.assertEqual(res_item_2.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_item_2.data['magnitud_pura'], 12)
+        self.assertEqual(res_item_2.data['clasificacion_pura'], 'ALTO')
+        self.assertEqual(res_item_2.data['magnitud_residual'], 6)
+        self.assertEqual(res_item_2.data['clasificacion_residual'], 'MEDIO')
+
+        # Consultar matriz y verificar métricas agregadas
+        res_matriz_get = self.client.get(f"/api/matrices-riesgo-miper/{matriz_id}/", **self.headers_a)
+        self.assertEqual(res_matriz_get.status_code, status.HTTP_200_OK)
+        data_m = res_matriz_get.data
+        self.assertEqual(data_m['total_peligros'], 2)
+        self.assertEqual(data_m['criticos_puros'], 1)
+        self.assertEqual(data_m['altos_puros'], 1)
+        self.assertEqual(data_m['criticos_residuales'], 0)
+        self.assertEqual(data_m['medios_residuales'], 1)
+        self.assertEqual(data_m['bajos_residuales'], 1)
+        # Reducción: suma pura = 25 + 12 = 37. Suma residual = 4 + 6 = 10. (37-10)/37 = 72.97% -> 73.0%
+        self.assertAlmostEqual(data_m['porcentaje_reduccion_riesgo'], 73.0, places=0)
+        self.assertEqual(len(data_m['items']), 2)
+
+    def test_validacion_rango_probabilidad_severidad(self):
+        """Verifica que el serializer rechace valores fuera del rango 1 a 5."""
+        matriz = MatrizRiesgoMiper.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            prevencionista=self.user_a,
+            nombre="Matriz Test Validación",
+            proceso_area="Área de Pruebas"
+        )
+        # Probabilidad pura fuera de rango (6)
+        res_error_p = self.client.post("/api/items-matriz-riesgo/", {
+            "matriz": matriz.id,
+            "proceso": "P",
+            "actividad": "A",
+            "puesto_trabajo": "PT",
+            "peligro": "Pel",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "RC",
+            "probabilidad_pura": 6,
+            "severidad_pura": 3,
+            "probabilidad_residual": 2,
+            "severidad_residual": 2
+        }, format='json', **self.headers_a)
+        self.assertEqual(res_error_p.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('probabilidad_pura', res_error_p.data)
+
+        # Severidad residual fuera de rango (0)
+        res_error_s = self.client.post("/api/items-matriz-riesgo/", {
+            "matriz": matriz.id,
+            "proceso": "P",
+            "actividad": "A",
+            "puesto_trabajo": "PT",
+            "peligro": "Pel",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "RC",
+            "probabilidad_pura": 3,
+            "severidad_pura": 3,
+            "probabilidad_residual": 2,
+            "severidad_residual": 0
+        }, format='json', **self.headers_a)
+        self.assertEqual(res_error_s.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('severidad_residual', res_error_s.data)
+
+    def test_aislamiento_multitenant_miper(self):
+        """Verifica que el usuario B no pueda ver, alterar ni añadir ítems en la matriz de la empresa del usuario A."""
+        matriz = MatrizRiesgoMiper.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            prevencionista=self.user_a,
+            nombre="Matriz Privada Usuario A",
+            proceso_area="Área Secreta"
+        )
+        item = ItemMatrizRiesgo.objects.create(
+            matriz=matriz,
+            proceso="Proceso A",
+            actividad="Actividad A",
+            puesto_trabajo="Puesto A",
+            peligro="Peligro A",
+            clasificacion_peligro="FISICO",
+            riesgo_consecuencia="Consecuencia A",
+            probabilidad_pura=4,
+            severidad_pura=4,
+            probabilidad_residual=2,
+            severidad_residual=2
+        )
+
+        # Usuario B no puede ver la matriz de Usuario A -> 404
+        res_ver = self.client.get(f"/api/matrices-riesgo-miper/{matriz.id}/", **self.headers_b)
+        self.assertEqual(res_ver.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B no puede listar ítems de la matriz de Usuario A -> lista vacía
+        res_list_items = self.client.get(f"/api/items-matriz-riesgo/?matriz={matriz.id}", **self.headers_b)
+        self.assertEqual(res_list_items.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_list_items.data), 0)
+
+        # Usuario B no puede crear ítem en matriz de Usuario A -> 400 Bad Request
+        res_crear_item = self.client.post("/api/items-matriz-riesgo/", {
+            "matriz": matriz.id,
+            "proceso": "Infiltración",
+            "actividad": "Intento de hack",
+            "puesto_trabajo": "Tester B",
+            "peligro": "Ataque",
+            "clasificacion_peligro": "SEGURIDAD",
+            "riesgo_consecuencia": "Fuga",
+            "probabilidad_pura": 1,
+            "severidad_pura": 1,
+            "probabilidad_residual": 1,
+            "severidad_residual": 1
+        }, format='json', **self.headers_b)
+        self.assertEqual(res_crear_item.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Usuario B no puede modificar ítem de Usuario A -> 404 Not Found
+        res_patch_item = self.client.patch(f"/api/items-matriz-riesgo/{item.id}/", {
+            "peligro": "Modificado indebidamente"
+        }, format='json', **self.headers_b)
+        self.assertEqual(res_patch_item.status_code, status.HTTP_404_NOT_FOUND)
+
+        # Usuario B no puede eliminar ítem de Usuario A -> 404 Not Found
+        res_del_item = self.client.delete(f"/api/items-matriz-riesgo/{item.id}/", **self.headers_b)
+        self.assertEqual(res_del_item.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_endpoint_matriz_calor_5x5(self):
+        """Verifica que el endpoint /matriz-calor retorne la cuadrícula 5x5 con conteos correctos."""
+        matriz = MatrizRiesgoMiper.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            prevencionista=self.user_a,
+            nombre="Matriz para Heatmap 5x5",
+            proceso_area="Planta Industrial"
+        )
+        # Ítem 1: Pura P=5, S=5 (25, Crítico). Residual P=1, S=2 (2, Bajo)
+        ItemMatrizRiesgo.objects.create(
+            matriz=matriz,
+            proceso="Fundición",
+            actividad="Vaciado de metal fundido",
+            puesto_trabajo="Operador Horno",
+            peligro="Salpicadura de metal a alta temperatura",
+            clasificacion_peligro="FISICO",
+            riesgo_consecuencia="Quemaduras graves de 3er grado",
+            probabilidad_pura=5,
+            severidad_pura=5,
+            probabilidad_residual=1,
+            severidad_residual=2
+        )
+        # Ítem 2: Pura P=5, S=5 (25, Crítico). Residual P=3, S=3 (9, Medio)
+        ItemMatrizRiesgo.objects.create(
+            matriz=matriz,
+            proceso="Calderas",
+            actividad="Mantenimiento de tuberías de vapor",
+            puesto_trabajo="Mecánico",
+            peligro="Explosión por sobrepresión",
+            clasificacion_peligro="SEGURIDAD",
+            riesgo_consecuencia="Trauma acústico, quemaduras",
+            probabilidad_pura=5,
+            severidad_pura=5,
+            probabilidad_residual=3,
+            severidad_residual=3
+        )
+
+        res_calor = self.client.get(f"/api/matrices-riesgo-miper/{matriz.id}/matriz-calor/", **self.headers_a)
+        self.assertEqual(res_calor.status_code, status.HTTP_200_OK)
+        data = res_calor.data
+
+        self.assertEqual(data['matriz_id'], matriz.id)
+        self.assertEqual(data['total_peligros'], 2)
+        self.assertEqual(len(data['grid']), 25)
+
+        # Buscar la celda P=5, S=5 en la cuadrícula
+        celda_5_5 = next(c for c in data['grid'] if c['probabilidad'] == 5 and c['severidad'] == 5)
+        self.assertEqual(celda_5_5['magnitud'], 25)
+        self.assertEqual(celda_5_5['clasificacion'], 'CRITICO')
+        self.assertEqual(celda_5_5['count_puro'], 2)
+        self.assertEqual(celda_5_5['count_residual'], 0)
+
+        # Buscar la celda P=1, S=2 (residual del ítem 1)
+        celda_1_2 = next(c for c in data['grid'] if c['probabilidad'] == 1 and c['severidad'] == 2)
+        self.assertEqual(celda_1_2['count_puro'], 0)
+        self.assertEqual(celda_1_2['count_residual'], 1)
+
+        # Buscar la celda P=3, S=3 (residual del ítem 2)
+        celda_3_3 = next(c for c in data['grid'] if c['probabilidad'] == 3 and c['severidad'] == 3)
+        self.assertEqual(celda_3_3['count_puro'], 0)
+        self.assertEqual(celda_3_3['count_residual'], 1)
+
+        # Totales
+        self.assertEqual(data['totales']['puro']['critico'], 2)
+        self.assertEqual(data['totales']['residual']['critico'], 0)
+        self.assertEqual(data['totales']['residual']['medio'], 1)
+        self.assertEqual(data['totales']['residual']['bajo'], 1)
+
 
 
 
