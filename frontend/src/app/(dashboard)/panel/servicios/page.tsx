@@ -98,7 +98,7 @@ export default function PanelServiciosPage() {
               },
               {
                 id: 2,
-                nombre: "Asesoría y Constitución de Comité Paritario (DS 54)",
+                nombre: "Asesoría y Constitución de Comité Paritario (D.S. N° 44)",
                 descripcion:
                   "Guía legal completa para el proceso electoral, constitución, actas oficiales ante la Dirección del Trabajo y plan de trabajo del CPHS.",
                 icono: "users",

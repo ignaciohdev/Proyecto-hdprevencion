@@ -1802,11 +1802,20 @@ class DenunciaLeyKarin(models.Model):
         ordering = ['-fecha_hora_ingreso']
 
     def save(self, *args, **kwargs):
-        from datetime import timedelta
+        from datetime import timedelta, datetime, time
         from django.utils import timezone
         if not self.plazo_limite_derivacion_dt:
-            # 72 horas legales desde el momento de registro
-            self.plazo_limite_derivacion_dt = timezone.now() + timedelta(hours=72)
+            # 3 días hábiles administrativos contados desde timezone.localdate() (Art. 211-C CT / Dictamen DT N° 362/19/2024)
+            base_date = timezone.localdate()
+            dias_agregados = 0
+            curr = base_date
+            while dias_agregados < 3:
+                curr += timedelta(days=1)
+                if curr.weekday() < 5:  # Lunes a Viernes
+                    dias_agregados += 1
+            # Vencimiento al final de la jornada laboral hábil correspondiente (23:59:59)
+            dt_fin_jornada = datetime.combine(curr, time(23, 59, 59))
+            self.plazo_limite_derivacion_dt = timezone.make_aware(dt_fin_jornada) if timezone.is_naive(dt_fin_jornada) else dt_fin_jornada
         if not self.plazo_limite_informe_mutualidad_5d:
             base_date = timezone.localdate()
             dias_agregados = 0
@@ -2106,7 +2115,7 @@ class SolicitudCapacitacion(models.Model):
     TIPO_OTRO = 'A_MEDIDA'
 
     TIPO_CHOICES = [
-        (TIPO_LEY_KARIN, 'Prevención del Acoso y Ley Karin / Protocolo SUSESO-ISTAS 21 (Psicólogo Laboral)'),
+        (TIPO_LEY_KARIN, 'Prevención del Acoso y Ley Karin / Protocolo CEAL-SM / SUSESO (Psicólogo Laboral)'),
         (TIPO_TMERT, 'Ergonomía, TMERT y Manejo Manual de Cargas Ley 20.949 (Kinesiólogo / Ergónomo)'),
         (TIPO_SEGURIDAD_CRITICA, 'Trabajos Críticos: Altura Física, Espacios Confinados, LOTO (Prevencionista Senior)'),
         (TIPO_EXTINTORES, 'Uso y Manejo Práctico de Extintores DS 594 (Instructor en Terreno)'),

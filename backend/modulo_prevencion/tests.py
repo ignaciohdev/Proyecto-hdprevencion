@@ -12,6 +12,7 @@ from .models import (
     InvestigacionAccidente,
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
     EntregaEPP,
+    Contratista, DocumentoContratista, TrabajadorSubcontratado,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo
 )
@@ -138,28 +139,40 @@ class CapacitacionIntegrationTestCase(APITestCase):
 
         url = reverse('registrocapacitacion-registrar-asistencia', kwargs={'uuid': str(registro.uuid)})
         
-        # 1. Petición pública sin credenciales
+        # 1. Petición pública sin credenciales con RUT válido (DV 5)
         self.client.credentials()
         payload = {
             "nombre": "Pedro Rojas",
-            "rut": "15.456.789-0",
+            "rut": "15.456.789-5",
             "firma": "data:image/png;base64,iVBORw0KGgoAAAANS..." # base64 simulado
         }
         response = self.client.post(url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Verificar en base de datos que se haya agregado
+        # Verificar en base de datos que se haya agregado con IP y fecha_firma
         registro.refresh_from_db()
         self.assertEqual(len(registro.asistentes), 1)
         self.assertEqual(registro.asistentes[0]['nombre'], "Pedro Rojas")
         self.assertTrue(registro.asistentes[0]['firma'].startswith("data:image/"))
+        self.assertIn('fecha_firma', registro.asistentes[0])
+        self.assertIn('ip_dispositivo', registro.asistentes[0])
 
-        # 2. Intentar registrar el mismo RUT
+        # 2. Intentar registrar con RUT con dígito verificador inválido (Módulo 11)
+        payload_rut_invalido = {
+            "nombre": "Juan Error",
+            "rut": "15.456.789-0",
+            "firma": "data:image/png;base64,iVBORw0KGgoAAAANS..."
+        }
+        response_bad_rut = self.client.post(url, payload_rut_invalido, format='json')
+        self.assertEqual(response_bad_rut.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response_bad_rut.data)
+
+        # 3. Intentar registrar el mismo RUT (duplicado)
         response_duplicado = self.client.post(url, payload, format='json')
         self.assertEqual(response_duplicado.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response_duplicado.data)
 
-        # 3. Intentar registrar con campos vacíos
+        # 4. Intentar registrar con campos vacíos
         payload_incompleto = {"nombre": "", "rut": "", "firma": ""}
         response_incompleto = self.client.post(url, payload_incompleto, format='json')
         self.assertEqual(response_incompleto.status_code, status.HTTP_400_BAD_REQUEST)
@@ -204,8 +217,8 @@ class CapacitacionIntegrationTestCase(APITestCase):
         self.client.credentials() # Anónimo
         url_firmar = reverse('registrocapacitacion-registrar-asistencia', kwargs={'uuid': registro_uuid})
         
-        trabajador_1 = {"nombre": "Juan Perez", "rut": "12.345.678-9", "firma": "data:image/png;base64,aaaa"}
-        trabajador_2 = {"nombre": "Maria Soto", "rut": "9.876.543-2", "firma": "data:image/png;base64,bbbb"}
+        trabajador_1 = {"nombre": "Juan Perez", "rut": "12.345.678-5", "firma": "data:image/png;base64,aaaa"}
+        trabajador_2 = {"nombre": "Maria Soto", "rut": "15.456.789-5", "firma": "data:image/png;base64,bbbb"}
         
         self.client.post(url_firmar, trabajador_1, format='json')
         self.client.post(url_firmar, trabajador_2, format='json')
@@ -557,10 +570,12 @@ class LeyKarinComplianceTestCase(APITestCase):
         )
 
     def test_plazo_72_horas_y_semaforo(self):
-        """Valida que al crear una denuncia se asignen 72 horas legales y el semáforo sea VERDE inicialmente."""
+        """Valida que al crear una denuncia se calculen 3 días hábiles administrativos (Art. 211-C CT) y el semáforo sea VERDE inicialmente."""
         self.assertIsNotNone(self.denuncia_a.plazo_limite_derivacion_dt)
-        diff = self.denuncia_a.plazo_limite_derivacion_dt - self.denuncia_a.fecha_hora_ingreso
-        self.assertAlmostEqual(diff.total_seconds() / 3600, 72.0, delta=0.5)
+        self.assertGreater(self.denuncia_a.plazo_limite_derivacion_dt, self.denuncia_a.fecha_hora_ingreso)
+        self.assertLess(self.denuncia_a.plazo_limite_derivacion_dt.weekday(), 5)
+        self.assertEqual(self.denuncia_a.plazo_limite_derivacion_dt.hour, 23)
+        self.assertEqual(self.denuncia_a.plazo_limite_derivacion_dt.minute, 59)
         self.assertEqual(self.denuncia_a.semaforo, 'VERDE')
 
         # Si modificamos el plazo para que queden 10 horas -> debe pasar a ROJO
@@ -654,6 +669,15 @@ class LeyKarinComplianceTestCase(APITestCase):
         denuncia_creada = DenunciaLeyKarin.objects.get(uuid=res.data['uuid'])
         self.assertEqual(denuncia_creada.empresa, self.empresa_a)
         self.assertEqual(denuncia_creada.nombre_denunciante, 'Ana Morales')
+        self.assertIn('codigo_seguimiento', res.data)
+        self.assertEqual(res.data['codigo_seguimiento'], denuncia_creada.codigo_seguimiento)
+
+        # Caso: Sin empresa -> 400 Bad Request
+        payload_sin_emp = payload.copy()
+        del payload_sin_emp['empresa']
+        res_sin_emp = self.client.post(url, payload_sin_emp, format='json')
+        self.assertEqual(res_sin_emp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Debe seleccionar obligatoriamente la empresa a la cual pertenece la denuncia o sugerencia.", res_sin_emp.data.get('error', ''))
 
     def test_enmascaramiento_lista_y_bloqueo_delete(self):
         """P0.1: El endpoint de listado enmascara la identidad y hechos. El método DELETE está bloqueado (405)."""
@@ -1026,6 +1050,26 @@ class AccidentesComplianceTestCase(APITestCase):
         self.assertEqual(data['graves_o_fatales_count'], 1)
         # Total eventos de usuario A (2 trabajo + 1 incidente = 3)
         self.assertEqual(data['total_eventos'], 3)
+
+    def test_inmutabilidad_accidente_delete_bloqueado(self):
+        """Circular SUSESO 3336 y Art. 76 Ley 16.744: DELETE está bloqueado (405)."""
+        acc = InvestigacionAccidente.objects.create(
+            usuario=self.user_a,
+            empresa=self.empresa_a,
+            nombre_afectado="Trabajador Inmutable",
+            rut_afectado="11.222.333-4",
+            edad_afectado=30,
+            antiguedad_afectado="1 año",
+            tipo_evento=InvestigacionAccidente.TIPO_TRABAJO,
+            fecha_hora_evento=timezone.now(),
+            lugar_evento="Taller",
+            descripcion_evento="Golpe en mano con herramienta manual",
+            tipo_lesion="Contusión leve",
+            parte_cuerpo_afectada="Mano"
+        )
+        res = self.client.delete(f"/api/accidentes/{acc.id}/", **self.headers_a)
+        self.assertEqual(res.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(InvestigacionAccidente.objects.filter(id=acc.id).exists())
 
 
 class ComiteParitarioIntegrationTestCase(APITestCase):
@@ -1522,6 +1566,31 @@ class EntregaEPPTestCase(APITestCase):
         # Usuario B intenta consultar historial de trabajador A1 -> 404
         res_b = self.client.get(f"/api/entregas-epp/historial-trabajador/{self.trabajador_a1.id}/", **self.headers_b)
         self.assertEqual(res_b.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_inmutabilidad_entrega_epp_put_patch_delete_bloqueados(self):
+        """Ley N° 19.799: PUT, PATCH y DELETE en entregas de EPP firmadas están bloqueados (405)."""
+        firma_mock = "data:image/png;base64,iVBORw0KGgoAAAANS..."
+        entrega = EntregaEPP.objects.create(
+            empresa=self.empresa_a,
+            centro_trabajo=self.centro_a,
+            trabajador=self.trabajador_a1,
+            responsable_entrega=self.user_a,
+            items_epp=[{"tipo": "Casco", "cantidad": 1}],
+            entrega_riohs=True,
+            firma_digital=firma_mock
+        )
+        # Intentar PUT
+        res_put = self.client.put(f"/api/entregas-epp/{entrega.id}/", {"items_epp": []}, format='json', **self.headers_a)
+        self.assertEqual(res_put.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # Intentar PATCH
+        res_patch = self.client.patch(f"/api/entregas-epp/{entrega.id}/", {"entrega_riohs": False}, format='json', **self.headers_a)
+        self.assertEqual(res_patch.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+        # Intentar DELETE
+        res_delete = self.client.delete(f"/api/entregas-epp/{entrega.id}/", **self.headers_a)
+        self.assertEqual(res_delete.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(EntregaEPP.objects.filter(id=entrega.id).exists())
 
 
 class MatrizLegalIntegrationTestCase(APITestCase):
@@ -2085,6 +2154,111 @@ class MatrizRiesgoMiperIntegrationTestCase(APITestCase):
         self.assertEqual(data['totales']['residual']['critico'], 0)
         self.assertEqual(data['totales']['residual']['medio'], 1)
         self.assertEqual(data['totales']['residual']['bajo'], 1)
+
+
+class ContratistaMultiTenantTestCase(APITestCase):
+    """
+    Casos de prueba para verificar el Aislamiento Multi-Tenant Corporativo en Contratistas:
+    - Usuarios de cuenta hija pueden consultar y operar sobre contratistas de la cuenta padre.
+    - Usuarios ajenos (tenant B) no pueden ver ni modificar contratistas del grupo A.
+    """
+    client: Any
+
+    def setUp(self):
+        cache.clear()
+        self.plan = Plan.objects.create(
+            nombre="Plan Corporativo Test",
+            codigo="plan-corp-test",
+            precio=49990.00,
+            limite_semanal=100,
+            asientos=10
+        )
+        # Cuenta Padre (Prevencionista Senior)
+        self.user_padre = Usuario.objects.create_user(
+            username="prev_padre_corp",
+            email="padre_corp@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_CORPORATIVO
+        )
+        # Cuenta Hija (Asiento dependiente)
+        self.user_hija = Usuario.objects.create_user(
+            username="prev_hija_corp",
+            email="hija_corp@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+            cuenta_padre=self.user_padre
+        )
+        # Usuario Tenant B (Ajeno)
+        self.user_b = Usuario.objects.create_user(
+            username="prev_externo_b",
+            email="externo_b@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+
+        self.empresa_padre = Empresa.objects.create(
+            prevencionista=self.user_padre,
+            razon_social="Corporación Minera S.A.",
+            rut="76.999.888-7"
+        )
+        self.contratista_padre = Contratista.objects.create(
+            usuario=self.user_padre,
+            empresa_principal=self.empresa_padre,
+            razon_social="Servicios Eléctricos Ltda.",
+            rut="77.222.333-4"
+        )
+
+        # Tokens
+        res_hija = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prev_hija_corp',
+            'password': 'securepassword123'
+        })
+        self.headers_hija = {'HTTP_AUTHORIZATION': f'Bearer {res_hija.data["access"]}'}
+
+        res_b = self.client.post(reverse('token_obtain_pair'), {
+            'username': 'prev_externo_b',
+            'password': 'securepassword123'
+        })
+        self.headers_b = {'HTTP_AUTHORIZATION': f'Bearer {res_b.data["access"]}'}
+
+    def test_cuenta_hija_ve_contratista_corporativo(self):
+        """La cuenta hija consulta /api/contratistas/ y ve el contratista creado por su cuenta padre."""
+        res = self.client.get("/api/contratistas/", **self.headers_hija)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = res.data if isinstance(res.data, list) else res.data.get('results', [])
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['razon_social'], "Servicios Eléctricos Ltda.")
+
+    def test_tenant_ajeno_no_ve_contratista_corporativo(self):
+        """Usuario ajeno (Tenant B) consulta /api/contratistas/ y no ve los contratistas del grupo corporativo A."""
+        res = self.client.get("/api/contratistas/", **self.headers_b)
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        items = res.data if isinstance(res.data, list) else res.data.get('results', [])
+        self.assertEqual(len(items), 0)
+
+    def test_cuenta_hija_opera_documentos_y_trabajadores_contratista(self):
+        """La cuenta hija puede listar y crear documentos/trabajadores del contratista de su empresa corporativa."""
+        doc = DocumentoContratista.objects.create(
+            contratista=self.contratista_padre,
+            tipo=DocumentoContratista.TIPO_F30,
+            fecha_emision=timezone.localdate(),
+            fecha_vencimiento=timezone.localdate() + timedelta(days=30)
+        )
+        res_docs = self.client.get(f"/api/documentos-contratista/?contratista={self.contratista_padre.id}", **self.headers_hija)
+        self.assertEqual(res_docs.status_code, status.HTTP_200_OK)
+        docs_items = res_docs.data if isinstance(res_docs.data, list) else res_docs.data.get('results', [])
+        self.assertEqual(len(docs_items), 1)
+
+        # Cuenta hija crea trabajador subcontratado
+        trab_payload = {
+            "contratista": self.contratista_padre.id,
+            "nombre_completo": "Esteban Técnico",
+            "rut": "15.456.789-5",
+            "cargo": "Electricista",
+            "fecha_ingreso_obra": str(timezone.localdate())
+        }
+        res_crear_trab = self.client.post("/api/trabajadores-subcontratados/", trab_payload, format='json', **self.headers_hija)
+        self.assertEqual(res_crear_trab.status_code, status.HTTP_201_CREATED)
 
 
 

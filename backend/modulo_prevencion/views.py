@@ -29,7 +29,8 @@ from .models import (
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
     EntregaEPP,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
-    MatrizRiesgoMiper, ItemMatrizRiesgo
+    MatrizRiesgoMiper, ItemMatrizRiesgo,
+    validar_rut_chileno
 )
 from .serializers import (
     RegisterSerializer, UsuarioSerializer, PlanSerializer,
@@ -932,6 +933,12 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
         user: Any = self.request.user
         serializer.save(usuario=user)
 
+    def destroy(self, request, *args, **kwargs):
+        raise exceptions.MethodNotAllowed(
+            "DELETE",
+            detail="Por disposición del Art. 76 de la Ley N° 16.744 y la Circular SUSESO N° 3336, los expedientes e investigaciones de accidentes laborales son inmutables y no pueden ser eliminados del sistema."
+        )
+
     @action(detail=True, methods=['post', 'patch'], url_path='registrar-diat')
     def registrar_diat(self, request, pk=None):
         """
@@ -1243,8 +1250,17 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
         if not nombre or not rut or not firma:
             return Response({"error": "Todos los campos (nombre, rut, firma) son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
 
+        rut_limpio = rut.replace('.', '').replace('-', '').strip().upper()
+        try:
+            validar_rut_chileno(rut_limpio)
+        except Exception as e:
+            error_msg = e.message if hasattr(e, 'message') else str(e)
+            if isinstance(error_msg, list):
+                error_msg = error_msg[0]
+            return Response({"error": error_msg}, status=status.HTTP_400_BAD_REQUEST)
+
         # Evitar duplicidad de RUT en la misma charla
-        if any(a.get('rut') == rut for a in capacitacion.asistentes):
+        if any(a.get('rut', '').replace('.', '').replace('-', '').strip().upper() == rut_limpio for a in capacitacion.asistentes):
             return Response({"error": "Este RUT ya se encuentra registrado en esta capacitación."}, status=status.HTTP_400_BAD_REQUEST)
 
         if not isinstance(capacitacion.asistentes, list):
@@ -1253,7 +1269,9 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
         capacitacion.asistentes.append({
             "nombre": nombre,
             "rut": rut,
-            "firma": firma
+            "firma": firma,
+            "fecha_firma": timezone.now().isoformat(),
+            "ip_dispositivo": get_client_ip(request)
         })
         capacitacion.save()
 
@@ -1709,19 +1727,22 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
         tipo_canal = data.get('tipo_canal') or data.get('canal')
 
-        # Resolver empresa del prevencionista
-        empresa_id = data.get('empresa')
-        empresa = None
-        if empresa_id:
-            empresa = Empresa.objects.filter(id=empresa_id, prevencionista=prevencionista).first()
-        if not empresa:
-            empresa = Empresa.objects.filter(prevencionista=prevencionista, activo=True).first()
-
         # Flujo B: Denuncia Formal Ley Karin
         if tipo_canal == 'DENUNCIA_KARIN' or 'rut_denunciante' in data:
+            empresa_id = data.get('empresa')
+            if not empresa_id:
+                return Response(
+                    {"error": "Debe seleccionar obligatoriamente la empresa a la cual pertenece la denuncia o sugerencia."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                empresa = Empresa.objects.filter(id=empresa_id, prevencionista=prevencionista).first()
+            except (ValueError, TypeError):
+                empresa = None
+
             if not empresa:
                 return Response(
-                    {"error": "El prevencionista aún no tiene empresas vinculadas para recibir denuncias formales."},
+                    {"error": "Debe seleccionar obligatoriamente la empresa a la cual pertenece la denuncia o sugerencia."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -1741,12 +1762,22 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
                 {
                     "mensaje": "Denuncia Ley Karin recepcionada de manera confidencial y protegida. Se han activado los protocolos legales de resguardo.",
                     "uuid": str(denuncia.uuid),
+                    "codigo_seguimiento": denuncia.codigo_seguimiento,
                     "tipo": "DENUNCIA_KARIN"
                 },
                 status=status.HTTP_201_CREATED
             )
 
         # Flujo A: Sugerencia Laboral Abierta
+        empresa_id = data.get('empresa')
+        empresa = None
+        if empresa_id:
+            try:
+                empresa = Empresa.objects.filter(id=empresa_id, prevencionista=prevencionista).first()
+            except (ValueError, TypeError):
+                empresa = None
+        if not empresa:
+            empresa = Empresa.objects.filter(prevencionista=prevencionista, activo=True).first()
         if empresa:
             tipo_sug = data.get('tipo', SugerenciaLaboral.TIPO_MEJORA_PROCESO)
             if tipo_sug == 'SUGERENCIA':
@@ -1811,6 +1842,17 @@ class PublicoEmpresasListView(APIView):
         return Response(res, status=status.HTTP_200_OK)
 
 
+def get_usuarios_grupo(user: Any) -> list[Any]:
+    """Retorna la lista de usuarios del mismo grupo corporativo (cuenta padre y cuentas hijas)."""
+    if not user or getattr(user, 'is_anonymous', True):
+        return []
+    owner: Any = getattr(user, 'cuenta_padre', None) or user
+    cuentas_hijas: Any = getattr(owner, 'cuentas_hijas', None)
+    if cuentas_hijas is not None and hasattr(cuentas_hijas, 'all'):
+        return [owner] + list(cuentas_hijas.all())
+    return [owner]
+
+
 class ContratistaViewSet(viewsets.ModelViewSet):
     """
     ViewSet para gestionar contratistas y proveedores.
@@ -1820,7 +1862,8 @@ class ContratistaViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = Contratista.objects.filter(usuario=self.request.user)
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        qs = Contratista.objects.filter(usuario__in=usuarios_grupo)
         empresa_id = self.request.query_params.get('empresa')
         if empresa_id:
             qs = qs.filter(empresa_principal_id=empresa_id)
@@ -1905,7 +1948,8 @@ class DocumentoContratistaViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         req: Any = self.request
-        queryset = DocumentoContratista.objects.filter(contratista__usuario=req.user)
+        usuarios_grupo = get_usuarios_grupo(req.user)
+        queryset = DocumentoContratista.objects.filter(contratista__usuario__in=usuarios_grupo)
         contratista_id = req.query_params.get('contratista')
         if contratista_id:
             queryset = queryset.filter(contratista_id=contratista_id)
@@ -1913,7 +1957,8 @@ class DocumentoContratistaViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         contratista = serializer.validated_data.get('contratista')
-        if contratista.usuario != self.request.user:
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if contratista.usuario not in usuarios_grupo:
             raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
         serializer.save()
 
@@ -1928,7 +1973,8 @@ class TrabajadorSubcontratadoViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         req: Any = self.request
-        queryset = TrabajadorSubcontratado.objects.filter(contratista__usuario=req.user)
+        usuarios_grupo = get_usuarios_grupo(req.user)
+        queryset = TrabajadorSubcontratado.objects.filter(contratista__usuario__in=usuarios_grupo)
         contratista_id = req.query_params.get('contratista')
         if contratista_id:
             queryset = queryset.filter(contratista_id=contratista_id)
@@ -1936,7 +1982,8 @@ class TrabajadorSubcontratadoViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         contratista = serializer.validated_data.get('contratista')
-        if contratista.usuario != self.request.user:
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        if contratista.usuario not in usuarios_grupo:
             raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
         serializer.save()
 
@@ -1977,15 +2024,7 @@ class SolicitudCapacitacionViewSet(viewsets.ModelViewSet):
             serializer.save()
 
 
-def get_usuarios_grupo(user: Any) -> list[Any]:
-    """Retorna la lista de usuarios del mismo grupo corporativo (cuenta padre y cuentas hijas)."""
-    if not user or getattr(user, 'is_anonymous', True):
-        return []
-    owner: Any = getattr(user, 'cuenta_padre', None) or user
-    cuentas_hijas: Any = getattr(owner, 'cuentas_hijas', None)
-    if cuentas_hijas is not None and hasattr(cuentas_hijas, 'all'):
-        return [owner] + list(cuentas_hijas.all())
-    return [owner]
+
 
 
 class EmpresaViewSet(viewsets.ModelViewSet):
@@ -2624,6 +2663,24 @@ class EntregaEPPViewSet(viewsets.ModelViewSet):
         serializer.save(
             responsable_entrega=self.request.user,
             ip_registro=ip
+        )
+
+    def update(self, request, *args, **kwargs):
+        raise exceptions.MethodNotAllowed(
+            "PUT",
+            detail="Por disposición de la Ley N° 19.799 sobre documentos electrónicos y firma electrónica, los comprobantes de entrega de EPP y RIOHS debidamente firmados son inmutables y no admiten modificaciones."
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        raise exceptions.MethodNotAllowed(
+            "PATCH",
+            detail="Por disposición de la Ley N° 19.799 sobre documentos electrónicos y firma electrónica, los comprobantes de entrega de EPP y RIOHS debidamente firmados son inmutables y no admiten modificaciones."
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        raise exceptions.MethodNotAllowed(
+            "DELETE",
+            detail="Por disposición de la Ley N° 19.799 sobre documentos electrónicos y firma electrónica, los comprobantes de entrega de EPP y RIOHS firmados no pueden ser eliminados del sistema."
         )
 
     @action(detail=False, methods=['get'], url_path='estadisticas')

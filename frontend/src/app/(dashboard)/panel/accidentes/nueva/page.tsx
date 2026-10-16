@@ -37,9 +37,9 @@ export default function NuevaInvestigacionPage() {
     es_grave_o_fatal: false,
     tipo_accidente_grave: "OTRO_GRAVE",
     dias_perdidos: 0,
-    faena_suspendida_inmediata: false,
+    faena_suspendida: false,
     aviso_autoridades_realizado: false,
-    folio_aviso_autoridad: "",
+    aviso_autoridades_folio: "",
   });
 
   // Paso 3: Análisis de Causas
@@ -90,7 +90,7 @@ export default function NuevaInvestigacionPage() {
       return;
     }
 
-    if (evento.es_grave_o_fatal && (!evento.faena_suspendida_inmediata || !evento.aviso_autoridades_realizado)) {
+    if (evento.es_grave_o_fatal && (!evento.faena_suspendida || !evento.aviso_autoridades_realizado)) {
       alert("Infracción Art. 76 Ley N° 16.744: Para accidentes graves o fatales es obligatorio dejar constancia de la suspensión de faenas y aviso a autoridades (Teléfono 600 42 000 22).");
       setLoading(false);
       return;
@@ -132,7 +132,7 @@ export default function NuevaInvestigacionPage() {
 
   const nextStep = () => {
     if (step === 2 && evento.es_grave_o_fatal) {
-      if (!evento.faena_suspendida_inmediata || !evento.aviso_autoridades_realizado) {
+      if (!evento.faena_suspendida || !evento.aviso_autoridades_realizado) {
         alert(
           "Infracción al Art. 76 Ley N° 16.744 y Circular 3.336 SUSESO:\nPara accidentes graves o fatales es mandatorio registrar la constancia de suspensión inmediata de faenas y el aviso a las autoridades (Teléfono 600 42 000 22 / Portal DT)."
         );
@@ -423,8 +423,8 @@ export default function NuevaInvestigacionPage() {
                       <label className="flex items-start gap-2.5 cursor-pointer bg-white dark:bg-slate-900/80 p-3 rounded-xl border border-rose-200 dark:border-rose-900/50">
                         <input
                           type="checkbox"
-                          checked={evento.faena_suspendida_inmediata}
-                          onChange={(e) => setEvento({ ...evento, faena_suspendida_inmediata: e.target.checked })}
+                          checked={evento.faena_suspendida}
+                          onChange={(e) => setEvento({ ...evento, faena_suspendida: e.target.checked })}
                           className="mt-0.5 w-4 h-4 accent-rose-600 rounded cursor-pointer"
                         />
                         <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
@@ -450,8 +450,8 @@ export default function NuevaInvestigacionPage() {
                         </label>
                         <input
                           type="text"
-                          value={evento.folio_aviso_autoridad}
-                          onChange={(e) => setEvento({ ...evento, folio_aviso_autoridad: e.target.value })}
+                          value={evento.aviso_autoridades_folio}
+                          onChange={(e) => setEvento({ ...evento, aviso_autoridades_folio: e.target.value })}
                           placeholder="Ej: FOLIO-DT-2026-991823"
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-rose-500"
                         />
