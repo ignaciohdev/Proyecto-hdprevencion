@@ -347,7 +347,14 @@ export default function DashboardLayout({
                 : "Cliente"}
             </span>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
+            <span
+              className="hidden lg:inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 bg-slate-900/60 border border-slate-800 px-2.5 py-1 rounded-full"
+              title="HD Prevención PWA: Funciona en faenas y minería sin conexión 4G/5G"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              <span>Modo Faena PWA</span>
+            </span>
             <span className="text-xs font-semibold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 px-3 py-1 rounded-full capitalize">
               {user?.is_superuser
                 ? "Acceso Total"

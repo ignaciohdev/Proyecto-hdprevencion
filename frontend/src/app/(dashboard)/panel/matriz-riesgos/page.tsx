@@ -19,6 +19,11 @@ import ModalImprimirMiper from "./ModalImprimirMiper";
 import ModalCartelMural from "../../../components/ModalCartelMural";
 import type { ClimaUvData } from "../../../components/ClimaUvWidget";
 import { getApiUrl, authFetch, parseJsonResponse } from "../../../utils/api";
+import {
+  guardarMatrizOffline,
+  obtenerMatrizOffline,
+  obtenerTodasMatricesOffline,
+} from "../../../utils/offlineStorage";
 
 export default function MatrizRiesgosPage() {
   const [empresas, setEmpresas] = useState<EmpresaSimple[]>([]);
@@ -110,9 +115,22 @@ export default function MatrizRiesgosPage() {
             setCalorData(null);
             setClimaActual(null);
           }
+        } else {
+          // Fallback offline: intentar recuperar matrices cacheadas en este dispositivo
+          const offlineList = await obtenerTodasMatricesOffline();
+          if (offlineList.length > 0) {
+            setMatrices(offlineList);
+            cargarDetalleMatriz(offlineList[0].id);
+          }
         }
       } catch (err) {
         console.error("Error cargando matrices IPERC:", err);
+        // Fallback offline en caso de error de red
+        const offlineList = await obtenerTodasMatricesOffline();
+        if (offlineList.length > 0) {
+          setMatrices(offlineList);
+          cargarDetalleMatriz(offlineList[0].id);
+        }
       } finally {
         setLoadingMatriz(false);
       }
@@ -157,9 +175,21 @@ export default function MatrizRiesgosPage() {
         setItems(data.items || []);
         cargarMatrizCalor(matrizId);
         cargarClimaFaena(data);
+        guardarMatrizOffline(data);
+      } else {
+        const cached = await obtenerMatrizOffline(matrizId);
+        if (cached) {
+          setMatrizActual(cached);
+          setItems(cached.items || []);
+        }
       }
     } catch (err) {
       console.error("Error cargando detalle de matriz:", err);
+      const cached = await obtenerMatrizOffline(matrizId);
+      if (cached) {
+        setMatrizActual(cached);
+        setItems(cached.items || []);
+      }
     } finally {
       setLoadingMatriz(false);
     }

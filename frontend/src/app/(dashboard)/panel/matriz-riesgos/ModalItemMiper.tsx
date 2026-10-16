@@ -15,6 +15,7 @@ import {
 } from "./types";
 import { getApiUrl, authFetch, parseJsonResponse } from "../../../utils/api";
 import type { ClimaUvData } from "../../../components/ClimaUvWidget";
+import { guardarEnCola } from "../../../utils/offlineStorage";
 
 interface ModalItemMiperProps {
   isOpen: boolean;
@@ -348,6 +349,28 @@ export default function ModalItemMiper({
         : getApiUrl("/api/items-matriz-riesgo/");
       const method = isEditing ? "PATCH" : "POST";
 
+      // Verificación previa de conexión en faena
+      if (typeof window !== "undefined" && !navigator.onLine) {
+        await guardarEnCola(
+          isEditing ? `/api/items-matriz-riesgo/${itemToEdit!.id}/` : "/api/items-matriz-riesgo/",
+          method,
+          payload,
+          `Peligro IPERC: ${peligro.substring(0, 32)}...`
+        );
+        const itemLocal: ItemMatrizRiesgo = {
+          id: itemToEdit?.id || Date.now(),
+          ...payload,
+          magnitud_pura: magnitudPura,
+          clasificacion_pura: clasificacionPura,
+          magnitud_residual: magnitudResidual,
+          clasificacion_residual: clasificacionResidual,
+        };
+        onItemGuardado(itemLocal, isEditing);
+        onClose();
+        alert("📡 Guardado localmente en Modo Faena Offline (Sin Señal). Se sincronizará automáticamente al recuperar conexión.");
+        return;
+      }
+
       const res = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -369,6 +392,60 @@ export default function ModalItemMiper({
       onItemGuardado(itemGuardado, isEditing);
       onClose();
     } catch (err: any) {
+      // Captura de corte abrupto de red durante la petición
+      if (
+        typeof window !== "undefined" &&
+        (!navigator.onLine ||
+          err.message?.toLowerCase().includes("fetch") ||
+          err.message?.toLowerCase().includes("network"))
+      ) {
+        try {
+          const method = isEditing ? "PATCH" : "POST";
+          const path = isEditing ? `/api/items-matriz-riesgo/${itemToEdit!.id}/` : "/api/items-matriz-riesgo/";
+          const payloadOffline: any = {
+            matriz: matrizId,
+            proceso: proceso.trim(),
+            actividad: actividad.trim(),
+            tipo_actividad: tipoActividad,
+            puesto_trabajo: puestoTrabajo.trim(),
+            peligro: peligro.trim(),
+            clasificacion_peligro: clasificacionPeligro,
+            riesgo_consecuencia: riesgoConsecuencia.trim(),
+            es_accidente_grave_fatal: esAccidenteGraveFatal,
+            trabajador_sensible: trabajadorSensible.trim(),
+            probabilidad_pura: Number(probabilidadPura),
+            severidad_pura: Number(severidadPura),
+            controles_existentes: controlesExistentes.trim(),
+            controles_requeridos: controlesRequeridos.trim(),
+            control_eliminacion: controlEliminacion.trim(),
+            control_sustitucion: controlSustitucion.trim(),
+            control_ingenieria: controlIngenieria.trim(),
+            control_administrativo: controlAdministrativo.trim(),
+            control_epp: controlEpp.trim(),
+            probabilidad_residual: Number(probabilidadResidual),
+            severidad_residual: Number(severidadResidual),
+            responsable: responsable.trim(),
+            estado_control: estadoControl,
+            orden: Number(orden) || 10,
+            plazo_implementacion: plazoImplementacion || null,
+          };
+          await guardarEnCola(path, method, payloadOffline, `Peligro IPERC: ${peligro.substring(0, 32)}...`);
+          const itemLocal: ItemMatrizRiesgo = {
+            id: itemToEdit?.id || Date.now(),
+            ...payloadOffline,
+            magnitud_pura: magnitudPura,
+            clasificacion_pura: clasificacionPura,
+            magnitud_residual: magnitudResidual,
+            clasificacion_residual: clasificacionResidual,
+          };
+          onItemGuardado(itemLocal, isEditing);
+          onClose();
+          alert("📡 Señal perdida en faena: El peligro se guardó en almacenamiento local (IndexedDB) y se transmitirá al recuperar cobertura.");
+          return;
+        } catch (queueErr) {
+          console.error("Error al encolar offline:", queueErr);
+        }
+      }
       setErrorMsg(err.message || "Error al procesar la solicitud.");
     } finally {
       setGuardando(false);

@@ -1,0 +1,67 @@
+import type { MetadataRoute } from "next";
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: "HD Prevención - SST & Trinorma Chile",
+    short_name: "HD Prevención",
+    description:
+      "Sistema de Gestión de Seguridad y Salud en el Trabajo para Faenas y Minería (D.S. 44, Ley 16.744, ISO 45001)",
+    start_url: "/panel",
+    scope: "/",
+    display: "standalone",
+    orientation: "any",
+    background_color: "#020617",
+    theme_color: "#ea580c",
+    lang: "es-CL",
+    categories: ["business", "productivity", "utilities"],
+    icons: [
+      {
+        src: "/logo_dark.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/logo_dark.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+      {
+        src: "/logo_light.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
+      },
+      {
+        src: "/logo_light.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
+      },
+    ],
+    shortcuts: [
+      {
+        name: "Matriz IPERC",
+        short_name: "IPERC",
+        url: "/panel/matriz-riesgos",
+        description: "Matriz de Riesgos IPERC en faena conforme a D.S. 44 e ISP",
+        icons: [{ src: "/logo_dark.png", sizes: "192x192" }],
+      },
+      {
+        name: "Firmar Capacitación",
+        short_name: "Charlas",
+        url: "/capacitaciones",
+        description: "Registro de firmas de asistencia y charlas en terreno",
+        icons: [{ src: "/logo_dark.png", sizes: "192x192" }],
+      },
+      {
+        name: "Reportar Peligro",
+        short_name: "Reportar",
+        url: "/panel/reportes-riesgo",
+        description: "Reporte in situ de condiciones y actos subestándar",
+        icons: [{ src: "/logo_dark.png", sizes: "192x192" }],
+      },
+    ],
+  };
+}

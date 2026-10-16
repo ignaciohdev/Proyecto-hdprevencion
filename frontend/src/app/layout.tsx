@@ -1,6 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import BarraConectividad from "./components/BarraConectividad";
+import PwaManager from "./components/PwaManager";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,9 +14,27 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const viewport: Viewport = {
+  themeColor: "#ea580c",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export const metadata: Metadata = {
-  title: "HD Prevención - Prevención de Riesgos Moderna",
-  description: "Soluciones expertas y herramientas digitales para una gestión de seguridad eficiente, cumpliendo y superando la normativa chilena.",
+  title: "HD Prevención - Prevención de Riesgos Moderna & PWA Faena",
+  description:
+    "Soluciones expertas y herramientas digitales para una gestión de seguridad eficiente, cumpliendo y superando la normativa chilena.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "HD Prevención",
+  },
+  icons: {
+    icon: "/logo_dark.png",
+    apple: "/logo_dark.png",
+  },
 };
 
 export default function RootLayout({
@@ -25,6 +45,11 @@ export default function RootLayout({
   return (
     <html lang="es" className="h-full antialiased" suppressHydrationWarning>
       <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="theme-color" content="#ea580c" />
+        <link rel="apple-touch-icon" href="/logo_dark.png" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -42,7 +67,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} min-h-full flex flex-col font-sans antialiased text-slate-800 bg-slate-100 dark:bg-slate-900 dark:text-slate-200 transition-colors duration-300`}
       >
+        <BarraConectividad />
         {children}
+        <PwaManager />
       </body>
     </html>
   );
