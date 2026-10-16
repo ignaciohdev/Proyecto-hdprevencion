@@ -8,6 +8,7 @@ import {
   MatrizCalorData,
   ClasificacionPeligro,
   ClasificacionRiesgo,
+  CLASIFICACIONES_RIESGO,
   getClasificacionColor,
   getClasificacionSolidBg,
 } from "./types";
@@ -15,6 +16,8 @@ import MatrizCalorWidget from "./MatrizCalorWidget";
 import ModalCrearMatriz from "./ModalCrearMatriz";
 import ModalItemMiper from "./ModalItemMiper";
 import ModalImprimirMiper from "./ModalImprimirMiper";
+import ModalCartelMural from "../../../components/ModalCartelMural";
+import type { ClimaUvData } from "../../../components/ClimaUvWidget";
 import { getApiUrl, authFetch, parseJsonResponse } from "../../../utils/api";
 
 export default function MatrizRiesgosPage() {
@@ -49,6 +52,12 @@ export default function MatrizRiesgosPage() {
   const [modalItemOpen, setModalItemOpen] = useState(false);
   const [itemToEdit, setItemToEdit] = useState<ItemMatrizRiesgo | null>(null);
   const [modalImprimirOpen, setModalImprimirOpen] = useState(false);
+
+  // Módulo Clima & Radiación UV (D.S. N° 594 Art. 109 / Enmienda ISO 2024)
+  const [climaActual, setClimaActual] = useState<ClimaUvData | null>(null);
+  const [loadingClima, setLoadingClima] = useState(false);
+  const [showMuralModal, setShowMuralModal] = useState(false);
+  const [prefillClimaModal, setPrefillClimaModal] = useState(false);
 
   // Cargar lista de empresas
   useEffect(() => {
@@ -99,6 +108,7 @@ export default function MatrizRiesgosPage() {
             setMatrizActual(null);
             setItems([]);
             setCalorData(null);
+            setClimaActual(null);
           }
         }
       } catch (err) {
@@ -111,6 +121,31 @@ export default function MatrizRiesgosPage() {
     cargarMatrices();
   }, [selectedEmpresaId]);
 
+  // Cargar datos meteorológicos y radiación UV en tiempo real de la faena
+  const cargarClimaFaena = async (matriz: MatrizRiesgoMiper) => {
+    setLoadingClima(true);
+    try {
+      let endpoint = "/api/clima/radiacion-uv/";
+      if (matriz.centro_trabajo) {
+        endpoint += `?centro_trabajo_id=${matriz.centro_trabajo}`;
+      } else if (matriz.centro_trabajo_nombre) {
+        endpoint += `?comuna=${encodeURIComponent(matriz.centro_trabajo_nombre)}`;
+      }
+      const res = await authFetch(getApiUrl(endpoint));
+      if (res.ok) {
+        const data = await parseJsonResponse<ClimaUvData>(res);
+        setClimaActual(data);
+      } else {
+        setClimaActual(null);
+      }
+    } catch (err) {
+      console.error("Error cargando datos de clima y radiación UV:", err);
+      setClimaActual(null);
+    } finally {
+      setLoadingClima(false);
+    }
+  };
+
   // Cargar detalle completo de la matriz seleccionada (incluyendo sus ítems)
   const cargarDetalleMatriz = async (matrizId: number) => {
     setLoadingMatriz(true);
@@ -121,6 +156,7 @@ export default function MatrizRiesgosPage() {
         setMatrizActual(data);
         setItems(data.items || []);
         cargarMatrizCalor(matrizId);
+        cargarClimaFaena(data);
       }
     } catch (err) {
       console.error("Error cargando detalle de matriz:", err);
@@ -216,6 +252,18 @@ export default function MatrizRiesgosPage() {
     return items.filter((it) => it.estado_control !== "IMPLEMENTADO").length;
   }, [items]);
 
+  // Auditoría Climática Automática en Matriz IPERC
+  const peligroClimatico = useMemo(() => {
+    return items.find((it) => it.clasificacion_peligro === "CLIMATICO");
+  }, [items]);
+
+  const tienePeligroClimatico = Boolean(peligroClimatico);
+
+  const alertaClimaticaCritica = useMemo(() => {
+    if (!climaActual) return false;
+    return climaActual.uv_actual >= 6 || climaActual.sensacion_termica >= 32.0;
+  }, [climaActual]);
+
   // 5 Pasos Metodológicos IPERC
   const PASOS_IPERC = [
     {
@@ -293,6 +341,7 @@ export default function MatrizRiesgosPage() {
                 type="button"
                 onClick={() => {
                   setItemToEdit(null);
+                  setPrefillClimaModal(false);
                   setModalItemOpen(true);
                 }}
                 className="px-4 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-lg shadow-orange-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
@@ -548,6 +597,154 @@ export default function MatrizRiesgosPage() {
               </div>
               <div className="text-[11px] text-slate-500 mt-2">
                 {items.length - controlesPendientes} controles 100% implementados
+              </div>
+            </div>
+          </div>
+
+          {/* CINTILLO / BANNER INTELIGENTE DE AUDITORÍA CLIMÁTICA EN FAENA (D.S. 594 & ISO 2024) */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-950 border border-slate-800 rounded-2xl p-4.5 shadow-xl relative overflow-hidden">
+            {/* Resplandor ambiental adaptativo según semáforo D.S. 594 */}
+            <div
+              className="absolute -right-20 -top-20 w-64 h-64 rounded-full blur-3xl pointer-events-none opacity-20 transition-all duration-700"
+              style={{ backgroundColor: climaActual?.color_hex || "#f97316" }}
+            />
+
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 relative z-10">
+              {/* Lado izquierdo: Indicador en vivo de faena y semáforo oficial D.S. 594 */}
+              <div className="flex items-center gap-3.5">
+                <div
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 shadow-inner border transition-all"
+                  style={{
+                    backgroundColor: climaActual ? `${climaActual.color_hex}20` : "rgba(249, 115, 22, 0.15)",
+                    borderColor: climaActual ? `${climaActual.color_hex}60` : "rgba(249, 115, 22, 0.4)",
+                  }}
+                >
+                  {loadingClima ? "⏳" : (climaActual?.uv_actual ?? 0) >= 8 ? "🔥" : "☀️"}
+                </div>
+
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-white tracking-wide">
+                      {climaActual?.faena_nombre || matrizActual.centro_trabajo_nombre || "Faena General"}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      ({climaActual?.ciudad || "Chile"})
+                    </span>
+                    {climaActual && (
+                      <span
+                        className="text-[10px] font-black px-2.5 py-0.5 rounded-full text-slate-950 uppercase shadow-sm"
+                        style={{ backgroundColor: climaActual.color_hex }}
+                      >
+                        Semáforo UV: {climaActual.nivel_uv_display} ({climaActual.uv_actual})
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 mt-1 text-xs text-slate-300">
+                    <span>
+                      Índice UV: <strong className="text-white">{climaActual?.uv_actual ?? "—"}</strong>
+                      {climaActual && (
+                        <span className="text-[11px] text-slate-400 ml-1">
+                          (Proyección máx: {climaActual.uv_max_dia})
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-slate-600">•</span>
+                    <span>
+                      Temp: <strong className="text-white">{climaActual?.temperatura ?? "—"}°C</strong>
+                    </span>
+                    <span className="text-slate-600">•</span>
+                    <span>
+                      Sensación Térmica:{" "}
+                      <strong
+                        className={
+                          (climaActual?.sensacion_termica ?? 0) >= 32
+                            ? "text-amber-400 font-bold"
+                            : "text-white"
+                        }
+                      >
+                        {climaActual?.sensacion_termica ?? "—"}°C
+                      </strong>
+                    </span>
+                    {climaActual?.estres_termico_alerta && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
+                        ⚡ Estrés Térmico (ISO 2024)
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Lado central: Auditoría Automática de la Matriz IPERC */}
+              <div className="flex-1 lg:px-4">
+                {tienePeligroClimatico ? (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2.5">
+                    <span className="text-base shrink-0">🛡️</span>
+                    <div className="text-xs">
+                      <span className="font-bold text-emerald-400">
+                        🛡️ Peligro Climático D.S. 594 / ISO 2024 Evaluado en Matriz
+                      </span>
+                      <div className="text-[11px] text-emerald-300/90 mt-0.5">
+                        Nivel Residual:{" "}
+                        <strong className="underline">
+                          {peligroClimatico?.clasificacion_residual
+                            ? CLASIFICACIONES_RIESGO[peligroClimatico.clasificacion_residual]?.nombre ||
+                              peligroClimatico.clasificacion_residual
+                            : "Bajo"}
+                        </strong>{" "}
+                        (Magnitud {peligroClimatico?.magnitud_residual}) • Controles formalizados.
+                      </div>
+                    </div>
+                  </div>
+                ) : alertaClimaticaCritica ? (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-red-500/15 border border-red-500/40 flex items-center gap-2.5 animate-pulse">
+                    <span className="text-base shrink-0">⚠️</span>
+                    <div className="text-xs">
+                      <span className="font-extrabold text-red-300">
+                        ⚠️ Alerta Activa: Esta faena presenta condiciones críticas de exposición solar/calor sin controles formalizados en la Matriz IPERC.
+                      </span>
+                      <div className="text-[11px] text-red-200/80 mt-0.5">
+                        Exigencia D.S. N° 594 Art. 109 y Enmienda ISO 2024. Incorpora los controles en 1 clic.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-2.5 sm:p-3 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center gap-2.5">
+                    <span className="text-base shrink-0">ℹ️</span>
+                    <div className="text-xs text-slate-300">
+                      <span className="font-bold text-slate-200">
+                        Auditoría Preventiva D.S. 594 & ISO 2024:
+                      </span>{" "}
+                      Sin peligro climático registrado aún. Recomendado incorporar controles antes de tareas en intemperie.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Lado derecho: Acciones en 1 Clic */}
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setItemToEdit(null);
+                    setPrefillClimaModal(true);
+                    setModalItemOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-md shadow-orange-500/20 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>⚡</span>
+                  <span>Incorporar Peligro Climático</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowMuralModal(true)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Cartel Mural Diario D.S. N° 594 Art. 109"
+                >
+                  <span>🖨️</span>
+                  <span>Cartel Mural D.S. 594</span>
+                </button>
               </div>
             </div>
           </div>
@@ -1098,9 +1295,12 @@ export default function MatrizRiesgosPage() {
           onClose={() => {
             setModalItemOpen(false);
             setItemToEdit(null);
+            setPrefillClimaModal(false);
           }}
           matrizId={matrizActual.id}
           itemToEdit={itemToEdit}
+          climaData={climaActual}
+          prefillClima={prefillClimaModal}
           onItemGuardado={handleItemGuardado}
         />
       )}
@@ -1114,6 +1314,13 @@ export default function MatrizRiesgosPage() {
           items={items}
         />
       )}
+
+      {/* MODAL CARTEL MURAL D.S. 594 / ISO 2024 */}
+      <ModalCartelMural
+        isOpen={showMuralModal}
+        onClose={() => setShowMuralModal(false)}
+        data={climaActual}
+      />
     </div>
   );
 }

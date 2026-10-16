@@ -37,6 +37,7 @@ export interface ItemMatrizRiesgo {
   severidad_pura: number;
   magnitud_pura: number;
   clasificacion_pura: ClasificacionRiesgo;
+  clasificacion_pura_display?: string;
 
   // Paso 4: Controles Existentes (Infografía IPERC)
   controles_existentes: string;
@@ -56,6 +57,7 @@ export interface ItemMatrizRiesgo {
   severidad_residual: number;
   magnitud_residual: number;
   clasificacion_residual: ClasificacionRiesgo;
+  clasificacion_residual_display?: string;
 
   responsable: string;
   plazo_implementacion: string | null;

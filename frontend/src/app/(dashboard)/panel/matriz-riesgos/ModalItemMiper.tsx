@@ -14,12 +14,15 @@ import {
   getClasificacionSolidBg,
 } from "./types";
 import { getApiUrl, authFetch, parseJsonResponse } from "../../../utils/api";
+import type { ClimaUvData } from "../../../components/ClimaUvWidget";
 
 interface ModalItemMiperProps {
   isOpen: boolean;
   onClose: () => void;
   matrizId: number;
   itemToEdit?: ItemMatrizRiesgo | null;
+  climaData?: ClimaUvData | null;
+  prefillClima?: boolean;
   onItemGuardado: (item: ItemMatrizRiesgo, isEdit: boolean) => void;
 }
 
@@ -28,6 +31,8 @@ export default function ModalItemMiper({
   onClose,
   matrizId,
   itemToEdit,
+  climaData,
+  prefillClima,
   onItemGuardado,
 }: ModalItemMiperProps) {
   const isEditing = Boolean(itemToEdit);
@@ -141,10 +146,74 @@ export default function ModalItemMiper({
       setPlazoImplementacion("");
       setEstadoControl("IMPLEMENTADO");
       setOrden(10);
+
+      if (prefillClima) {
+        autocompletarClima();
+      }
     }
     setPasoActivo(1);
     setErrorMsg(null);
-  }, [itemToEdit, isOpen]);
+  }, [itemToEdit, isOpen, prefillClima]);
+
+  // Autocompletado inteligente con datos meteorológicos D.S. 594 Art. 109 & Enmienda ISO 2024
+  const autocompletarClima = () => {
+    const uvActual = climaData?.uv_actual ?? 6.0;
+    const uvMax = climaData?.uv_max_dia ?? 8.5;
+    const nivelDisplay = climaData?.nivel_uv_display ?? "Alto";
+    const sensacion = climaData?.sensacion_termica ?? 32.0;
+
+    // Paso 1: Identificación del Peligro
+    setProceso("Operaciones generales y actividades en terreno / intemperie");
+    setActividad("Trabajos en exterior con exposición a radiación solar y condiciones ambientales");
+    setPuestoTrabajo("Cuadrillas operativas, supervisores y trabajadores en terreno");
+    setTipoActividad("RUTINARIA");
+    setClasificacionPeligro("CLIMATICO");
+    setPeligro(
+      `Exposición a Radiación Solar Ultravioleta (Índice UV: ${uvActual} / Proyección máx: ${uvMax} - Nivel ${nivelDisplay}) y Estrés Térmico por Calor (Sensación térmica: ${sensacion}°C).`
+    );
+
+    // Paso 2: Identificación del Riesgo
+    setRiesgoConsecuencia(
+      "Estrés térmico por calor, deshidratación severa, síncope o golpe de calor, fatiga extrema, fotoenvejecimiento cutáneo, eritema solar agudo y daño actínico acumulativo a la salud (D.S. N° 594 Art. 109, Guía Técnica ISP Radiación UV y Enmienda ISO 2024)."
+    );
+    setEsAccidenteGraveFatal(sensacion >= 38.0);
+    setTrabajadorSensible(
+      "Personas con hipertensión, trabajadoras embarazadas o en tratamiento fotosensibilizante (Art. 11 D.S. N° 44)."
+    );
+
+    // Paso 3: Evaluación Riesgo Puro
+    setProbabilidadPura(4); // Exposición diaria habitual
+    setSeveridadPura(uvMax >= 11 || sensacion >= 34 ? 4 : 3);
+
+    // Paso 4: Controles Existentes
+    setControlesExistentes("Disponibilidad básica de agua potable en faena y uso de gorro común.");
+
+    // Paso 5: Controles Requeridos y Jerarquía
+    const medidasLegales =
+      climaData?.medidas_legales_ds594 && climaData.medidas_legales_ds594.length > 0
+        ? climaData.medidas_legales_ds594.map((m) => `• ${m}`).join("\n")
+        : "• Publicación diaria del índice UV en cartel mural visible.\n• Disposición de agua potable fresca para hidratación continua.\n• Uso obligatorio de elementos de protección personal con filtro UV certificado.\n• Implementación de pausas y sombras de descanso en faena.";
+
+    setControlesRequeridos(
+      `Cumplimiento obligatorio de medidas preventivas D.S. 594 y Enmienda ISO 2024:\n${medidasLegales}`
+    );
+    setControlEliminacion("");
+    setControlSustitucion("");
+    setControlIngenieria(
+      "Habilitación de zonas de descanso con sombra artificial (mallas o toldos UV). Puntos de hidratación refrigerada a menos de 50m de los frentes de trabajo."
+    );
+    setControlAdministrativo(
+      "Pausas activas de hidratación de 1 vaso de agua fresca cada 15-20 minutos. Rotación periódica de personal. Prohibición de faenas de alto esfuerzo físico al sol directo entre 11:00 y 16:00 hrs. Publicación diaria del Índice UV en panel mural visible."
+    );
+    setControlEpp(
+      "Ropa de trabajo manga larga de trama tupida con protección UPF 50+, cubre nuca tipo legionario, gafas de seguridad certificadas con filtro UV 400 y protector solar FPS 50+ con reaplicación obligatoria cada 2 horas."
+    );
+
+    setProbabilidadResidual(2);
+    setSeveridadResidual(2);
+    setResponsable("Supervisor de Terreno / Prevencionista");
+    setEstadoControl("IMPLEMENTADO");
+  };
 
   // Cálculos de Magnitud y Clasificación Pura
   const magnitudPura = useMemo(() => probabilidadPura * severidadPura, [probabilidadPura, severidadPura]);
@@ -404,6 +473,45 @@ export default function ModalItemMiper({
                   </p>
                 </div>
               </div>
+
+              {/* Banner Inteligente de Autocompletado Climático D.S. 594 / ISO 2024 */}
+              {(clasificacionPeligro === "CLIMATICO" || prefillClima) && (
+                <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-transparent border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-orange-500/20 text-orange-400 flex items-center justify-center text-xl shrink-0">
+                      ☀️
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-xs font-bold text-white">
+                          Peligro Climático D.S. N° 594 Art. 109 & Enmienda ISO 2024
+                        </h4>
+                        {climaData && (
+                          <span
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full text-slate-950 uppercase"
+                            style={{ backgroundColor: climaData.color_hex }}
+                          >
+                            UV {climaData.uv_actual} • {climaData.nivel_uv_display}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-300 mt-0.5">
+                        {climaData
+                          ? `Faena: ${climaData.faena_nombre || climaData.ciudad} • Temp: ${climaData.temperatura}°C • Sensación: ${climaData.sensacion_termica}°C`
+                          : "Monitoreo meteorológico en faena y directrices preventivas oficiales."}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={autocompletarClima}
+                    className="px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                  >
+                    <span>☀️</span>
+                    <span>Autocompletar con Datos del Semáforo UV y D.S. 594 de esta Faena</span>
+                  </button>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
