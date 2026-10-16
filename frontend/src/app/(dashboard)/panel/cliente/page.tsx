@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { getApiUrl } from "../../../utils/api";
+import { ClimaUvWidget } from "../../../components/ClimaUvWidget";
 
 interface RiskStats {
   total: number;
@@ -557,6 +558,11 @@ export default function ClientePanel() {
           )}
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* SEMÁFORO CLIMA, RADIACIÓN UV SOLAR (D.S. 594) Y ESTRÉS TÉRMICO (ISO 2024)   */}
+      {/* ========================================================================= */}
+      <ClimaUvWidget className="shadow-xl" />
 
       {/* ========================================================================= */}
       {/* 2. DASHBOARD DE ANILLOS VISUALES DE SALUD PREVENTIVA (4 ANILLOS)           */}

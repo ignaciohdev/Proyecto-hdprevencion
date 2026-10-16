@@ -1,5 +1,7 @@
 from datetime import timedelta
 from typing import Any
+import json
+from unittest.mock import patch, MagicMock
 from django.urls import reverse
 from django.utils import timezone
 from django.core.cache import cache
@@ -2259,6 +2261,106 @@ class ContratistaMultiTenantTestCase(APITestCase):
         }
         res_crear_trab = self.client.post("/api/trabajadores-subcontratados/", trab_payload, format='json', **self.headers_hija)
         self.assertEqual(res_crear_trab.status_code, status.HTTP_201_CREATED)
+
+
+class ClimaUvTestCase(APITestCase):
+    """
+    Casos de prueba para verificar el endpoint de Clima, Radiación UV (D.S. 594)
+    y Estrés Térmico por Calor (Enmienda ISO 2024).
+    """
+    def setUp(self):
+        cache.clear()
+        self.user = Usuario.objects.create_user(
+            username="prev_clima_test",
+            email="clima@hdprevencion.cl",
+            password="securepassword123"
+        )
+        self.empresa = Empresa.objects.create(
+            prevencionista=self.user,
+            razon_social="Constructora Andes SpA",
+            rut="76.123.456-0"
+        )
+        self.centro = CentroTrabajo.objects.create(
+            empresa=self.empresa,
+            nombre="Faena Mina Norte",
+            direccion="Camino Minero s/n",
+            comuna="Antofagasta",
+            region="Antofagasta"
+        )
+
+    @patch('urllib.request.urlopen')
+    def test_radiacion_uv_ds594_y_estres_termico_json(self, mock_urlopen):
+        """Valida que /api/clima/radiacion-uv/ responda 200 con la estructura oficial del D.S. 594 e ISO 2024."""
+        mock_data = {
+            "latitude": -23.65,
+            "longitude": -70.40,
+            "current": {
+                "time": "2026-10-16T12:00",
+                "temperature_2m": 31.5,
+                "apparent_temperature": 33.2,
+                "relative_humidity_2m": 65,
+                "uv_index": 8.6,
+                "is_day": 1
+            },
+            "daily": {
+                "time": ["2026-10-16"],
+                "uv_index_max": [10.2],
+                "temperature_2m_max": [32.0]
+            }
+        }
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(mock_data).encode('utf-8')
+        mock_response.__enter__.return_value = mock_response
+        mock_urlopen.return_value = mock_response
+
+        # Consultar por centro_trabajo_id
+        res = self.client.get(f"/api/clima/radiacion-uv/?centro_trabajo_id={self.centro.id}")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.data
+
+        # Verificación de claves requeridas
+        self.assertEqual(data['ciudad'], "Antofagasta")
+        self.assertEqual(data['faena_nombre'], "Faena Mina Norte")
+        self.assertEqual(data['empresa_nombre'], "Constructora Andes SpA")
+        self.assertEqual(data['fecha'], "2026-10-16")
+        self.assertEqual(data['uv_actual'], 8.6)
+        self.assertEqual(data['uv_max_dia'], 10.2)
+        self.assertEqual(data['nivel_uv'], "MUY_ALTO")
+        self.assertEqual(data['color_hex'], "#ef4444")
+        self.assertEqual(data['temperatura'], 31.5)
+        self.assertEqual(data['sensacion_termica'], 33.2)
+        self.assertEqual(data['humedad'], 65)
+
+        # Validación Estrés Térmico ISO 2024 (sensación >= 32°C)
+        self.assertTrue(data['estres_termico_alerta'])
+        self.assertIn("Alerta de Estrés Térmico (Enmienda Oficial ISO 2024)", data['medidas_legales_ds594'][0])
+
+        # Horario de mayor riesgo
+        self.assertEqual(data['hora_inicio_peligro'], "11:00")
+        self.assertEqual(data['hora_fin_peligro'], "16:00")
+        self.assertGreaterEqual(len(data['medidas_legales_ds594']), 2)
+
+    @patch('urllib.request.urlopen')
+    def test_cache_30_minutos_clima(self, mock_urlopen):
+        """Valida que llamadas sucesivas a la misma ubicación utilicen la caché."""
+        mock_data = {
+            "current": {"temperature_2m": 20.0, "apparent_temperature": 20.0, "relative_humidity_2m": 50, "uv_index": 2.0},
+            "daily": {"time": ["2026-10-16"], "uv_index_max": [2.5]}
+        }
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(mock_data).encode('utf-8')
+        mock_response.__enter__.return_value = mock_response
+        mock_urlopen.return_value = mock_response
+
+        # Primera llamada (consulta API)
+        res1 = self.client.get("/api/clima/radiacion-uv/?comuna=Santiago")
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+        # Segunda llamada inmediata (debe venir de cache)
+        res2 = self.client.get("/api/clima/radiacion-uv/?comuna=Santiago")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_urlopen.call_count, 1)
 
 
 
