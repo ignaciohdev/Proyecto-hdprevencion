@@ -26,6 +26,7 @@ backend/media/
 
 # Subsistema de agentes IA (uso local exclusivo)
 agentes/
+doc_agents/
 
 # Informes y auditorías locales
 INFORME_AUDITORIA_LEGAL_SST_2026*
