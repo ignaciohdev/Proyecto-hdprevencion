@@ -17,7 +17,8 @@ from .views import (
     ComiteParitarioViewSet, MiembroCPHSViewSet, ActaSesionCPHSViewSet,
     EntregaEPPViewSet,
     RequisitoLegalBaseViewSet, MatrizLegalViewSet, ItemMatrizLegalViewSet,
-    MatrizRiesgoMiperViewSet, ItemMatrizRiesgoViewSet
+    MatrizRiesgoMiperViewSet, ItemMatrizRiesgoViewSet,
+    ClimaUvView
 )
 
 router = DefaultRouter()
@@ -65,6 +66,9 @@ urlpatterns = [
     
     # Endpoint de estadísticas del dashboard
     path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard_stats'),
+
+    # Endpoint meteorológico de radiación UV y estrés térmico (D.S. 594 Art. 109 / Enmienda ISO 2024)
+    path('clima/radiacion-uv/', ClimaUvView.as_view(), name='clima_radiacion_uv'),
 
     # Endpoints públicos del portal de participación (acceso via código QR, sin login)
     path(
