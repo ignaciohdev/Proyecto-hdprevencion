@@ -2363,6 +2363,168 @@ class ClimaUvTestCase(APITestCase):
         self.assertEqual(mock_urlopen.call_count, 1)
 
 
+class MatrizRiesgoMiperTestCase(APITestCase):
+    """
+    Pruebas unitarias y de integración para la Matriz IPERC
+    (D.S. N° 44, ISO 45001, Circular SUSESO 3336 y Guía Técnica ISP).
+    """
+    client: Any
+
+    def setUp(self):
+        self.user = Usuario.objects.create_user(
+            username="prev_iperc",
+            email="iperc@hdprevencion.cl",
+            password="securepassword123",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL
+        )
+        self.client.force_authenticate(user=self.user)
+        self.empresa = Empresa.objects.create(
+            prevencionista=self.user,
+            razon_social="Constructora Andina SpA",
+            rut="76.123.456-0"
+        )
+        self.matriz = MatrizRiesgoMiper.objects.create(
+            empresa=self.empresa,
+            prevencionista=self.user,
+            nombre="Matriz IPERC Faena Central",
+            proceso_area="Construcción en Altura",
+            version=1
+        )
+
+    def test_validacion_escala_isp_limites(self):
+        """Valida que P y C fuera de 1..5 generen error de validación."""
+        from django.core.exceptions import ValidationError
+        item = ItemMatrizRiesgo(
+            matriz=self.matriz,
+            proceso="Obra Gruesa",
+            actividad="Enfierrado",
+            puesto_trabajo="Enfierrador",
+            peligro="Caída a distinto nivel",
+            clasificacion_peligro="SEGURIDAD",
+            riesgo_consecuencia="Traumatismo",
+            probabilidad_pura=6,  # Inválido (> 5)
+            severidad_pura=3,
+            probabilidad_residual=2,
+            severidad_residual=2
+        )
+        with self.assertRaises(ValidationError):
+            item.clean()
+
+    def test_validacion_ds44_reduccion_riesgo_sin_controles(self):
+        """No es legal reducir el riesgo residual sin registrar al menos un control."""
+        from django.core.exceptions import ValidationError
+        item = ItemMatrizRiesgo(
+            matriz=self.matriz,
+            proceso="Montaje",
+            actividad="Soldadura",
+            puesto_trabajo="Soldador",
+            peligro="Humos metálicos",
+            clasificacion_peligro="QUIMICO",
+            riesgo_consecuencia="Fiebre de humos",
+            probabilidad_pura=4,
+            severidad_pura=3,  # Pura = 12
+            probabilidad_residual=2,
+            severidad_residual=2,  # Residual = 4
+        )
+        with self.assertRaises(ValidationError):
+            item.clean()
+
+        # Con control requerido o de jerarquía debe pasar
+        item.controles_requeridos = "Extracción localizada y EPP respiratorio"
+        item.clean()  # No debe lanzar excepción
+
+    def test_validacion_circular_3336_accidente_grave_fatal(self):
+        """Si es accidente grave/fatal, debe evaluarse con Severidad >= 4 o Crítico >= 17."""
+        from django.core.exceptions import ValidationError
+        item = ItemMatrizRiesgo(
+            matriz=self.matriz,
+            proceso="Trabajo en Altura",
+            actividad="Techumbre > 1.8m",
+            puesto_trabajo="Techador",
+            peligro="Caída de altura sobre 1.8m",
+            clasificacion_peligro="SEGURIDAD",
+            riesgo_consecuencia="Muerte o invalidez",
+            es_accidente_grave_fatal=True,
+            probabilidad_pura=2,
+            severidad_pura=2,  # Magnitud = 4 (< 17 y Severidad < 4)
+            probabilidad_residual=2,
+            severidad_residual=2,
+        )
+        with self.assertRaises(ValidationError):
+            item.clean()
+
+        # Si Severidad pura es 4 o 5 (Grave/Catastrófico) con control preventivo, pasa
+        item.severidad_pura = 4
+        item.control_ingenieria = "Línea de vida y arnés con amortiguador"
+        item.clean()  # Válido
+
+    def test_endpoint_matriz_calor_estructura_y_conteos(self):
+        """Verifica la respuesta del grid 5x5 con Y=Probabilidad (5 a 1) y X=Severidad (1 a 5)."""
+        ItemMatrizRiesgo.objects.create(
+            matriz=self.matriz,
+            proceso="Excavación",
+            actividad="Zanja",
+            puesto_trabajo="Operador",
+            peligro="Derrumbe",
+            clasificacion_peligro="SEGURIDAD",
+            riesgo_consecuencia="Atrapamiento",
+            probabilidad_pura=5,
+            severidad_pura=5,
+            control_ingenieria="Entibación obligatoria",
+            probabilidad_residual=2,
+            severidad_residual=3
+        )
+        res = self.client.get(f"/api/matrices-riesgo-miper/{self.matriz.id}/matriz-calor/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        data = res.json()
+        self.assertEqual(data["matriz_id"], self.matriz.id)
+        self.assertEqual(data["total_peligros"], 1)
+        grid = data["grid"]
+        self.assertEqual(len(grid), 25)
+        # Primer elemento de la grilla debe ser P=5, S=1 (Eje Y: 5 a 1, Eje X: 1 a 5)
+        self.assertEqual(grid[0]["probabilidad"], 5)
+        self.assertEqual(grid[0]["severidad"], 1)
+        # Elemento P=5, S=5 debe tener count_puro = 1
+        celda_5_5 = next(c for c in grid if c["probabilidad"] == 5 and c["severidad"] == 5)
+        self.assertEqual(celda_5_5["count_puro"], 1)
+        self.assertEqual(celda_5_5["count_residual"], 0)
+        # Elemento P=2, S=3 debe tener count_residual = 1
+        celda_2_3 = next(c for c in grid if c["probabilidad"] == 2 and c["severidad"] == 3)
+        self.assertEqual(celda_2_3["count_residual"], 1)
+
+    def test_creacion_item_api_con_pasos_infografia(self):
+        """Verifica la creación de ítem vía API con campos de Pasos 4 y 5 y Circular 3336."""
+        payload = {
+            "matriz": self.matriz.id,
+            "proceso": "Hormigonado",
+            "actividad": "Vaciado de losa",
+            "tipo_actividad": "RUTINARIA",
+            "puesto_trabajo": "Concretero",
+            "peligro": "Exposición a radiación UV y calor extremo",
+            "clasificacion_peligro": "CLIMATICO",
+            "riesgo_consecuencia": "Insolación y estrés térmico (ISO 2024)",
+            "es_accidente_grave_fatal": False,
+            "trabajador_sensible": "Adulto mayor / Hipertenso",
+            "probabilidad_pura": 4,
+            "severidad_pura": 3,
+            "controles_existentes": "Uso de legionario y bloqueador solar",
+            "controles_requeridos": "Puntos de hidratación y rotación de faena",
+            "control_administrativo": "Pausa en horario punta 12:00 a 16:00",
+            "control_epp": "Protector solar FPS 50+ con registro ISP",
+            "probabilidad_residual": 2,
+            "severidad_residual": 2,
+            "responsable": "Capataz de Obra",
+            "estado_control": "IMPLEMENTADO",
+        }
+        res = self.client.post("/api/items-matriz-riesgo/", payload, format="json")
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        item_id = res.json()["id"]
+        created = ItemMatrizRiesgo.objects.get(id=item_id)
+        self.assertEqual(created.clasificacion_peligro, "CLIMATICO")
+        self.assertEqual(created.controles_existentes, "Uso de legionario y bloqueador solar")
+        self.assertEqual(created.trabajador_sensible, "Adulto mayor / Hipertenso")
+
+
 
 
 

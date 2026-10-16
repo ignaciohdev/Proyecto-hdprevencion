@@ -12,7 +12,8 @@ export type ClasificacionPeligro =
   | "BIOLOGICO"
   | "ERGONOMICO"
   | "PSICOSOCIAL"
-  | "SEGURIDAD";
+  | "SEGURIDAD"
+  | "CLIMATICO";
 
 export interface ItemMatrizRiesgo {
   id: number;
@@ -27,20 +28,30 @@ export interface ItemMatrizRiesgo {
   clasificacion_peligro_display?: string;
   riesgo_consecuencia: string;
 
-  // Evaluación Riesgo Puro
+  // Clasificación normativa y sensibilidad
+  es_accidente_grave_fatal: boolean;
+  trabajador_sensible: string;
+
+  // Evaluación Riesgo Puro (Escala 1 a 5)
   probabilidad_pura: number;
   severidad_pura: number;
   magnitud_pura: number;
   clasificacion_pura: ClasificacionRiesgo;
 
-  // Jerarquía Legal de Controles del ISP
+  // Paso 4: Controles Existentes (Infografía IPERC)
+  controles_existentes: string;
+
+  // Paso 5: Controles Requeridos (Infografía IPERC)
+  controles_requeridos: string;
+
+  // Jerarquía Legal de Controles del ISP / ISO 45001 Cláusula 8.1.2
   control_eliminacion: string;
   control_sustitucion: string;
   control_ingenieria: string;
   control_administrativo: string;
   control_epp: string;
 
-  // Evaluación Riesgo Residual
+  // Evaluación Riesgo Residual (con controles implementados)
   probabilidad_residual: number;
   severidad_residual: number;
   magnitud_residual: number;
@@ -132,21 +143,21 @@ export interface CentroTrabajoSimple {
   empresa: number;
 }
 
-// Escalas oficiales ISP y D.S. N° 44
+// Escalas oficiales ISP y D.S. N° 44 (Nomenclatura IPERC)
 export const ESCALA_PROBABILIDAD: Record<number, { etiqueta: string; descripcion: string }> = {
-  1: { etiqueta: "1 - Rara vez", descripcion: "Ocurre en circunstancias excepcionales (Improbable en el año)" },
-  2: { etiqueta: "2 - Improbable", descripcion: "Poco común, no ha ocurrido recientemente pero podría suceder" },
-  3: { etiqueta: "3 - Posible", descripcion: "Podría ocurrir en algún momento durante el ciclo operativo" },
-  4: { etiqueta: "4 - Probable", descripcion: "Ocurre con regularidad en faena o faenas similares" },
-  5: { etiqueta: "5 - Casi seguro", descripcion: "Se espera que ocurra en la mayoría de las circunstancias" },
+  1: { etiqueta: "1 - Muy baja", descripcion: "Ocurre en circunstancias excepcionales (Improbable en el año)" },
+  2: { etiqueta: "2 - Baja", descripcion: "Poco común, no ha ocurrido recientemente pero podría suceder" },
+  3: { etiqueta: "3 - Media", descripcion: "Podría ocurrir en algún momento durante el ciclo operativo" },
+  4: { etiqueta: "4 - Alta", descripcion: "Ocurre con regularidad en faena o faenas similares" },
+  5: { etiqueta: "5 - Muy alta", descripcion: "Se espera que ocurra en la mayoría de las circunstancias" },
 };
 
 export const ESCALA_SEVERIDAD: Record<number, { etiqueta: string; descripcion: string }> = {
   1: { etiqueta: "1 - Insignificante", descripcion: "Primeros auxilios menores en faena, sin tiempo perdido" },
   2: { etiqueta: "2 - Menor", descripcion: "Lesión leve con tiempo perdido ambulatorio (< 7 días)" },
-  3: { etiqueta: "3 - Moderado", descripcion: "Incapacidad temporal relevante (> 7 días), daño material mediano" },
+  3: { etiqueta: "3 - Moderada", descripcion: "Incapacidad temporal relevante (> 7 días), daño material mediano" },
   4: { etiqueta: "4 - Mayor", descripcion: "Lesión grave (amputación, fractura grave), invalidez parcial" },
-  5: { etiqueta: "5 - Catastrófico", descripcion: "Muerte individual o múltiple, incapacidad permanente total" },
+  5: { etiqueta: "5 - Catastrófica", descripcion: "Muerte individual o múltiple, incapacidad permanente total" },
 };
 
 export const CLASIFICACIONES_RIESGO: Record<
@@ -162,13 +173,13 @@ export const CLASIFICACIONES_RIESGO: Record<
   }
 > = {
   CRITICO: {
-    nombre: "Crítico / No Aceptable",
+    nombre: "Crítico / Intolerable",
     rango: "17 - 25",
     colorBadge: "bg-red-500/10 text-red-400 border-red-500/30",
     colorSolid: "bg-red-600 text-white",
     colorBorde: "border-red-500",
     colorTexto: "text-red-400",
-    accionRequerida: "Detener faena inmediatamente hasta implementar controles duros de eliminación o ingeniería.",
+    accionRequerida: "No iniciar la actividad. Acción inmediata. (Art. 184 bis Código del Trabajo / Circ. 3336 SUSESO).",
   },
   ALTO: {
     nombre: "Alto / Importante",
@@ -177,7 +188,7 @@ export const CLASIFICACIONES_RIESGO: Record<
     colorSolid: "bg-orange-600 text-white",
     colorBorde: "border-orange-500",
     colorTexto: "text-orange-400",
-    accionRequerida: "No iniciar sin controles de ingeniería y permisos especiales de trabajo seguro (PTS).",
+    accionRequerida: "Implementar controles en el corto plazo. (Requiere Permiso de Trabajo Seguro PTS).",
   },
   MEDIO: {
     nombre: "Medio / Moderado",
@@ -186,7 +197,7 @@ export const CLASIFICACIONES_RIESGO: Record<
     colorSolid: "bg-amber-500 text-slate-950",
     colorBorde: "border-amber-500",
     colorTexto: "text-amber-400",
-    accionRequerida: "Requiere procedimientos documentados, capacitación y uso mandatorio de EPP certificado.",
+    accionRequerida: "Mejorar controles y hacer seguimiento. (Procedimientos documentados y capacitación).",
   },
   BAJO: {
     nombre: "Bajo / Aceptable",
@@ -195,7 +206,7 @@ export const CLASIFICACIONES_RIESGO: Record<
     colorSolid: "bg-emerald-600 text-white",
     colorBorde: "border-emerald-500",
     colorTexto: "text-emerald-400",
-    accionRequerida: "Riesgo aceptable bajo supervisión habitual y cumplimiento de normas estándar.",
+    accionRequerida: "Riesgo aceptable. Mantener controles. (Monitoreo habitual).",
   },
 };
 

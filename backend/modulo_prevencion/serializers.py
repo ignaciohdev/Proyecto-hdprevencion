@@ -837,7 +837,10 @@ class ItemMatrizRiesgoSerializer(serializers.ModelSerializer):
             'id', 'matriz', 'proceso', 'actividad', 'tipo_actividad', 'tipo_actividad_display',
             'puesto_trabajo', 'peligro', 'clasificacion_peligro', 'clasificacion_peligro_display',
             'riesgo_consecuencia',
+            'es_accidente_grave_fatal', 'trabajador_sensible',
             'probabilidad_pura', 'severidad_pura', 'magnitud_pura', 'clasificacion_pura',
+            'controles_existentes',
+            'controles_requeridos',
             'control_eliminacion', 'control_sustitucion', 'control_ingenieria',
             'control_administrativo', 'control_epp',
             'probabilidad_residual', 'severidad_residual', 'magnitud_residual', 'clasificacion_residual',
@@ -884,11 +887,19 @@ class ItemMatrizRiesgoSerializer(serializers.ModelSerializer):
                 data.get('control_ingenieria', getattr(self.instance, 'control_ingenieria', '')),
                 data.get('control_administrativo', getattr(self.instance, 'control_administrativo', '')),
                 data.get('control_epp', getattr(self.instance, 'control_epp', '')),
+                data.get('controles_requeridos', getattr(self.instance, 'controles_requeridos', '')),
             ]
             if not any(c and str(c).strip() for c in controles):
                 raise serializers.ValidationError(
-                    "Artículos 9 y 10 D.S. N° 44: No es legal reducir el riesgo residual sin registrar al menos una medida de control de la jerarquía preventiva (eliminación, sustitución, ingeniería, administrativa o EPP)."
+                    "Artículos 9 y 10 D.S. N° 44: No es legal reducir el riesgo residual sin registrar al menos una medida de control de la jerarquía preventiva o un control requerido."
                 )
+
+        es_grave = data.get('es_accidente_grave_fatal', getattr(self.instance, 'es_accidente_grave_fatal', False))
+        if es_grave and (s_pura < 4 and mag_pura < 17):
+            raise serializers.ValidationError({
+                "es_accidente_grave_fatal": "Circular SUSESO N° 3336 / Art. 184 bis Código del Trabajo: Los peligros con potencial de accidente grave o fatal deben evaluarse con Severidad mayor o igual a 4 o Magnitud Pura en rango Crítico (17-25)."
+            })
+
         return data
 
 

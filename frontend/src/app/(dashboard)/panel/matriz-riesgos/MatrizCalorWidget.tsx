@@ -154,19 +154,37 @@ export default function MatrizCalorWidget({ data, loading }: MatrizCalorWidgetPr
         })}
       </div>
 
-      {/* Cuadrícula 5x5 */}
+      {/* Cuadrícula 5x5: Eje Y = Probabilidad (5 a 1) y Eje X = Consecuencia (1 a 5) */}
       <div className="overflow-x-auto pb-2">
-        <div className="min-w-[620px]">
-          {/* Fila de Encabezado Superior (Eje X: Probabilidad 1 a 5) */}
-          <div className="grid grid-cols-[140px_repeat(5,1fr)] gap-2 mb-2 items-center">
+        <div className="min-w-[660px]">
+          {/* Fila de Encabezado Superior (Eje X: Consecuencia / Severidad 1 a 5) */}
+          <div className="grid grid-cols-[150px_repeat(5,1fr)] gap-2 mb-2 items-center">
             <div className="text-right pr-2 text-xs font-semibold text-slate-400">
-              Severidad ↓ / Prob. →
+              Probabilidad ↓ / Consecuencia →
             </div>
-            {[1, 2, 3, 4, 5].map((p) => (
+            {[1, 2, 3, 4, 5].map((c) => (
               <div
-                key={p}
-                className="text-center p-2 rounded-lg bg-slate-950/60 border border-slate-800/80"
+                key={c}
+                className="text-center p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 shadow-inner"
               >
+                <div className="text-xs font-bold text-slate-200">
+                  C = {c}
+                </div>
+                <div className="text-[10px] text-slate-400 truncate" title={ESCALA_SEVERIDAD[c]?.etiqueta}>
+                  {ESCALA_SEVERIDAD[c]?.etiqueta.replace(/^\d+ - /, "")}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filas 5 a 1 (Eje Y: Probabilidad) */}
+          {[5, 4, 3, 2, 1].map((p) => (
+            <div
+              key={p}
+              className="grid grid-cols-[150px_repeat(5,1fr)] gap-2 mb-2 items-stretch"
+            >
+              {/* Etiqueta Eje Y */}
+              <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 flex flex-col justify-center shadow-inner">
                 <div className="text-xs font-bold text-slate-200">
                   P = {p}
                 </div>
@@ -174,50 +192,32 @@ export default function MatrizCalorWidget({ data, loading }: MatrizCalorWidgetPr
                   {ESCALA_PROBABILIDAD[p]?.etiqueta.replace(/^\d+ - /, "")}
                 </div>
               </div>
-            ))}
-          </div>
 
-          {/* Filas 5 a 1 (Eje Y: Severidad) */}
-          {[5, 4, 3, 2, 1].map((s) => (
-            <div
-              key={s}
-              className="grid grid-cols-[140px_repeat(5,1fr)] gap-2 mb-2 items-stretch"
-            >
-              {/* Etiqueta Eje Y */}
-              <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 flex flex-col justify-center">
-                <div className="text-xs font-bold text-slate-200">
-                  S = {s}
-                </div>
-                <div className="text-[10px] text-slate-400 truncate" title={ESCALA_SEVERIDAD[s]?.etiqueta}>
-                  {ESCALA_SEVERIDAD[s]?.etiqueta.replace(/^\d+ - /, "")}
-                </div>
-              </div>
-
-              {/* 5 Celdas de la fila */}
-              {[1, 2, 3, 4, 5].map((p) => {
-                const celda = celdasMap.get(`${p}_${s}`);
-                const mag = p * s;
+              {/* 5 Celdas de la fila (Eje X: Consecuencia 1 a 5) */}
+              {[1, 2, 3, 4, 5].map((c) => {
+                const celda = celdasMap.get(`${p}_${c}`);
+                const mag = p * c;
                 const clasif: ClasificacionRiesgo =
                   mag >= 17 ? "CRITICO" : mag >= 10 ? "ALTO" : mag >= 5 ? "MEDIO" : "BAJO";
 
                 const count = modo === "puro" ? celda?.count_puro || 0 : celda?.count_residual || 0;
                 const isSelected =
-                  celdaSeleccionada?.p === p && celdaSeleccionada?.s === s;
+                  celdaSeleccionada?.p === p && celdaSeleccionada?.s === c;
 
                 return (
                   <button
-                    key={`${p}_${s}`}
+                    key={`${p}_${c}`}
                     type="button"
                     onClick={() =>
                       setCeldaSeleccionada({
                         p,
-                        s,
+                        s: c,
                         mag,
                         clasif,
                         count,
                       })
                     }
-                    className={`relative p-3 rounded-xl border flex flex-col items-center justify-between transition-all duration-150 min-h-[76px] cursor-pointer hover:scale-[1.03] hover:z-10 ${
+                    className={`relative p-2.5 rounded-xl border flex flex-col items-center justify-between transition-all duration-150 min-h-[76px] cursor-pointer hover:scale-[1.03] hover:z-10 ${
                       getClasificacionColor(clasif)
                     } ${
                       isSelected
@@ -225,10 +225,10 @@ export default function MatrizCalorWidget({ data, loading }: MatrizCalorWidgetPr
                         : "hover:border-slate-400"
                     }`}
                   >
-                    {/* Indicador de Magnitud (P x S) */}
+                    {/* Indicador de Magnitud (P x C) */}
                     <div className="w-full flex items-center justify-between text-[11px] font-mono font-bold opacity-80">
-                      <span>{p}×{s}</span>
-                      <span className="text-xs">{mag}</span>
+                      <span>{p}×{c}</span>
+                      <span className="text-xs font-black">{mag}</span>
                     </div>
 
                     {/* Conteo de Peligros en esta celda */}
@@ -270,23 +270,23 @@ export default function MatrizCalorWidget({ data, loading }: MatrizCalorWidgetPr
                   celdaSeleccionada.clasif
                 )}`}
               >
-                {celdaSeleccionada.clasif} (MR = {celdaSeleccionada.mag})
+                {celdaSeleccionada.clasif} (Nivel = {celdaSeleccionada.mag})
               </span>
               <span className="text-xs text-slate-300">
-                Probabilidad: {ESCALA_PROBABILIDAD[celdaSeleccionada.p]?.etiqueta} • Severidad:{" "}
+                Probabilidad: {ESCALA_PROBABILIDAD[celdaSeleccionada.p]?.etiqueta} • Consecuencia:{" "}
                 {ESCALA_SEVERIDAD[celdaSeleccionada.s]?.etiqueta}
               </span>
             </div>
             <button
               type="button"
               onClick={() => setCeldaSeleccionada(null)}
-              className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded"
+              className="text-slate-400 hover:text-white text-xs px-2 py-1 rounded cursor-pointer"
             >
               ✕ Cerrar
             </button>
           </div>
           <p className="text-xs text-slate-300">
-            <span className="font-semibold text-white">Acción normativa recomendada:</span>{" "}
+            <span className="font-semibold text-white">Acción obligatoria:</span>{" "}
             {CLASIFICACIONES_RIESGO[celdaSeleccionada.clasif].accionRequerida}
           </p>
           <p className="text-xs text-slate-400">
@@ -296,14 +296,37 @@ export default function MatrizCalorWidget({ data, loading }: MatrizCalorWidgetPr
         </div>
       ) : null}
 
-      {/* Leyenda y Explicación Técnica */}
+      {/* Leyenda con los 4 Niveles de Riesgo y su Acción Obligatoria */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-800/60">
+        {(["CRITICO", "ALTO", "MEDIO", "BAJO"] as ClasificacionRiesgo[]).map((nivel) => {
+          const cfg = CLASIFICACIONES_RIESGO[nivel];
+          return (
+            <div
+              key={nivel}
+              className={`p-3 rounded-xl border text-xs space-y-1 ${cfg.colorBadge}`}
+            >
+              <div className="flex items-center justify-between font-bold">
+                <span className="uppercase">{cfg.nombre}</span>
+                <span className="font-mono text-[11px] px-1.5 py-0.2 rounded bg-slate-900/40">
+                  {cfg.rango}
+                </span>
+              </div>
+              <p className="text-[11px] leading-snug opacity-90">
+                {cfg.accionRequerida}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Explicación Técnica y Eficacia Global de Mitigación */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-800/60 text-xs text-slate-400">
         <div>
           <h4 className="font-semibold text-slate-200 mb-1">
-            ¿Cómo interpretar la Matriz de Calor?
+            Metodología IPERC (Probabilidad × Consecuencia)
           </h4>
           <p className="leading-relaxed">
-            La Guía Técnica del ISP clasifica el riesgo según el producto de la probabilidad de ocurrencia por la severidad del daño. El objetivo de la jerarquía de controles es desplazar los eventos desde la zona roja/naranja (Crítico/Alto) hacia la zona verde/amarilla (Bajo/Medio).
+            La matriz evalúa el nivel de riesgo multiplicando la Probabilidad de ocurrencia (1-5) por la Severidad o Consecuencia potencial (1-5). El objetivo de las medidas de control es mitigar y desplazar los eventos desde zonas Críticas/Altas hacia zonas Aceptables (Bajo/Medio).
           </p>
         </div>
         <div>

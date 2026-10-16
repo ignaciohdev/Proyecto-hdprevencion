@@ -3022,8 +3022,8 @@ class MatrizRiesgoMiperViewSet(viewsets.ModelViewSet):
         items = list(matriz.items.all())
 
         grid = []
-        for severidad in range(5, 0, -1):  # 5 (Catastrófico) down to 1 (Insignificante)
-            for probabilidad in range(1, 6):  # 1 (Rara vez) to 5 (Casi seguro)
+        for probabilidad in range(5, 0, -1):  # Eje Y: 5 (Muy alta) a 1 (Muy baja)
+            for severidad in range(1, 6):      # Eje X: 1 (Insignificante) a 5 (Catastrófica)
                 mag = probabilidad * severidad
                 if mag >= 17:
                     clasificacion = 'CRITICO'
@@ -3259,7 +3259,7 @@ class ClimaUvView(APIView):
                 if 'apparent_temperature' in current and current.get('apparent_temperature') is not None:
                     sensacion_termica = float(current.get('apparent_temperature'))
                 if 'relative_humidity_2m' in current and current.get('relative_humidity_2m') is not None:
-                    humedad = int(round(float(current.get('relative_humidity_2m'))))
+                    humedad = round(float(current.get('relative_humidity_2m')))
 
                 if daily.get('uv_index_max') and len(daily['uv_index_max']) > 0 and daily['uv_index_max'][0] is not None:
                     uv_max_dia = float(daily['uv_index_max'][0])
@@ -3310,7 +3310,7 @@ class ClimaUvView(APIView):
                 "Alerta Crítica D.S. 594. Prohibición de faenas pesadas al sol en horario punta. Monitoreo constante de fatiga y golpes de calor."
             ]
 
-        estres_termico_alerta = bool(sensacion_termica >= 32.0)
+        estres_termico_alerta = sensacion_termica >= 32.0
         if estres_termico_alerta:
             medidas_legales_ds594.insert(
                 0,

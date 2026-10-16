@@ -708,6 +708,7 @@ class ReporteRiesgo(models.Model):
     PELIGRO_ERGONOMICO = 'ERGONOMICO'
     PELIGRO_PSICOSOCIAL = 'PSICOSOCIAL'
     PELIGRO_SEGURIDAD = 'SEGURIDAD'
+    PELIGRO_CLIMATICO = 'CLIMATICO'
     PELIGRO_CHOICES = [
         (PELIGRO_FISICO, 'Riesgo Físico (Ruido - PREXOR, Radiación UV Art. 109, Vibraciones, Iluminación)'),
         (PELIGRO_QUIMICO, 'Riesgo Químico (Sílice - PLANESI, Solventes, Polvos, Vapores)'),
@@ -715,6 +716,7 @@ class ReporteRiesgo(models.Model):
         (PELIGRO_ERGONOMICO, 'Riesgo Ergonómico (TMERT DS 594, Manejo Manual de Carga Ley 20.001)'),
         (PELIGRO_PSICOSOCIAL, 'Riesgo Psicosocial (SUSESO/ISTAS 21 - CEAL-SM)'),
         (PELIGRO_SEGURIDAD, 'Riesgo de Seguridad / Mecánico (Caídas altura DS 76, Atrapamiento, Eléctrico)'),
+        (PELIGRO_CLIMATICO, 'Riesgo Climático / Ambiental (Enmienda ISO 2024 - Estrés Térmico y Radiación UV Solar Extrema)'),
     ]
 
     # Jerarquía de Control Legal (ISO 45001 / DS 76)
@@ -3117,6 +3119,32 @@ class ItemMatrizRiesgo(models.Model):
         verbose_name="Severidad Pura (S)"
     )
 
+    # Paso 4: Controles Existentes (Infografía IPERC)
+    controles_existentes = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Paso 4: Controles Existentes (Medidas ya implementadas en terreno)"
+    )
+
+    # Paso 5: Controles Requeridos (Infografía IPERC)
+    controles_requeridos = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Paso 5: Controles Requeridos (Acciones adicionales según jerarquía legal)"
+    )
+
+    # Clasificación normativa y sensibilidad
+    es_accidente_grave_fatal = models.BooleanField(
+        default=False,
+        verbose_name="Criterio Circular SUSESO 3336 (Caída >1.8m, atrapamiento, amputación)"
+    )
+    trabajador_sensible = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        verbose_name="Art. 11 D.S. 44 (Discapacidad, Embarazo, Adulto Mayor, etc.)"
+    )
+
     # Jerarquía Legal de Controles (Guía ISP / ISO 45001)
     control_eliminacion = models.TextField(
         blank=True,
@@ -3231,11 +3259,18 @@ class ItemMatrizRiesgo(models.Model):
                 self.control_ingenieria,
                 self.control_administrativo,
                 self.control_epp,
+                self.controles_requeridos,
             ]
             if not any(c and c.strip() for c in controles):
                 raise ValidationError(
-                    "Artículos 9 y 10 D.S. N° 44: No es legal reducir el riesgo residual sin registrar al menos una medida de control de la jerarquía preventiva (eliminación, sustitución, ingeniería, administrativa o EPP)."
+                    "Artículos 9 y 10 D.S. N° 44: No es legal reducir el riesgo residual sin registrar al menos una medida de control de la jerarquía preventiva o un control requerido."
                 )
+
+        # Circular SUSESO N° 3336 / Art. 184 bis Código del Trabajo
+        if self.es_accidente_grave_fatal and (self.severidad_pura < 4 and self.magnitud_pura < 17):
+            raise ValidationError({
+                "es_accidente_grave_fatal": "Circular SUSESO N° 3336 / Art. 184 bis Código del Trabajo: Los peligros con potencial de accidente grave o fatal deben evaluarse con Severidad mayor o igual a 4 o Magnitud Pura en rango Crítico (17-25)."
+            })
 
 
 
