@@ -200,8 +200,8 @@ export default function Home() {
                     {step.desc}
                   </p>
                 </div>
-                <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-700/50 flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <span className="mr-1.5">✓</span> Cumplimiento Art. 21 D.S. 40
+                <div className="mt-5 pt-3 border-t border-slate-100 dark:border-slate-700/50 flex items-center text-xs font-semibold text-emerald-600 dark:emerald-400">
+                  <span className="mr-1.5">✓</span> Cumplimiento Art. 15 D.S. N° 44
                 </div>
               </div>
             ))}

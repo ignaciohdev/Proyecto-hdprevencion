@@ -144,7 +144,7 @@ export function inferirCategoriaYRubro(nombre: string, tipoArchivoExistente?: st
     tipoDocumento = "Planes de Emergencia";
   } else if (norm.match(/comite paritario|cphs|copasst|paritario|acta|sesion mensual/)) {
     tipoDocumento = "Comités Paritarios (COPASST)";
-  } else if (norm.match(/charla|capacitac|induccion|5 minuto|odi|derecho a saber|entrenamiento|charlas de seguridad/)) {
+  } else if (norm.match(/charla|capacitac|induccion|5 minuto|odi|ds 44|ds44|informacion de riesgo|entrenamiento|charlas de seguridad/)) {
     tipoDocumento = "Capacitaciones y Charlas";
   } else if (norm.match(/tmert|ds 594|ds594|sanitari|planesi|prexor|ruido|silice|radiacion uv|psicosocial|ergonom|reas/)) {
     tipoDocumento = "Protocolos Sanitarios (DS 594 / TMERT)";

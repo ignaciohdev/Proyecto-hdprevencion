@@ -24,7 +24,7 @@ export interface NoticiaItem {
 const ARTICULOS_FALLBACK: NoticiaItem[] = [
   {
     id: -1,
-    titulo: "Entrada en vigencia del D.S. N° 44: Claves del reglamento que deroga los D.S. 40 y D.S. 54 y revoluciona la prevención en Chile",
+    titulo: "Entrada en vigencia del D.S. N° 44: Claves del nuevo reglamento de gestión preventiva que rige en Chile",
     subtitulo: "El nuevo marco establece una matriz de riesgos continua y redefine el rol del Departamento de Prevención y de los Comités Paritarios.",
     categoria: "Nuevos Decretos & Leyes",
     imagen_url: "/noticia1.png",
@@ -35,19 +35,19 @@ const ARTICULOS_FALLBACK: NoticiaItem[] = [
     tiempo_lectura: "6 min de lectura",
     citas_legales: [
       "«El empleador deberá mantener permanentemente actualizado un Sistema de Gestión de Seguridad y Salud en el Trabajo (SG-SST) fundamentado en la identificación continua de peligros y evaluación de riesgos en faena, garantizando la participación efectiva de los trabajadores y sus representantes.» — Artículo 5°, D.S. N° 44 (MINTRAB / MINSAL).",
-      "«Deróganse expresamente el Decreto Supremo N° 40, de 1969, y el Decreto Supremo N° 54, de 1969, ambos del Ministerio del Trabajo y Previsión Social, a contar de la entrada en vigencia del presente reglamento.» — Disposiciones Transitorias, D.S. N° 44.",
+      "«Las referencias que las normas legales o reglamentarias hagan a las materias de prevención de riesgos profesionales y comités paritarios se entenderán hechas a las disposiciones del presente decreto supremo.» — Disposiciones Transitorias, D.S. N° 44.",
     ],
     puntos_clave: [
-      "Derogación formal de los históricos D.S. 40 y D.S. 54, unificando prevención y comités en un solo cuerpo normativo moderno.",
+      "Vigencia plena del D.S. N° 44, unificando la gestión de prevención y comités en un solo cuerpo normativo moderno.",
       "Obligatoriedad de Matrices MIPER continuas basadas en la Guía Técnica del ISP, abandonando las revisiones anuales estáticas en Excel.",
       "Facultad expresa del Comité Paritario (CPHS) para exigir medidas cautelares y participar en la planificación presupuestaria de prevención.",
-      "Transición digital obligatoria de la Obligación de Informar los Riesgos Laborales (ODI/DAS) con verificación electrónica ante la DT.",
+      "Transición digital obligatoria de la Información de los Riesgos Laborales (ODI Art. 15 D.S. N° 44) con verificación electrónica ante la DT.",
     ],
-    contenido: `La promulgación y entrada en vigencia del Decreto Supremo N° 44 marca el hito regulatorio más trascendental en la historia de la seguridad y salud en el trabajo en Chile en los últimos 55 años. Este cuerpo legal deroga de manera definitiva al D.S. N° 40 (Reglamento sobre Prevención de Riesgos Profesionales de 1969) y al D.S. N° 54 (Reglamento de Comités Paritarios de Higiene y Seguridad).
+    contenido: `La promulgación y entrada en vigencia del Decreto Supremo N° 44 marca el hito regulatorio más trascendental en la historia de la seguridad y salud en el trabajo en Chile. Este cuerpo legal aprueba el nuevo reglamento integral sobre gestión preventiva de los riesgos laborales y la constitución y funcionamiento de los Comités Paritarios de Higiene y Seguridad.
 
 El nuevo decreto introduce la obligatoriedad para toda empresa de implementar un Sistema de Gestión de Seguridad y Salud en el Trabajo (SG-SST) basado en el estándar internacional ISO 45001 y las directrices de la OIT. Se establece que la Matriz de Identificación de Peligros y Evaluación de Riesgos (MIPER) debe ser un instrumento dinámico, actualizado ante cualquier cambio en los procesos, incorporación de nuevas maquinarias o incidentes con potencial de daño.
 
-Asimismo, se elevan sustantivamente las exigencias de capacitación inicial y periódica para los trabajadores, requiriendo evidencia verificable de las competencias adquiridas y no solamente una firma testimonial de asistencia. La plataforma HD Prevención incorpora todas las matrices y registros exigidos por este nuevo decreto para garantizar el 100% de cumplimiento ante la Inspección del Trabajo y la Seremi de Salud.`,
+Asimismo, se elevan sustantivamente las exigencias de capacitación inicial y periódica para los trabajadores (Arts. 15 y 16), requiriendo evidencia verificable de las competencias adquiridas y no solamente una firma testimonial de asistencia. La plataforma HD Prevención incorpora todas las matrices y registros exigidos por este nuevo decreto para garantizar el 100% de cumplimiento ante la Inspección del Trabajo y la Seremi de Salud.`,
   },
   {
     id: -2,

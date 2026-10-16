@@ -11,12 +11,12 @@ from modulo_prevencion.models import TemaCapacitacion, Usuario
 
 CONFERENCIAS_DEDUCIDAS = [
     {
-        "titulo": "Inducción de Riesgos Laborales al Ingreso (ODI / DAS D.S. N° 44)",
+        "titulo": "Inducción de Riesgos Laborales al Ingreso (ODI D.S. N° 44)",
         "categoria": TemaCapacitacion.CATEGORIA_ODI,
         "duracion_minutos": 120,
         "descripcion": (
             "Inducción formal y obligatoria exigida previo al inicio de las labores para todo nuevo trabajador o ante cambios de procesos. "
-            "Cumple con la estricta sustitución del derogado Art. 21 del D.S. 40 por el Artículo 15 del nuevo D.S. N° 44 del Ministerio del Trabajo."
+            "Cumple con el Artículo 15 del D.S. N° 44 del Ministerio del Trabajo (Información oportuna y adecuada de los riesgos laborales)."
         ),
         "normativa_legal_vigente": "Artículo 15 D.S. N° 44 / Código del Trabajo Art. 184 (Archivo: Decreto-44.md)",
         "organismo_exigente": "Dirección del Trabajo (DT)",
@@ -48,15 +48,15 @@ CONFERENCIAS_DEDUCIDAS = [
             },
             {
                 "id": 2,
-                "pregunta": "¿Qué cuerpo reglamentario sustituyó al derogado Decreto Supremo N° 40 en materia de gestión preventiva?",
+                "pregunta": "¿Qué cuerpo reglamentario rige actualmente la gestión preventiva de riesgos laborales y comités paritarios en Chile?",
                 "opciones": [
                     "Decreto Supremo N° 594",
-                    "Decreto Supremo N° 54",
+                    "Decreto Supremo N° 160",
                     "Decreto Supremo N° 44",
                     "Decreto Supremo N° 76"
                 ],
                 "correcta": 2,
-                "explicacion": "El Decreto Supremo N° 44 del Ministerio del Trabajo derogó y sustituyó integralmente al D.S. N° 40 y D.S. N° 54."
+                "explicacion": "El Decreto Supremo N° 44 del Ministerio del Trabajo aprueba el reglamento sobre gestión preventiva de los riesgos laborales para un entorno de trabajo seguro y saludable."
             },
             {
                 "id": 3,

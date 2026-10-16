@@ -459,7 +459,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
                     REGISTRO DE ASISTENCIA A CAPACITACIÓN
                   </h1>
                   <p className="text-[10px] text-slate-450 dark:text-slate-400 uppercase font-bold tracking-wider mt-1">
-                    En cumplimiento con la Ley N° 16.744 y el D.S. N° 40 (Derecho a Saber)
+                    En cumplimiento con la Ley N° 16.744 y el D.S. N° 44 (Información de Riesgos Laborales y Capacitación SST)
                   </p>
                 </div>
                 <div className="text-right text-xs">

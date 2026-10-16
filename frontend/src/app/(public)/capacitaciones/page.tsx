@@ -92,20 +92,20 @@ const PROGRAMAS_CAPACITACION: Programa[] = [
   {
     id: "INDUCCION_ODI",
     categoriaNormativa: "Marco Legal Laboral",
-    titulo: "Inducción Obligación de Informar (ODI / DAS)",
+    titulo: "Información de los Riesgos Laborales (ODI Art. 15)",
     perfilRelator: "Ingeniero en Prevención (Registro SEREMI / SNS)",
     duracionRecomendada: "2 Horas (Por Puesto de Trabajo)",
     icono: "📋",
-    badge: "Obligatorio D.S. 40",
+    badge: "Obligatorio D.S. 44",
     descripcion:
-      "Elaboración e instrucción legal de los riesgos inherentes a los puestos de trabajo, métodos de trabajo correctos y medidas preventivas requeridas por el Decreto Supremo N° 40.",
+      "Elaboración e instrucción legal de los riesgos inherentes a los puestos de trabajo, métodos de trabajo correctos y medidas preventivas requeridas por el Decreto Supremo N° 44 (Art. 15).",
     temasClave: [
       "Riesgos específicos por cargo y área operativa",
       "Uso, mantención y reposición obligatoria de EPP",
       "Procedimiento en caso de accidentes (Ley 16.744 / Formato DIAT)",
       "Firma individual del acta con respaldo de entrega al trabajador",
     ],
-    normaLegal: "D.S. N° 40 Art. 21 / Ley 16.744",
+    normaLegal: "D.S. N° 44 Art. 15 / Ley 16.744",
   },
   {
     id: "CPHS_DS54",
@@ -114,16 +114,16 @@ const PROGRAMAS_CAPACITACION: Programa[] = [
     perfilRelator: "Asesor Senior en Gestión Preventiva",
     duracionRecomendada: "3 Horas",
     icono: "🤝",
-    badge: "D.S. 54",
+    badge: "D.S. 44",
     descripcion:
       "Instrucción metodológica para miembros titulares y suplentes del Comité Paritario: investigación de accidentes bajo el árbol de causas, inspecciones planeadas y fomento preventivo.",
     temasClave: [
-      "Funciones legales del CPHS según D.S. N° 54",
+      "Funciones legales del CPHS según D.S. N° 44 (Arts. 23 al 49)",
       "Técnicas modernas de investigación de incidentes",
       "Elaboración del Programa de Trabajo Paritario",
       "Coordinación efectiva con la Mutualidad (ACHS, Mutual, IST, ISL)",
     ],
-    normaLegal: "Decreto Supremo N° 54 / Ley 16.744 Art. 66",
+    normaLegal: "Decreto Supremo N° 44 (Arts. 23 al 49) / Ley 16.744 Art. 66",
   },
 ];
 
@@ -233,7 +233,7 @@ export default function CapacitacionesPublicPage() {
               <strong className="text-white">Psicólogos Laborales</strong> para Ley Karin,{" "}
               <strong className="text-white">Kinesiólogos y Ergónomos</strong> para TMERT, y{" "}
               <strong className="text-white">Prevencionistas de Riesgos con Registro SEREMI / SNS</strong> para
-              cumplir con la Ley N° 16.744, D.S. 40 y D.S. 594.
+              cumplir con la Ley N° 16.744, D.S. 44 y D.S. 594.
             </p>
 
             <div className="flex flex-wrap gap-4 pt-2">
@@ -513,8 +513,8 @@ export default function CapacitacionesPublicPage() {
                     <option value="TMERT_ERGONOMIA">Ergonomía, TMERT y Manejo de Cargas</option>
                     <option value="EXTINTORES_EMERGENCIAS">Uso Práctico de Extintores Portátiles (DS 594)</option>
                     <option value="SEGURIDAD_CRITICA">Seguridad en Altura Física & Espacios Confinados</option>
-                    <option value="INDUCCION_ODI">Inducción Obligación de Informar (ODI / DAS DS 40)</option>
-                    <option value="CPHS_DS54">Comités Paritarios de Higiene y Seguridad (DS 54)</option>
+                    <option value="INDUCCION_ODI">Información de Riesgos Laborales (ODI - Art. 15 D.S. N° 44)</option>
+                    <option value="CPHS_DS54">Comités Paritarios de Higiene y Seguridad (D.S. N° 44)</option>
                     <option value="A_MEDIDA">Programa Técnico Personalizado a Medida</option>
                   </select>
                 </div>

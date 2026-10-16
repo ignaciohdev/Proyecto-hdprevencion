@@ -72,7 +72,7 @@ Organizados según la estructura de [frontend/src/app/(dashboard)/layout.tsx](fi
 - `/panel/epp-riohs` (`epp-riohs/page.tsx`): **Entrega de EPP y RIOHS:** Comprobante digital de entrega gratuita de EPP (Art. 68 Ley 16.744) y entrega de Reglamento Interno (Art. 67) con firma simple Ley 19.799.
 - `/panel/reportes-riesgo` (`reportes-riesgo/page.tsx`): **Reportes QR y Hallazgos:** Gestión de incidentes reportados en terreno con fotos, criticidad y asignación de medidas correctivas.
 - `/panel/inspecciones` (`inspecciones/page.tsx`): **Checklists e Inspecciones:** Listas de chequeo normativas en terreno (D.S. 594 extintores, servicios higiénicos, orden y aseo).
-- `/panel/capacitaciones` (`capacitaciones/page.tsx`): **Capacitaciones y Charlas:** Control de inducciones ODI (D.S. 44 Art. 21), charlas operativas de 5 minutos y registro de asistencia.
+- `/panel/capacitaciones` (`capacitaciones/page.tsx`): **Capacitaciones y Charlas:** Control de inducciones ODI (D.S. 44 Art. 15), charlas operativas de 5 minutos y registro de asistencia.
   - Subrutas: `/panel/capacitaciones/nueva` y `/panel/capacitaciones/[id]`.
 - `/panel/accidentes` (`accidentes/page.tsx`): **Investigación de Accidentes:** Análisis de causas raíz (Árbol de Causas), clasificación Trabajo/Trayecto, generación de informe DIAT y cumplimiento Circular 3336 SUSESO.
   - Subrutas: `/panel/accidentes/nueva` y `/panel/accidentes/[id]`.
@@ -150,7 +150,7 @@ erDiagram
 - `PlantillaInspeccion`: Checklist maestro estructurado con preguntas de verificación (D.S. 594, extintores, botiquines, etc.).
 - `Inspeccion`: Ejecución de inspección en un centro de trabajo con porcentaje de cumplimiento y observaciones.
 - `InvestigacionAccidente`: Informe técnico de siniestros graves o leves, clasificación (Trabajo, Trayecto, Enfermedad), metodología Árbol de Causas, medidas inmediatas y cumplimiento Circular 3336 SUSESO.
-- `TemaCapacitacion` & `RegistroCapacitacion`: Control de inducción general de riesgos ODI (D.S. 44 Art. 21), charlas de 5 minutos y registro de firmas.
+- `TemaCapacitacion` & `RegistroCapacitacion`: Control de inducción general de riesgos ODI (D.S. 44 Art. 15), charlas de 5 minutos y registro de firmas.
 - `SolicitudCapacitacion`: Solicitudes internas de inducciones requeridas por faena.
 
 #### Dominio 6: Canal Formal Ley Karin (Ley N° 21.643)

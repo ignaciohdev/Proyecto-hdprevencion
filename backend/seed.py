@@ -120,13 +120,13 @@ def seed():
          "Estudio detallado de las condiciones ergonómicas en oficinas y faenas industriales para prevenir lesiones músculo-esqueléticas bajo la norma técnica TMERT.", 
          "activity"),
         ("Asesoría en Constitución de Comité Paritario", 
-         "Guía legal completa y acompañamiento para la constitución y correcto funcionamiento del Comité Paritario de Higiene y Seguridad (DS 54).", 
+         "Guía legal completa y acompañamiento para la constitución y correcto funcionamiento del Comité Paritario de Higiene y Seguridad (D.S. N° 44).", 
          "users"),
         ("Auditoría de Sistemas de Gestión (Suso / ISO 45001)", 
          "Evaluación del sistema de gestión de seguridad y salud en el trabajo para identificar brechas de cumplimiento respecto al estándar internacional ISO 45001.", 
          "clipboard-list"),
         ("Capacitaciones Obligatorias de Seguridad (ODI)", 
-         "Diseño y realización de la Obligación de Informar (ODI / DAS) para el personal de su empresa, asegurando el cumplimiento legal ante fiscalizaciones.", 
+         "Diseño y realización de la Información de los Riesgos Laborales (ODI Art. 15 D.S. N° 44) para el personal de su empresa, asegurando el cumplimiento legal ante fiscalizaciones.", 
          "book-open")
     ]
 
@@ -255,8 +255,8 @@ def seed():
                 ]
             },
             {
-                'titulo': 'Obligación de Informar (ODI) / Derecho a Saber (DAS)',
-                'descripcion': 'Charla de inducción obligatoria para nuevos trabajadores sobre los riesgos de la faena y medidas preventivas según DS 40.',
+                'titulo': 'Información de los Riesgos Laborales (ODI Art. 15 D.S. N° 44)',
+                'descripcion': 'Charla de inducción obligatoria para nuevos trabajadores sobre los riesgos de la faena, medidas preventivas y métodos de trabajo correctos según el Art. 15 del D.S. N° 44.',
                 'categoria': 'INDUCCION_ODI',
                 'duracion_minutos': 60,
                 'contenido_clave': [

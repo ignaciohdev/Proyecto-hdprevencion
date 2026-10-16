@@ -1370,7 +1370,7 @@ export default function ClientePanel() {
           </div>
 
           <div className="p-3 bg-slate-950/30 border-t border-slate-800/60 text-[10px] text-slate-500 text-center">
-            Programa de Capacitaciones Art. 21 D.S. 44
+            Programa de Capacitaciones D.S. N° 44 (Arts. 15 y 16)
           </div>
         </div>
 

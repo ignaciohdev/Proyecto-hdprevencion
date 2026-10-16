@@ -50,7 +50,7 @@ const TIPO_DOC_LABEL: Record<string, string> = {
   F30_1: "Certificado F30-1 (Detalle de Deuda y Cumplimiento)",
   SEGURO_ACCIDENTE: "Certificado Seguro Accidentes (Ley 16.744)",
   CONTRATO_TRABAJO: "Contrato de Trabajo del Personal",
-  ODI: "Obligación de Informar (ODI / DAS)",
+  ODI: "Información de los Riesgos Laborales (ODI Art. 15 D.S. N° 44)",
   REGLAMENTO_INTERNO: "Reglamento Interno de Higiene y Seguridad",
   OTRO: "Otro Documento"
 };
