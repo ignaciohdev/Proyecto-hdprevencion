@@ -176,13 +176,20 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'es-cl'
 
-TIME_ZONE = 'UTC'
+# Zona horaria de Chile para cálculo exacto de plazos y días hábiles (Ley 21.719 B-3)
+TIME_ZONE = 'America/Santiago'
 
 USE_I18N = True
 
 USE_TZ = True
+
+# Seguridad de transporte y cookies (Ley 21.719 M-3)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
 
 
 # Static files (CSS, JavaScript, Images)

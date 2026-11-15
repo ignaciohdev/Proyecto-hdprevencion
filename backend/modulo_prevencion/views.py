@@ -5,6 +5,7 @@ from django.db.models import Sum, Count, Q
 from django.shortcuts import get_object_or_404
 from django.http import Http404, HttpResponse
 from django.utils import timezone
+from django.conf import settings
 from rest_framework import generics, permissions, status, viewsets, exceptions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -774,6 +775,12 @@ class UsuarioViewSet(viewsets.ModelViewSet):
     def get_object(self) -> Any:
         return self.request.user
 
+    def destroy(self, request, *args, **kwargs):
+        raise exceptions.MethodNotAllowed(
+            "DELETE",
+            detail="La eliminación de cuentas de usuario no está permitida directamente por API para garantizar la trazabilidad legal. Toda solicitud de supresión de datos personales debe canalizarse a través del portal de Derechos ARCO-POL (/derechos-arco)."
+        )
+
     @action(detail=False, methods=['get', 'put', 'patch'], url_path='perfil')
     def perfil(self, request):
         usuario: Any = self.request.user
@@ -1180,7 +1187,8 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user: Any = self.request.user
         if not user or user.is_anonymous:
-            return RegistroCapacitacion.objects.all()
+            # Cierre por defecto Ley 21.719 (B-4): usuarios no autenticados nunca obtienen listado de capacitaciones
+            return RegistroCapacitacion.objects.none()
         owner: Any = user.cuenta_padre if user.cuenta_padre else user
         usuarios_grupo = [owner] + list(owner.cuentas_hijas.all())
         return RegistroCapacitacion.objects.filter(usuario__in=usuarios_grupo)
@@ -1229,7 +1237,8 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
             "tema_descripcion": capacitacion.tema.descripcion,
             "fecha_programada": capacitacion.fecha_programada,
             "lugar": capacitacion.lugar,
-            "relator": capacitacion.usuario.username,
+            # Minimización Ley 21.719 (M-2): no exponer el nombre de usuario de login en endpoint público
+            "relator": capacitacion.tema.relator_predeterminado or "Equipo Prevención de Riesgos",
             "estado": capacitacion.estado
         })
 
@@ -1641,10 +1650,10 @@ class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
 
         # Validación Tenancy Ley 21.719 (A-3): Verificar que la empresa pertenezca al prevencionista del QR
-        empresa_id = request.data.get('empresa')
-        if empresa_id:
+        empresa = serializer.validated_data.get('empresa')
+        if empresa:
             usuarios_grupo = get_usuarios_grupo(prevencionista)
-            if not Empresa.objects.filter(id=empresa_id, prevencionista__in=usuarios_grupo).exists():
+            if getattr(empresa, 'prevencionista', None) not in usuarios_grupo:
                 return Response(
                     {"error": "La empresa seleccionada no es válida para este prevencionista."},
                     status=status.HTTP_400_BAD_REQUEST
@@ -2068,6 +2077,20 @@ class EmpresaViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(prevencionista=self.request.user)
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        tiene_accidentes = instance.accidentes.exists()
+        tiene_denuncias = instance.denuncias_karin.exists()
+        tiene_epp = instance.entregas_epp.exists()
+        if tiene_accidentes or tiene_denuncias or tiene_epp:
+            return Response(
+                {
+                    "error": "No es posible eliminar esta empresa porque mantiene expedientes de accidentes (Ley 16.744), denuncias Ley Karin (Ley 21.643) o registros de EPP bajo deber legal de conservación mínima (5 años). Debe realizarse archivado o bloqueo."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class CentroTrabajoViewSet(viewsets.ModelViewSet):
     """
@@ -2140,6 +2163,19 @@ class TrabajadorViewSet(viewsets.ModelViewSet):
             
         serializer.save()
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        tiene_accidentes = instance.accidentes_sufridos.exists()
+        tiene_epp = instance.entregas_epp.exists()
+        if tiene_accidentes or tiene_epp:
+            return Response(
+                {
+                    "error": "No es posible eliminar la ficha de este trabajador porque registra accidentes laborales (Ley 16.744) o comprobantes de entrega de EPP con deber legal de conservación. Considere inactivar su estado."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
     """
@@ -2201,6 +2237,15 @@ class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
         if empresa.prevencionista not in usuarios_grupo:
             raise ValidationError({"empresa": "No tienes permiso para registrar denuncias en esta empresa."})
         serializer.save()
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        AuditLogAccesoDenuncia.objects.create(
+            denuncia=instance,
+            usuario=self.request.user,
+            ip_origen=get_client_ip(self.request),
+            accion=AuditLogAccesoDenuncia.ACCION_MODIFICACION
+        )
 
     @action(detail=True, methods=['post', 'patch'], url_path='registrar-medidas')
     def registrar_medidas(self, request, pk=None):
@@ -3382,7 +3427,7 @@ class SolicitudDerechoARCOCreateView(generics.CreateAPIView):
     throttle_scope = 'public_qr'
 
     def perform_create(self, serializer):
-        tipo = self.request.data.get('tipo_derecho')
+        tipo = serializer.validated_data.get('tipo_derecho')
         # Si solicita bloqueo temporal, activamos flag inmediatamente (plazo 2 días hábiles Art. 11)
         bloqueo = (tipo == SolicitudDerechoARCO.TIPO_BLOQUEO)
         serializer.save(bloqueo_provisional_activo=bloqueo)
@@ -3433,10 +3478,10 @@ class PortabilidadDatosView(APIView):
         entregas = EntregaEPP.objects.filter(trabajador__rut__iexact=rut.strip()).select_related('empresa')
         datos_epp = [
             {
-                "empresa": e.empresa.razon_social,
-                "fecha_entrega": e.fecha_entrega.isoformat(),
-                "tipo_epp": e.tipo_epp,
-                "detalle_elementos": e.detalle_elementos
+                "empresa": e.empresa.razon_social if e.empresa else None,
+                "fecha_hora_entrega": e.fecha_hora_entrega.isoformat() if e.fecha_hora_entrega else None,
+                "items_epp": e.items_epp,
+                "entrega_riohs": e.entrega_riohs
             }
             for e in entregas
         ]

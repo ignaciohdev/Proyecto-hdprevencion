@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from datetime import date, timedelta
 from django.utils import timezone
+from .crypto import EncryptedTextField
 
 
 class Plan(models.Model):
@@ -476,7 +477,7 @@ class Empresa(models.Model):
 
     prevencionista = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='empresas_asesoradas',
         verbose_name="Prevencionista a Cargo"
     )
@@ -1009,13 +1010,13 @@ class InvestigacionAccidente(models.Model):
 
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='investigaciones_accidentes',
         verbose_name="Prevencionista Investigador"
     )
     empresa = models.ForeignKey(
         Empresa,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='accidentes',
@@ -1046,7 +1047,7 @@ class InvestigacionAccidente(models.Model):
     )
     fecha_hora_evento = models.DateTimeField(verbose_name="Fecha y Hora del Evento")
     lugar_evento = models.CharField(max_length=255, verbose_name="Ubicación Física / Lugar del Suceso")
-    descripcion_evento = models.TextField(verbose_name="Descripción Cronológica del Accidente/Incidente")
+    descripcion_evento = EncryptedTextField(verbose_name="Descripción Cronológica del Accidente/Incidente (Cifrado)")
 
     # Evaluación Inicial de Lesiones
     tipo_lesion = models.CharField(max_length=100, verbose_name="Tipo de Lesión")
@@ -1665,7 +1666,7 @@ class DenunciaLeyKarin(models.Model):
     )
     empresa = models.ForeignKey(
         Empresa,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='denuncias_karin',
         verbose_name="Empresa"
     )
@@ -1715,15 +1716,15 @@ class DenunciaLeyKarin(models.Model):
         verbose_name="Cargo o Área de la Persona Denunciada"
     )
 
-    # Relato de los Hechos
-    descripcion_circunstanciada = models.TextField(
-        verbose_name="Descripción Circunstanciada",
-        help_text="Hechos, lugares y fechas aproximadas"
+    # Relato de los Hechos (Cifrado en reposo Ley 21.719 Art. 16)
+    descripcion_circunstanciada = EncryptedTextField(
+        verbose_name="Descripción Circunstanciada (Cifrado)",
+        help_text="Hechos, lugares y fechas aproximadas (Almacenamiento Cifrado)"
     )
-    testigos_o_evidencias = models.TextField(
+    testigos_o_evidencias = EncryptedTextField(
         blank=True,
         null=True,
-        verbose_name="Testigos o Evidencias"
+        verbose_name="Testigos o Evidencias (Cifrado)"
     )
 
     # Gestión de Plazos Legales y Medidas (72h DT)
@@ -1744,11 +1745,11 @@ class DenunciaLeyKarin(models.Model):
         default=ESTADO_RECEPCIONADA,
         verbose_name="Estado del Trámite"
     )
-    medidas_resguardo_detalle = models.TextField(
+    medidas_resguardo_detalle = EncryptedTextField(
         blank=True,
         null=True,
-        help_text="Separación de puestos físicos, redistribución de jornadas, etc.",
-        verbose_name="Medidas de Resguardo Cautelar"
+        help_text="Separación de puestos físicos, redistribución de jornadas, etc. (Almacenamiento Cifrado)",
+        verbose_name="Medidas de Resguardo Cautelar (Cifrado)"
     )
     derivada_inspeccion_trabajo = models.BooleanField(
         default=False,
@@ -1873,16 +1874,17 @@ class AuditLogAccesoDenuncia(models.Model):
     ACCION_DESCARGA = "DESCARGA_INFORME"
     ACCION_MEDIDAS = "REGISTRO_MEDIDAS"
     ACCION_DERIVACION = "DERIVACION_DT"
+    ACCION_MODIFICACION = "MODIFICACION_EXPEDIENTE"
 
     denuncia = models.ForeignKey(
         DenunciaLeyKarin,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='accesos_auditoria',
         verbose_name="Denuncia Asociada"
     )
     usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         verbose_name="Usuario que Accedió"
     )
     fecha_hora = models.DateTimeField(
@@ -2550,13 +2552,13 @@ class EntregaEPP(models.Model):
     )
     trabajador = models.ForeignKey(
         Trabajador,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='entregas_epp',
         verbose_name="Trabajador Receptor"
     )
     responsable_entrega = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='entregas_epp_realizadas',
         verbose_name="Prevencionista / Bodega"
     )

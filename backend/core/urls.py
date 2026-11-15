@@ -14,24 +14,29 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+import os
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 
+# Ruta ofuscada o configurable para el panel de administración (Ley 21.719 B-2)
+admin_url_path = os.environ.get('DJANGO_ADMIN_PATH', 'sst-control-panel/').strip('/') + '/'
+
 def root_status_view(request):
-    return JsonResponse({
+    data = {
         "status": "online",
         "servicio": "HD Prevención Backend API",
-        "frontend": "http://localhost:3000",
-        "admin": "/admin/",
         "api": "/api/"
-    })
+    }
+    if settings.DEBUG:
+        data["admin"] = f"/{admin_url_path}"
+    return JsonResponse(data)
 
 urlpatterns = [
     path('', root_status_view, name='root_status'),
-    path('admin/', admin.site.urls),
+    path(admin_url_path, admin.site.urls),
     path('api/', include('modulo_prevencion.urls')),
 ]
 
