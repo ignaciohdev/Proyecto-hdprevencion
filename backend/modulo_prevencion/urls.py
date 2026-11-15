@@ -18,7 +18,8 @@ from .views import (
     EntregaEPPViewSet,
     RequisitoLegalBaseViewSet, MatrizLegalViewSet, ItemMatrizLegalViewSet,
     MatrizRiesgoMiperViewSet, ItemMatrizRiesgoViewSet,
-    ClimaUvView
+    ClimaUvView,
+    SolicitudDerechoARCOCreateView, SolicitudDerechoARCOConsultaView, PortabilidadDatosView
 )
 
 router = DefaultRouter()
@@ -69,6 +70,11 @@ urlpatterns = [
 
     # Endpoint meteorológico de radiación UV y estrés térmico (D.S. 594 Art. 109 / Enmienda ISO 2024)
     path('clima/radiacion-uv/', ClimaUvView.as_view(), name='clima_radiacion_uv'),
+
+    # Canal de Derechos del Titular ARCO-POL (Ley N° 21.719 Arts. 4 al 11)
+    path('privacidad/solicitar-derecho/', SolicitudDerechoARCOCreateView.as_view(), name='privacidad_solicitar_derecho'),
+    path('privacidad/consultar-derecho/<uuid:uuid>/', SolicitudDerechoARCOConsultaView.as_view(), name='privacidad_consultar_derecho'),
+    path('privacidad/portabilidad/', PortabilidadDatosView.as_view(), name='privacidad_portabilidad'),
 
     # Endpoints públicos del portal de participación (acceso via código QR, sin login)
     path(

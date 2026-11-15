@@ -70,8 +70,31 @@ self.addEventListener("fetch", (event) => {
   }
 
   // B) Consultas a API de Lectura (GET /api/...):
-  // Estrategia Network-First con fallback a caché de API offline
+  // Rutas con datos personales o sensibles que nunca deben persistir en caché compartida (Ley 21.719 A-4)
+  const RUTAS_DATOS_PERSONALES = [
+    "/api/denuncias",
+    "/api/trabajadores",
+    "/api/accidentes",
+    "/api/investigaciones-accidentes",
+    "/api/reportes-riesgo",
+    "/api/usuarios",
+    "/api/auth",
+    "/api/epp",
+    "/api/capacitaciones/registro",
+  ];
+
   if (url.pathname.startsWith("/api/")) {
+    const esRutaSensible = RUTAS_DATOS_PERSONALES.some((ruta) =>
+      url.pathname.startsWith(ruta)
+    );
+
+    // Si la ruta contiene datos sensibles o personales, pasa directo a la red sin almacenar en caché
+    if (esRutaSensible) {
+      event.respondWith(fetch(request));
+      return;
+    }
+
+    // Estrategia Network-First con fallback a caché de API offline para catálogos y datos no sensibles
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {

@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -22,10 +23,16 @@ load_dotenv(BASE_DIR.parent / '.env')
 load_dotenv(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-7rmmxw%yz$h&e&tygo=3l&8mo$l%40h+9s0=-gyb*qo7@x#$43'))
+SECRET_KEY = os.environ.get('SECRET_KEY') or os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        "CRITICAL SECURITY ERROR: La variable de entorno SECRET_KEY o DJANGO_SECRET_KEY "
+        "no está configurada. La aplicación no puede iniciar sin una clave secreta válida."
+    )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = 'RENDER' not in os.environ and os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+# Seguridad Ley 21.719 (M-4): Por defecto DEBUG es False salvo declaración explícita en desarrollo.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('true', '1') and 'RENDER' not in os.environ
 
 ALLOWED_HOSTS = [
     'localhost',
@@ -121,9 +128,17 @@ elif is_render and not is_internal_render_db and not database_url.startswith('sq
 else:
     ssl_require = False
 
+db_url_default = os.environ.get('DATABASE_URL')
+if not db_url_default:
+    db_password = os.environ.get('DB_PASSWORD')
+    if db_password:
+        db_url_default = f"postgresql://{os.environ.get('DB_USER', 'postgres')}:{db_password}@{os.environ.get('DB_HOST', 'localhost')}:{os.environ.get('DB_PORT', '5432')}/{os.environ.get('DB_NAME', 'prevencion_hd_db')}"
+    else:
+        db_url_default = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+
 DATABASES = {
     'default': dj_database_url.config(
-        default=f"postgresql://{os.environ.get('DB_USER', 'postgres')}:{os.environ.get('DB_PASSWORD', 'Borderlands123.')}@{os.environ.get('DB_HOST', 'localhost')}:{os.environ.get('DB_PORT', '5432')}/{os.environ.get('DB_NAME', 'prevencion_hd_db')}",
+        default=db_url_default,
         conn_max_age=600,
         ssl_require=ssl_require
     )
@@ -194,8 +209,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Número de proxies inversos de confianza (Render / CDN) para trazabilidad e IP segura (Ley 21.719 A-2)
+NUM_PROXIES = int(os.environ.get('NUM_PROXIES', 1))
+
 # REST Framework y Autenticación JWT
 REST_FRAMEWORK = {
+    'NUM_PROXIES': NUM_PROXIES,
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),

@@ -30,6 +30,7 @@ from .models import (
     EntregaEPP,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo,
+    SolicitudDerechoARCO,
     validar_rut_chileno
 )
 from .serializers import (
@@ -49,7 +50,8 @@ from .serializers import (
     ComiteParitarioSerializer, MiembroCPHSSerializer, ActaSesionCPHSSerializer,
     EntregaEPPSerializer,
     RequisitoLegalBaseSerializer, MatrizLegalSerializer, ItemMatrizLegalSerializer,
-    MatrizRiesgoMiperSerializer, ItemMatrizRiesgoSerializer
+    MatrizRiesgoMiperSerializer, ItemMatrizRiesgoSerializer,
+    SolicitudDerechoARCOSerializer
 )
 from .seeder_requisitos import asegurar_requisitos_base
 
@@ -789,6 +791,9 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         # Usar serializer para procesar el resto de los campos
         # Filtramos 'foto_perfil' si es vacío/null para que el serializer no falle al procesarlo como archivo
         data = request.data.copy()
+        # Seguridad Ley 21.719 (C-1): cuenta_padre y tipo_usuario son inmutables desde perfil
+        data.pop('cuenta_padre', None)
+        data.pop('tipo_usuario', None)
         if 'foto_perfil' in data and (data['foto_perfil'] == '' or data['foto_perfil'] == 'null' or data['foto_perfil'] is None):
             data.pop('foto_perfil')
 
@@ -1634,6 +1639,17 @@ class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # Validación Tenancy Ley 21.719 (A-3): Verificar que la empresa pertenezca al prevencionista del QR
+        empresa_id = request.data.get('empresa')
+        if empresa_id:
+            usuarios_grupo = get_usuarios_grupo(prevencionista)
+            if not Empresa.objects.filter(id=empresa_id, prevencionista__in=usuarios_grupo).exists():
+                return Response(
+                    {"error": "La empresa seleccionada no es válida para este prevencionista."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         reporte = serializer.save(
             usuario=prevencionista,
             tipo=ReporteRiesgo.TIPO_CONDICION,
@@ -1693,13 +1709,19 @@ class SugerenciaConsultaViewSet(viewsets.ModelViewSet):
 
 
 def get_client_ip(request):
-    """Obtiene la dirección IP real del cliente considerando proxies inversos."""
+    """
+    Obtiene la dirección IP confiable del cliente considerando proxies inversos (Render / Vercel).
+    Seguridad Ley 21.719 (A-2): Evita falsificación tomando el salto seguro desde la derecha
+    según NUM_PROXIES en lugar de un encabezado arbitrario inyectado por el cliente.
+    """
+    num_proxies = getattr(settings, 'NUM_PROXIES', 1)
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0].strip()
-    else:
-        ip = request.META.get('REMOTE_ADDR')
-    return ip or '127.0.0.1'
+        parts = [p.strip() for p in x_forwarded_for.split(',') if p.strip()]
+        if len(parts) >= num_proxies:
+            return parts[-num_proxies]
+        return parts[0]
+    return request.META.get('REMOTE_ADDR') or '127.0.0.1'
 
 
 class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
@@ -3178,16 +3200,23 @@ class ClimaUvView(APIView):
 
         if centro_trabajo_id:
             try:
-                centro = CentroTrabajo.objects.select_related('empresa').filter(id=centro_trabajo_id).first()
-                if centro:
-                    faena_nombre = centro.nombre
-                    empresa_nombre = centro.empresa.razon_social if centro.empresa else None
-                    if centro.comuna:
-                        ciudad = centro.comuna
-                    elif centro.region:
-                        ciudad = centro.region
-                    elif centro.nombre:
-                        ciudad = centro.nombre
+                user = request.user
+                is_auth = user and not user.is_anonymous
+                if is_auth:
+                    usuarios_grupo = get_usuarios_grupo(user)
+                    centro = CentroTrabajo.objects.select_related('empresa').filter(
+                        id=centro_trabajo_id,
+                        empresa__prevencionista__in=usuarios_grupo
+                    ).first()
+                    if centro:
+                        faena_nombre = centro.nombre
+                        empresa_nombre = centro.empresa.razon_social if centro.empresa else None
+                        ciudad = centro.comuna or centro.region or centro.nombre
+                else:
+                    # Protección Ley 21.719 (M-1): Peticiones anónimas solo obtienen comuna/clima sin filtrar razón social ni faena por ID
+                    centro = CentroTrabajo.objects.filter(id=centro_trabajo_id).first()
+                    if centro:
+                        ciudad = centro.comuna or centro.region or "Santiago"
             except (ValueError, TypeError):
                 pass
 
@@ -3339,6 +3368,89 @@ class ClimaUvView(APIView):
 
         cache.set(cache_key, resultado, timeout=1800)
         return Response(resultado, status=status.HTTP_200_OK)
+
+
+class SolicitudDerechoARCOCreateView(generics.CreateAPIView):
+    """
+    Endpoint público para que cualquier titular de datos ejerza sus derechos ARCO-POL
+    (Acceso, Rectificación, Supresión, Oposición, Portabilidad, Bloqueo).
+    Arts. 4 al 11 Ley N° 21.719.
+    """
+    serializer_class = SolicitudDerechoARCOSerializer
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = 'public_qr'
+
+    def perform_create(self, serializer):
+        tipo = self.request.data.get('tipo_derecho')
+        # Si solicita bloqueo temporal, activamos flag inmediatamente (plazo 2 días hábiles Art. 11)
+        bloqueo = (tipo == SolicitudDerechoARCO.TIPO_BLOQUEO)
+        serializer.save(bloqueo_provisional_activo=bloqueo)
+
+
+class SolicitudDerechoARCOConsultaView(generics.RetrieveAPIView):
+    """
+    Permite consultar el estado de tramitación y respuesta de una solicitud ARCO por UUID.
+    """
+    queryset = SolicitudDerechoARCO.objects.all()
+    serializer_class = SolicitudDerechoARCOSerializer
+    permission_classes = [permissions.AllowAny]
+    lookup_field = 'uuid'
+
+
+class PortabilidadDatosView(APIView):
+    """
+    Endpoint estructurado para el Derecho a la Portabilidad (Art. 9 Ley N° 21.719).
+    Entrega los datos personales vinculados a un RUT en formato JSON interoperable.
+    """
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def get(self, request):
+        rut = request.query_params.get('rut')
+        if not rut:
+            return Response(
+                {"error": "Debe especificar el parámetro rut."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Recopilar datos asociados al RUT
+        trabajadores = Trabajador.objects.filter(rut__iexact=rut.strip()).select_related('empresa')
+        datos_trabajador = [
+            {
+                "empresa": t.empresa.razon_social,
+                "nombres": t.nombres,
+                "apellidos": t.apellidos,
+                "rut": t.rut,
+                "cargo": t.cargo,
+                "fecha_ingreso": t.fecha_ingreso.isoformat() if t.fecha_ingreso else None,
+                "estado": t.estado
+            }
+            for t in trabajadores
+        ]
+
+        # Entregas de EPP
+        entregas = EntregaEPP.objects.filter(trabajador__rut__iexact=rut.strip()).select_related('empresa')
+        datos_epp = [
+            {
+                "empresa": e.empresa.razon_social,
+                "fecha_entrega": e.fecha_entrega.isoformat(),
+                "tipo_epp": e.tipo_epp,
+                "detalle_elementos": e.detalle_elementos
+            }
+            for e in entregas
+        ]
+
+        # Exportación estructurada conforme a estándares abiertos
+        payload = {
+            "estandar_interoperabilidad": "Ley N° 21.719 Art. 9 (Portabilidad)",
+            "fecha_exportacion": timezone.now().isoformat(),
+            "rut_titular": rut,
+            "fichas_laborales": datos_trabajador,
+            "registros_epp": datos_epp
+        }
+
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 

@@ -11,15 +11,13 @@ export default function Registro() {
     email: "",
     password: "",
     password_confirm: "",
-    tipo_usuario: "INDIVIDUAL",
-    cuenta_padre: "",
   });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
@@ -45,8 +43,6 @@ export default function Registro() {
         email: formData.email,
         password: formData.password,
         password_confirm: formData.password_confirm,
-        tipo_usuario: formData.tipo_usuario,
-        cuenta_padre: formData.tipo_usuario === "CORPORATIVO" && formData.cuenta_padre ? parseInt(formData.cuenta_padre) : null,
       };
 
       const response = await fetch(getApiUrl("/api/auth/register/"), {
@@ -185,40 +181,6 @@ export default function Registro() {
               />
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-semibold mb-1 text-slate-700 dark:text-slate-300">
-              Tipo de Cuenta
-            </label>
-            <select
-              name="tipo_usuario"
-              value={formData.tipo_usuario}
-              onChange={handleChange}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
-            >
-              <option value="INDIVIDUAL">Individual</option>
-              <option value="CORPORATIVO">Multi-asiento Corporativo (Consultoras)</option>
-            </select>
-          </div>
-
-          {formData.tipo_usuario === "CORPORATIVO" && (
-            <div className="animate-fadeIn">
-              <label className="block text-sm font-semibold mb-1 text-slate-700 dark:text-slate-300">
-                ID de Cuenta Padre (Asiento Asociado)
-              </label>
-              <input
-                type="text"
-                name="cuenta_padre"
-                value={formData.cuenta_padre}
-                onChange={handleChange}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
-                placeholder="ID del Administrador Principal"
-              />
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Ingresa el ID de la consultora principal si te estás uniendo a una suscripción existente.
-              </p>
-            </div>
-          )}
 
           <button
             type="submit"

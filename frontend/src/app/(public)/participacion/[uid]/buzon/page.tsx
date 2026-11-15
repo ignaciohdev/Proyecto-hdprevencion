@@ -243,7 +243,7 @@ function BuzonPublicoContent() {
           </button>
         </div>
 
-        {/* Contexto de Empresa y Faena (Aislamiento Multi-Tenant Ley N° 21.719) */}
+        {/* Contexto de Empresa y Faena (Aislamiento Multi-Tenant y Confidencialidad) */}
         {empresas.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80">
             <div>
@@ -541,6 +541,19 @@ function BuzonPublicoContent() {
               ⚠️ {errorMsg}
             </div>
           )}
+
+          {/* Aviso de Privacidad y Tratamiento de Datos (Art. 14 ter Ley 21.719) */}
+          <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-[11px] text-slate-400 space-y-1">
+            <p>
+              🔒 <strong>Aviso de Protección de Datos (Ley N° 21.719):</strong> Los datos recopilados serán tratados exclusivamente para la tramitación de esta {canal === 'DENUNCIA_KARIN' ? 'denuncia Ley Karin bajo estricta reserva legal (Ley 21.643 y D.S. 44)' : 'sugerencia o consulta laboral'}.
+            </p>
+            <p>
+              Puedes revisar las finalidades, plazos de conservación y procedimiento para ejercer tus derechos de acceso, rectificación y supresión en nuestra{" "}
+              <a href="/privacidad" target="_blank" className="text-orange-400 underline font-semibold">
+                Política de Privacidad
+              </a>.
+            </p>
+          </div>
 
           {/* Botón de Envío */}
           <button

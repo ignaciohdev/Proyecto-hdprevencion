@@ -183,6 +183,13 @@ export default function ReportarRiesgoPage() {
             <div style={styles.errorBox}>⚠️ {errorMsg}</div>
           )}
 
+          <div style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(15, 23, 42, 0.6)', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            🔒 <strong>Aviso de Privacidad (Ley N° 21.719):</strong> Los datos entregados se utilizarán únicamente para evaluar y corregir la condición de riesgo en faena. Conoce tus derechos y plazos en nuestra{' '}
+            <a href="/privacidad" target="_blank" style={{ color: '#fb923c', textDecoration: 'underline' }}>
+              Política de Privacidad
+            </a>.
+          </div>
+
           <button
             type="submit"
             disabled={

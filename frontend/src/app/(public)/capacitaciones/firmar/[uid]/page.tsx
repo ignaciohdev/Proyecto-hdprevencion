@@ -357,6 +357,19 @@ export default function PublicFirmaPage({ params }: { params: Promise<{ uid: str
             </div>
           </div>
 
+          {/* Aviso Legal y Protección de Datos (Art. 14 ter Ley 21.719 / D.S. 40) */}
+          <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl text-[10px] text-slate-400 leading-normal space-y-1">
+            <p>
+              🔒 <strong>Aviso Legal y Protección de Datos (Ley N° 21.719):</strong> Tu nombre, RUT y firma manuscrita digitalizada serán incorporados al acta oficial de asistencia de esta capacitación en cumplimiento del D.S. 40 y la Ley 16.744 sobre prevención de riesgos laborales.
+            </p>
+            <p>
+              Conoce tus derechos ARCO y plazos de conservación en nuestra{" "}
+              <a href="/privacidad" target="_blank" className="text-orange-400 underline font-semibold">
+                Política de Privacidad
+              </a>.
+            </p>
+          </div>
+
           {/* Botón de Enviar */}
           <button
             type="submit"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { getApiUrl } from "../../../utils/api";
 
 interface SugerenciaLaboral {
@@ -1335,7 +1336,7 @@ export default function BuzonDigitalPage() {
                   ))}
                 </select>
                 <p className="text-[10px] text-slate-500">
-                  El QR generado fija esta empresa exclusivamente, blindando el secreto comercial y la Ley N° 21.719.
+                  El QR generado fija esta empresa exclusivamente, resguardando el secreto empresarial y la confidencialidad de la información.
                 </p>
               </div>
             )}
@@ -1343,13 +1344,10 @@ export default function BuzonDigitalPage() {
             {publicPortalUrl ? (
               <div className="flex flex-col items-center justify-center py-2 space-y-3">
                 <div className="p-3 bg-white rounded-2xl shadow-xl inline-block">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
-                      publicPortalUrl
-                    )}`}
-                    alt="Código QR del portal de denuncias y sugerencias"
-                    className="w-44 h-44"
+                  <QRCodeSVG
+                    value={publicPortalUrl}
+                    size={180}
+                    level="M"
                   />
                 </div>
 

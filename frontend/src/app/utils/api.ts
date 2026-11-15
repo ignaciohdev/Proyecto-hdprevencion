@@ -184,9 +184,35 @@ export const logoutAuth = async (): Promise<void> => {
     // Silencioso
   } finally {
     if (typeof window !== "undefined") {
+      // 1. Limpieza de tokens y datos en almacenamiento local
       localStorage.removeItem("access_token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("user_info");
+      sessionStorage.clear();
+
+      // 2. Limpieza de caché del Service Worker para evitar fugas en dispositivos compartidos (Ley 21.719 A-4)
+      if ("caches" in window) {
+        try {
+          const cacheKeys = await caches.keys();
+          await Promise.all(
+            cacheKeys
+              .filter((k) => k.startsWith("hdprevencion"))
+              .map((k) => caches.delete(k))
+          );
+        } catch {
+          // Silencioso
+        }
+      }
+
+      // 3. Purgar base de datos IndexedDB local
+      try {
+        if (window.indexedDB) {
+          window.indexedDB.deleteDatabase("HDPrevencion_Offline_DB");
+        }
+      } catch {
+        // Silencioso
+      }
+
       window.location.href = "/ingreso";
     }
   }

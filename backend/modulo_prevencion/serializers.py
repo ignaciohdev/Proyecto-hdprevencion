@@ -17,7 +17,8 @@ from .models import (
     ComiteParitario, MiembroCPHS, ActaSesionCPHS,
     EntregaEPP,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
-    MatrizRiesgoMiper, ItemMatrizRiesgo
+    MatrizRiesgoMiper, ItemMatrizRiesgo,
+    SolicitudDerechoARCO
 )
 
 Usuario = get_user_model()
@@ -38,6 +39,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario
         fields = ('id', 'uuid', 'username', 'email', 'tipo_usuario', 'cuenta_padre', 'suscripcion_activa', 'contador_descargas', 'foto_perfil')
+        read_only_fields = ('id', 'uuid', 'tipo_usuario', 'cuenta_padre')
 
     def get_suscripcion_activa(self, obj):
         owner = obj.cuenta_padre if obj.cuenta_padre else obj
@@ -87,10 +89,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Usuario
-        fields = ('username', 'email', 'password', 'password_confirm', 'tipo_usuario', 'cuenta_padre')
+        fields = ('username', 'email', 'password', 'password_confirm')
         extra_kwargs = {
-            'email': {'required': True},
-            'cuenta_padre': {'required': False, 'allow_null': True}
+            'email': {'required': True}
         }
 
     def validate(self, attrs):
@@ -109,6 +110,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         # Remover campos temporales del diccionario de validación
         validated_data.pop('password_confirm')
         password = validated_data.pop('password')
+        
+        # Blindaje Ley 21.719 (C-1): todo nuevo registro es INDIVIDUAL e independiente por defecto
+        validated_data['tipo_usuario'] = 'INDIVIDUAL'
+        validated_data['cuenta_padre'] = None
         
         # Ejecutar creación transaccional atómica
         with transaction.atomic():
@@ -243,6 +248,26 @@ class InspeccionSerializer(serializers.ModelSerializer):
             'porcentaje_cumplimiento': {'required': False}
         }
 
+    def validate_empresa(self, value):
+        request = self.context.get('request')
+        if request and request.user and not request.user.is_anonymous:
+            from .views import get_usuarios_grupo
+            usuarios_grupo = get_usuarios_grupo(request.user)
+            if value.prevencionista not in usuarios_grupo:
+                raise serializers.ValidationError("Empresa no válida o no encontrada.")
+        return value
+
+    def validate_centro_trabajo(self, value):
+        if not value:
+            return value
+        request = self.context.get('request')
+        if request and request.user and not request.user.is_anonymous:
+            from .views import get_usuarios_grupo
+            usuarios_grupo = get_usuarios_grupo(request.user)
+            if value.empresa.prevencionista not in usuarios_grupo:
+                raise serializers.ValidationError("Centro de trabajo no válido o no encontrado.")
+        return value
+
 
 class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='usuario.username', read_only=True)
@@ -274,6 +299,26 @@ class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'usuario': {'required': False}
         }
+
+    def validate_empresa(self, value):
+        request = self.context.get('request')
+        if request and request.user and not request.user.is_anonymous:
+            from .views import get_usuarios_grupo
+            usuarios_grupo = get_usuarios_grupo(request.user)
+            if value.prevencionista not in usuarios_grupo:
+                raise serializers.ValidationError("Empresa no válida o no encontrada.")
+        return value
+
+    def validate_trabajador(self, value):
+        if not value:
+            return value
+        request = self.context.get('request')
+        if request and request.user and not request.user.is_anonymous:
+            from .views import get_usuarios_grupo
+            usuarios_grupo = get_usuarios_grupo(request.user)
+            if value.empresa.prevencionista not in usuarios_grupo:
+                raise serializers.ValidationError("Trabajador no válido o no encontrado.")
+        return value
 
 
 class TemaCapacitacionSerializer(serializers.ModelSerializer):
@@ -318,6 +363,15 @@ class RegistroCapacitacionSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'usuario': {'required': False}
         }
+
+    def validate_empresa(self, value):
+        request = self.context.get('request')
+        if request and request.user and not request.user.is_anonymous:
+            from .views import get_usuarios_grupo
+            usuarios_grupo = get_usuarios_grupo(request.user)
+            if value.prevencionista not in usuarios_grupo:
+                raise serializers.ValidationError("Empresa no válida o no encontrada.")
+        return value
 
 class SugerenciaConsultaSerializer(serializers.ModelSerializer):
     """
@@ -535,7 +589,7 @@ class SugerenciaLaboralSerializer(serializers.ModelSerializer):
 class DenunciaLeyKarinListSerializer(serializers.ModelSerializer):
     """
     Serializer de lista para canal Ley Karin (Ley N° 21.643 / D.S. 44).
-    Enmascara por confidencialidad estricta y resguardo de datos (Ley 21.719)
+    Enmascara por confidencialidad estricta y resguardo de datos personales
     todos los datos identificatorios de personas y relato pormenorizado.
     """
     empresa_nombre = serializers.CharField(source='empresa.razon_social', read_only=True)
@@ -942,6 +996,28 @@ class MatrizRiesgoMiperSerializer(serializers.ModelSerializer):
             'total_peligros', 'criticos_puros', 'altos_puros',
             'criticos_residuales', 'altos_residuales', 'medios_residuales', 'bajos_residuales',
             'porcentaje_reduccion_riesgo'
+        )
+
+
+class SolicitudDerechoARCOSerializer(serializers.ModelSerializer):
+    """
+    Serializer público para el ingreso y seguimiento de solicitudes ARCO-POL (Ley N° 21.719).
+    """
+    tipo_derecho_display = serializers.CharField(source='get_tipo_derecho_display', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+
+    class Meta:
+        model = SolicitudDerechoARCO
+        fields = (
+            'uuid', 'tipo_derecho', 'tipo_derecho_display',
+            'rut_titular', 'nombre_titular', 'email_titular', 'telefono_titular',
+            'detalle_solicitud', 'estado', 'estado_display',
+            'fecha_solicitud', 'fecha_limite_30d', 'bloqueo_provisional_activo',
+            'respuesta_formal', 'fecha_resolucion'
+        )
+        read_only_fields = (
+            'uuid', 'estado', 'fecha_solicitud', 'fecha_limite_30d',
+            'bloqueo_provisional_activo', 'respuesta_formal', 'fecha_resolucion'
         )
 
 

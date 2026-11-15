@@ -3273,5 +3273,211 @@ class ItemMatrizRiesgo(models.Model):
             })
 
 
+class SolicitudDerechoARCO(models.Model):
+    """
+    Canal oficial y registro de solicitudes de ejercicio de derechos del titular (ARCO-POL)
+    conforme a los Arts. 4 al 11 de la Ley N° 21.719 sobre Protección de Datos Personales.
+    """
+    TIPO_ACCESO = 'ACCESO'
+    TIPO_RECTIFICACION = 'RECTIFICACION'
+    TIPO_SUPRESION = 'SUPRESION'
+    TIPO_OPOSICION = 'OPOSICION'
+    TIPO_PORTABILIDAD = 'PORTABILIDAD'
+    TIPO_BLOQUEO = 'BLOQUEO'
+
+    TIPOS_DERECHO = [
+        (TIPO_ACCESO, 'Derecho de Acceso (Art. 5)'),
+        (TIPO_RECTIFICACION, 'Derecho de Rectificación (Art. 6)'),
+        (TIPO_SUPRESION, 'Derecho de Supresión / Cancelación (Art. 7)'),
+        (TIPO_OPOSICION, 'Derecho de Oposición (Art. 8)'),
+        (TIPO_PORTABILIDAD, 'Derecho a la Portabilidad (Art. 9)'),
+        (TIPO_BLOQUEO, 'Derecho de Bloqueo Temporal (Art. 11)'),
+    ]
+
+    ESTADO_PENDIENTE = 'PENDIENTE'
+    ESTADO_EN_TRAMITE = 'EN_TRAMITE'
+    ESTADO_RESUELTA = 'RESUELTA'
+    ESTADO_RECHAZADA = 'RECHAZADA'
+
+    ESTADOS = [
+        (ESTADO_PENDIENTE, 'Pendiente de Revisión'),
+        (ESTADO_EN_TRAMITE, 'En Trámite'),
+        (ESTADO_RESUELTA, 'Resuelta Favorablemente'),
+        (ESTADO_RECHAZADA, 'Rechazada con Justificación Legal'),
+    ]
+
+    uuid = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False,
+        unique=True,
+        db_index=True,
+        verbose_name="Código de Seguimiento (UUID)"
+    )
+    tipo_derecho = models.CharField(
+        max_length=20,
+        choices=TIPOS_DERECHO,
+        verbose_name="Tipo de Derecho Ejercido"
+    )
+    rut_titular = models.CharField(
+        max_length=20,
+        verbose_name="RUT del Titular"
+    )
+    nombre_titular = models.CharField(
+        max_length=200,
+        verbose_name="Nombre Completo del Titular"
+    )
+    email_titular = models.EmailField(
+        verbose_name="Correo Electrónico de Notificación"
+    )
+    telefono_titular = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        verbose_name="Teléfono de Contacto"
+    )
+    detalle_solicitud = models.TextField(
+        verbose_name="Detalle de la Solicitud y Fundamentos"
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADOS,
+        default=ESTADO_PENDIENTE,
+        verbose_name="Estado de Tramitación"
+    )
+    fecha_solicitud = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de Ingreso"
+    )
+    fecha_limite_30d = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Límite Legal (30 días corridos Art. 11)"
+    )
+    bloqueo_provisional_activo = models.BooleanField(
+        default=False,
+        verbose_name="Bloqueo Temporal Activo (2 días hábiles Art. 11)"
+    )
+    respuesta_formal = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Respuesta Formal al Titular"
+    )
+    fecha_resolucion = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Fecha de Notificación de Respuesta"
+    )
+
+    class Meta:
+        verbose_name = "Solicitud de Derecho ARCO-POL (Ley 21.719)"
+        verbose_name_plural = "Solicitudes de Derechos ARCO-POL (Ley 21.719)"
+        ordering = ['-fecha_solicitud']
+
+    def __str__(self):
+        return f"{self.get_tipo_derecho_display()} - {self.rut_titular} ({self.get_estado_display()})"
+
+    def save(self, *args, **kwargs):
+        if not self.fecha_limite_30d:
+            from datetime import timedelta
+            self.fecha_limite_30d = timezone.localdate() + timedelta(days=30)
+        super().save(*args, **kwargs)
+
+
+class RegistroBrechaSeguridad(models.Model):
+    """
+    Registro y gestión de incidentes y brechas de seguridad de datos personales
+    conforme al Art. 14 sexies de la Ley N° 21.719.
+    Permite auditar el cumplimiento del deber de notificación a la Agencia y a los titulares.
+    """
+    TIPO_CONFIDENCIALIDAD = 'CONFIDENCIALIDAD'
+    TIPO_INTEGRIDAD = 'INTEGRIDAD'
+    TIPO_DISPONIBILIDAD = 'DISPONIBILIDAD'
+
+    TIPOS_BRECHA = [
+        (TIPO_CONFIDENCIALIDAD, 'Pérdida de Confidencialidad (Acceso o divulgación no autorizada)'),
+        (TIPO_INTEGRIDAD, 'Pérdida de Integridad (Alteración o corrupción no autorizada)'),
+        (TIPO_DISPONIBILIDAD, 'Pérdida de Disponibilidad (Destrucción, bloqueo o pérdida de acceso)'),
+    ]
+
+    SEVERIDAD_BAJA = 'BAJA'
+    SEVERIDAD_MEDIA = 'MEDIA'
+    SEVERIDAD_ALTA = 'ALTA'
+    SEVERIDAD_CRITICA = 'CRITICA'
+
+    NIVELES_SEVERIDAD = [
+        (SEVERIDAD_BAJA, 'Baja (Sin impacto probable sobre derechos de titulares)'),
+        (SEVERIDAD_MEDIA, 'Media (Impacto limitado o contenido oportunamente)'),
+        (SEVERIDAD_ALTA, 'Alta (Afecta datos de salud, denuncias o gran escala)'),
+        (SEVERIDAD_CRITICA, 'Crítica (Exfiltración masiva o riesgo inminente de daño)'),
+    ]
+
+    codigo_incidente = models.CharField(
+        max_length=50,
+        unique=True,
+        verbose_name="Código de Incidente (SEC-YYYY-NNN)"
+    )
+    fecha_deteccion = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha y Hora de Detección"
+    )
+    tipo_brecha = models.CharField(
+        max_length=30,
+        choices=TIPOS_BRECHA,
+        verbose_name="Naturaleza de la Brecha"
+    )
+    severidad = models.CharField(
+        max_length=20,
+        choices=NIVELES_SEVERIDAD,
+        verbose_name="Evaluación de Severidad"
+    )
+    datos_sensibles_afectados = models.BooleanField(
+        default=False,
+        verbose_name="¿Afecta Datos Sensibles o Menores de 14 años?"
+    )
+    descripcion_incidente = models.TextField(
+        verbose_name="Descripción Circunstanciada del Incidente"
+    )
+    medidas_correctivas_inmediatas = models.TextField(
+        verbose_name="Medidas Técnicas de Contención Adoptadas"
+    )
+    notificado_agencia = models.BooleanField(
+        default=False,
+        verbose_name="¿Notificado a la Agencia de Protección de Datos?"
+    )
+    fecha_notificacion_agencia = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha y Hora de Notificación a la Agencia"
+    )
+    folio_notificacion_agencia = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name="Folio de Recepción en la Agencia"
+    )
+    notificado_titulares = models.BooleanField(
+        default=False,
+        verbose_name="¿Notificado a los Titulares Afectados?"
+    )
+    fecha_notificacion_titulares = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha y Hora de Comunicación a Titulares"
+    )
+    responsable_analisis = models.CharField(
+        max_length=200,
+        verbose_name="Responsable Técnico del Análisis"
+    )
+
+    class Meta:
+        verbose_name = "Registro de Brecha de Seguridad (Art. 14 sexies)"
+        verbose_name_plural = "Registros de Brechas de Seguridad (Art. 14 sexies)"
+        ordering = ['-fecha_deteccion']
+
+    def __str__(self):
+        return f"{self.codigo_incidente} - {self.get_tipo_brecha_display()} ({self.severidad})"
+
+
+
 
 

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { EmpresaOption, CentroTrabajoOption, TrabajadorOption } from "../types";
 
 interface ModalQRFirmaMovilEPPProps {
@@ -58,9 +59,6 @@ export function ModalQRFirmaMovilEPP({
   if (trabajadorId) queryParams.set("trabajador", trabajadorId);
 
   const urlFirmaMovil = `${origenUrl}/participacion/firma-epp?${queryParams.toString()}`;
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-    urlFirmaMovil
-  )}`;
 
   const copiarEnlace = () => {
     navigator.clipboard.writeText(urlFirmaMovil);
@@ -167,11 +165,10 @@ export function ModalQRFirmaMovilEPP({
           {/* QR Card */}
           <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row items-center gap-5">
             <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex-shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={qrImageUrl}
-                alt="QR Firma Móvil EPP"
-                className="w-36 h-36 object-contain"
+              <QRCodeSVG
+                value={urlFirmaMovil}
+                size={144}
+                level="M"
               />
             </div>
 

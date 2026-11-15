@@ -2,6 +2,7 @@
 
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
+import { QRCodeSVG } from "qrcode.react";
 import { getApiUrl } from "../../../../utils/api";
 
 interface TemaCapacitacion {
@@ -281,12 +282,10 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
                 Muestra este código QR a los trabajadores para que firmen la charla con su dedo desde sus celulares.
               </p>
               <div className="bg-white p-3.5 rounded-xl shadow border border-slate-200">
-                <img
-                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                    `${origin}/capacitaciones/firmar/${capacitacion.uuid || capacitacionId}`
-                  )}`}
-                  alt="Código QR de Asistencia"
-                  className="w-44 h-44 mx-auto"
+                <QRCodeSVG
+                  value={`${origin}/capacitaciones/firmar/${capacitacion.uuid || capacitacionId}`}
+                  size={180}
+                  level="M"
                 />
               </div>
               <div className="text-[10px] bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-250 dark:border-slate-850 font-mono select-all break-all w-full text-slate-550 text-left">
