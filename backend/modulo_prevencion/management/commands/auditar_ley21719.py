@@ -17,9 +17,8 @@ from rest_framework.test import APIClient
 from modulo_prevencion.models import (
     Usuario, Empresa, Trabajador, CentroTrabajo,
     DenunciaLeyKarin, InvestigacionAccidente, EntregaEPP,
-    AuditLogAccesoDenuncia, SolicitudDerechoARCO, RegistroBrechaSeguridad
+    AuditLogAccesoDenuncia
 )
-from modulo_prevencion.crypto import cifrar_texto, descifrar_texto
 
 
 def is_encrypted(val) -> bool:
