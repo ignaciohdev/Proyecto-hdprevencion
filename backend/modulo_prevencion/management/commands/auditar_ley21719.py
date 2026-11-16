@@ -219,6 +219,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "CRÍTICA",
+            "sancion": "Infracción Gravísima (Arts. 14 quinquies, 16 y 35) - Multa hasta 20.000 UTM (~$1.300M CLP)",
+            "impacto": "Exposición en texto plano en disco de relatos de acoso sexual/laboral (Ley Karin) o expedientes de accidentes.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -317,6 +320,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "CRÍTICA",
+            "sancion": "Infracción Gravísima (Arts. 14 quinquies, 16 y 35) - Multa hasta 20.000 UTM (~$1.300M CLP)",
+            "impacto": "Exposición en texto plano en disco de relatos de acoso sexual/laboral (Ley Karin) o expedientes de accidentes.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -402,6 +408,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "ALTA",
+            "sancion": "Art. 12 Ley 21.719 en concordancia con Circular SUSESO 3336 y Ley 16.744 (Deber legal de conservación 5 años)",
+            "impacto": "Destrucción ilícita de expedientes de accidentes o denuncias laborales en curso, exponiendo a sanciones laborales, civiles y de la SUSESO.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -502,6 +511,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "ALTA",
+            "sancion": "Infracción Grave (Arts. 4 al 11 y Art. 34) - Multas de hasta 10.000 UTM (~$650M CLP)",
+            "impacto": "Ausencia de canal formal para que los titulares soliciten bloqueo cautelar, supresión o portabilidad estructurada de sus datos.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -579,6 +591,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "MEDIA-ALTA",
+            "sancion": "Art. 14 bis (Principio de Responsabilidad y Registro Inmutable de Operaciones)",
+            "impacto": "Incapacidad de auditar accesos indebidos a datos confidenciales o responder a requerimientos de la Agencia ante denuncias.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -650,6 +665,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "MEDIA",
+            "sancion": "Art. 14 (Seguridad por Defecto y Medidas Técnicas Preventivas)",
+            "impacto": "Exposición de rutas administrativas a ataques de fuerza bruta y filtración de nóminas a usuarios anónimos.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -729,6 +747,9 @@ class Command(BaseCommand):
         return {
             "name": suite_name,
             "articulo": articulo,
+            "gravedad": "ALTA",
+            "sancion": "Art. 14 (Seguridad de las Comunicaciones y Confidencialidad)",
+            "impacto": "Susceptibilidad a ataques XSS, secuestro de cookies de sesión (sin HttpOnly) y robo de credenciales en tránsito.",
             "status": status,
             "details": details,
             "evidence": evidence
@@ -764,10 +785,47 @@ class Command(BaseCommand):
     def generate_html_report(self, results: List[Dict[str, Any]], compliance_pct: int, duration: float, file_path: str):
         fecha_str = timezone.now().strftime("%d de %B de %Y a las %H:%M:%S")
 
+        if compliance_pct == 100:
+            dictamen_text = "APROBADO SIN RESERVAS"
+            dictamen_color = "var(--success)"
+            banner_class = "score-banner-pass"
+            banner_title = "100% CONFORMIDAD NORMATIVA Y TÉCNICA"
+            banner_desc = "Todas las pruebas de infiltración horizontal, criptografía en reposo y canales de derechos resultaron exitosas sin vulnerabilidades detectadas."
+            circle_color = "var(--success)"
+            circle_bg = "rgba(16, 185, 129, 0.2)"
+        elif compliance_pct >= 70:
+            dictamen_text = "CONFORMIDAD PARCIAL / OBSERVACIONES"
+            dictamen_color = "var(--warning)"
+            banner_class = "score-banner-warn"
+            banner_title = f"CONFORMIDAD PARCIAL ({compliance_pct}%)"
+            banner_desc = "El sistema supera controles básicos pero mantiene vulnerabilidades que deben ser corregidas antes de la entrada en vigor de la Ley N° 21.719."
+            circle_color = "var(--warning)"
+            circle_bg = "rgba(245, 158, 11, 0.2)"
+        else:
+            dictamen_text = "NO CONFORME - VULNERABILIDADES CRÍTICAS"
+            dictamen_color = "var(--danger)"
+            banner_class = "score-banner-fail"
+            banner_title = f"ALTO RIESGO DE FILTRACIÓN Y SANCIONES ({compliance_pct}%)"
+            banner_desc = "El sistema presenta brechas graves de confidencialidad, datos sensibles en texto plano y ausencia de canales obligatorios. Existe riesgo inminente de multas de hasta 20.000 UTM o 4% de ingresos bajo la Ley N° 21.719."
+            circle_color = "var(--danger)"
+            circle_bg = "rgba(239, 68, 68, 0.2)"
+
         suites_html = ""
         for idx, r in enumerate(results, 1):
-            badge_class = "badge-pass" if r['status'] == 'PASSED' else "badge-fail"
-            badge_text = "APROBADO (0 FUGAS)" if r['status'] == 'PASSED' else "REVISIÓN REQUERIDA"
+            if r['status'] == 'PASSED':
+                badge_class = "badge-pass"
+                badge_text = "✓ CUMPLE ESTÁNDAR (0 FUGAS)"
+            else:
+                badge_class = "badge-fail"
+                badge_text = "✗ VULNERABLE (BRECHA DETECTADA)"
+
+            grav = r.get('gravedad', 'MEDIA')
+            if grav == 'CRÍTICA':
+                grav_badge = '<span class="badge badge-critic">GRAVEDAD: CRÍTICA</span>'
+            elif 'ALTA' in grav:
+                grav_badge = '<span class="badge badge-high">GRAVEDAD: ALTA</span>'
+            else:
+                grav_badge = '<span class="badge badge-medium">GRAVEDAD: MEDIA</span>'
 
             details_html = "".join([f"<li>{d}</li>" for d in r['details']])
 
@@ -787,13 +845,26 @@ class Command(BaseCommand):
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #{idx}</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #{idx}</span>
+                            {grav_badge}
+                        </div>
                         <h3 class="suite-title">{r['name']}</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>{r['articulo']}</strong></p>
                     </div>
                     <span class="badge {badge_class}">{badge_text}</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">{r.get('sancion', 'Art. 35 Ley 21.719')}</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">{r.get('impacto', 'Exposición de datos personales')}</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
                         {details_html}
                     </ul>
@@ -902,33 +973,42 @@ class Command(BaseCommand):
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.3);
             border-radius: 12px;
             padding: 24px 30px;
             margin-bottom: 30px;
+            transition: all 0.3s ease;
+        }}
+        .score-banner-pass {{
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }}
+        .score-banner-warn {{
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }}
+        .score-banner-fail {{
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.4);
         }}
         .score-text h2 {{
             font-size: 1.5rem;
-            color: var(--success);
             font-weight: 700;
         }}
         .score-text p {{
             color: var(--text-muted);
             font-size: 0.95rem;
+            margin-top: 4px;
         }}
         .score-circle {{
             font-size: 2.8rem;
             font-weight: 900;
-            color: var(--success);
-            background: rgba(16, 185, 129, 0.2);
             width: 100px;
             height: 100px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 3px solid var(--success);
+            flex-shrink: 0;
         }}
         .card {{
             background-color: var(--card-bg);
@@ -968,6 +1048,7 @@ class Command(BaseCommand):
             font-size: 0.8rem;
             font-weight: 700;
             letter-spacing: 0.05em;
+            display: inline-block;
         }}
         .badge-pass {{
             background-color: rgba(16, 185, 129, 0.2);
@@ -978,6 +1059,43 @@ class Command(BaseCommand):
             background-color: rgba(239, 68, 68, 0.2);
             color: var(--danger);
             border: 1px solid rgba(239, 68, 68, 0.4);
+        }}
+        .badge-critic {{
+            background-color: rgba(239, 68, 68, 0.25);
+            color: #f87171;
+            border: 1px solid #ef4444;
+        }}
+        .badge-high {{
+            background-color: rgba(249, 115, 22, 0.25);
+            color: #fb923c;
+            border: 1px solid #f97316;
+        }}
+        .badge-medium {{
+            background-color: rgba(234, 179, 8, 0.25);
+            color: #fde047;
+            border: 1px solid #eab308;
+        }}
+        .risk-box {{
+            background: rgba(15, 23, 42, 0.6);
+            border-left: 4px solid var(--accent);
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin-bottom: 20px;
+        }}
+        .risk-item {{
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }}
+        .risk-item:last-child {{
+            margin-bottom: 0;
+        }}
+        .risk-label {{
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-right: 8px;
+        }}
+        .risk-val {{
+            color: #f1f5f9;
         }}
         .suite-body {{
             padding: 24px;
@@ -994,10 +1112,10 @@ class Command(BaseCommand):
             color: #cbd5e1;
         }}
         .details-list li::before {{
-            content: "✓";
+            content: "•";
             position: absolute;
-            left: 0;
-            color: var(--success);
+            left: 8px;
+            color: var(--accent);
             font-weight: bold;
         }}
         .evidence-table {{
@@ -1085,7 +1203,9 @@ class Command(BaseCommand):
             body {{ background: white; color: black; padding: 0; }}
             .card {{ border: 1px solid #ccc; box-shadow: none; break-inside: avoid; }}
             .btn, .actions-bar {{ display: none; }}
-            .score-banner {{ border: 1px solid #10b981; }}
+            .score-banner-pass {{ border: 1px solid #10b981; }}
+            .score-banner-fail {{ border: 1px solid #ef4444; }}
+            .score-banner-warn {{ border: 1px solid #f59e0b; }}
         }}
     </style>
 </head>
@@ -1120,17 +1240,17 @@ class Command(BaseCommand):
                 </div>
                 <div class="meta-item">
                     <h4>Dictamen Final</h4>
-                    <p style="color: var(--success);">APROBADO SIN RESERVAS</p>
+                    <p style="color: {dictamen_color}; font-weight: 800;">{dictamen_text}</p>
                 </div>
             </div>
         </div>
 
-        <div class="score-banner">
+        <div class="score-banner {banner_class}">
             <div class="score-text">
-                <h2>100% CONFORMIDAD NORMATIVA Y TÉCNICA</h2>
-                <p>Todas las pruebas de infiltración horizontal, extracción de base de datos y canal de derechos resultaron exitosas sin vulnerabilidades detectadas.</p>
+                <h2 style="color: {dictamen_color};">{banner_title}</h2>
+                <p>{banner_desc}</p>
             </div>
-            <div class="score-circle">
+            <div class="score-circle" style="color: {circle_color}; border: 3px solid {circle_color}; background: {circle_bg};">
                 {compliance_pct}%
             </div>
         </div>
