@@ -183,7 +183,13 @@ class Command(BaseCommand):
                     })
                 else:
                     status = "FAILED"
-                    details.append(f"FALLA: Usuario A pudo acceder a datos de Empresa B con status {res_cross_get.status_code}")
+                    details.append(f"FALLA: Aislamiento vulnerado. Usuario A pudo leer datos de Empresa B con status HTTP {res_cross_get.status_code}.")
+                    evidence.append({
+                        "test": "Acceso Cruzado No Autorizado a Ficha de Trabajador",
+                        "intento": f"Usuario A (ID {user_a.id}) intenta leer Trabajador de Empresa B (ID {trabajador_b.id})",
+                        "resultado": f"HTTP {res_cross_get.status_code} - FILTRACIÓN DE AISLAMIENTO DETECTADA",
+                        "estado": "FAIL"
+                    })
 
                 # Test 1.2: Intento de auto-asignación ilegítima de cuenta padre en el registro
                 client.logout()
@@ -207,7 +213,13 @@ class Command(BaseCommand):
                     })
                 else:
                     status = "FAILED"
-                    details.append("FALLA: El usuario pudo registrarse como cuenta hija sin autorización.")
+                    details.append("FALLA: El usuario pudo registrarse y auto-asignarse como cuenta hija de un corporativo ajeno (Vulnerabilidad Multi-Tenant C-1).")
+                    evidence.append({
+                        "test": "Inyección de 'cuenta_padre' en Registro",
+                        "intento": f"POST /api/auth/register/ con cuenta_padre={user_b.id}",
+                        "resultado": "VULNERABLE: Usuario creado con cuenta_padre vinculada a tercero",
+                        "estado": "FAIL"
+                    })
 
                 transaction.set_rollback(True)
 
@@ -294,7 +306,14 @@ class Command(BaseCommand):
                     })
                 else:
                     status = "FAILED"
-                    details.append("FALLA: El texto sensible se encuentra en texto plano o sin cifrar en la base de datos.")
+                    preview_txt = str(raw_desc)[:45] if raw_desc else "Vacío"
+                    details.append(f"FALLA: El texto sensible de la denuncia se encuentra en TEXTO PLANO en el disco ('{preview_txt}...'). Vulnerable a sustracción de backups o volcado de memoria.")
+                    evidence.append({
+                        "test": "Inspección SQL Directa en Tabla DenunciaLeyKarin",
+                        "intento": "SELECT descripcion_circunstanciada FROM base_datos_cruda",
+                        "resultado": f"TEXTO PLANO EXPUESTO EN DISCO: '{preview_txt}...' (Sin cifrado AES)",
+                        "estado": "FAIL"
+                    })
 
                 # Test 2.2: Verificación de descifrado transparente para el ORM de la aplicación
                 denuncia_recuperada = DenunciaLeyKarin.objects.get(id=denuncia.id)
@@ -309,6 +328,12 @@ class Command(BaseCommand):
                 else:
                     status = "FAILED"
                     details.append("FALLA: El ORM no pudo descifrar el contenido cifrado.")
+                    evidence.append({
+                        "test": "Descifrado transparente en capa ORM",
+                        "intento": "DenunciaLeyKarin.objects.get(id=denuncia.id)",
+                        "resultado": "Falla de integridad o error en clave de descifrado",
+                        "estado": "FAIL"
+                    })
 
                 transaction.set_rollback(True)
 
@@ -396,7 +421,17 @@ class Command(BaseCommand):
                     })
                 else:
                     status = "FAILED"
-                    details.append(f"FALLA: La empresa pudo ser eliminada o el error no fue 400 con advertencia de retención (Status: {res_del_empresa.status_code}, Body: {resp_body}).")
+                    if res_del_empresa.status_code in [200, 204]:
+                        msg_del = "FALLA: La empresa con expedientes de accidentes menores a 5 años fue eliminada exitosamente (HTTP 204). Se violó el deber legal de conservación de la Circular SUSESO 3336."
+                    else:
+                        msg_del = f"FALLA: La eliminación de la empresa no aplicó el bloqueo legal preventivo de 5 años (Respuesta: HTTP {res_del_empresa.status_code})."
+                    details.append(msg_del)
+                    evidence.append({
+                        "test": "Intento de Eliminación de Empresa con Historial de Accidentes",
+                        "intento": f"DELETE /api/empresas/{empresa.id}/ (Historial < 5 años)",
+                        "resultado": f"HTTP {res_del_empresa.status_code} - ELIMINACIÓN PERMITIDA (Sin protección 5 años)",
+                        "estado": "FAIL"
+                    })
 
                 transaction.set_rollback(True)
 
@@ -463,9 +498,25 @@ class Command(BaseCommand):
                     else:
                         status = "FAILED"
                         details.append("FALLA: La solicitud se creó pero no devolvió UUID o no activó el bloqueo provisional.")
+                        evidence.append({
+                            "test": "Ingreso Público de Solicitud de Bloqueo de Datos",
+                            "intento": "POST /api/privacidad/solicitar-derecho/ (Anónimo)",
+                            "resultado": "Respuesta incompleta: Falta UUID o flag de bloqueo",
+                            "estado": "FAIL"
+                        })
                 else:
                     status = "FAILED"
-                    details.append(f"FALLA: POST a derechos ARCO devolvió HTTP {res_arco.status_code}: {res_arco.content}")
+                    if res_arco.status_code == 404:
+                        msg_arco = "FALLA: El canal público de recepción de Derechos ARCO (/api/privacidad/solicitar-derecho/) NO EXISTE en el sistema (HTTP 404 Not Found)."
+                    else:
+                        msg_arco = f"FALLA: El canal de Derechos ARCO rechazó la solicitud con código HTTP {res_arco.status_code}."
+                    details.append(msg_arco)
+                    evidence.append({
+                        "test": "Ingreso Público de Solicitud de Bloqueo de Datos",
+                        "intento": "POST /api/privacidad/solicitar-derecho/ (Anónimo)",
+                        "resultado": f"HTTP {res_arco.status_code} - CANAL INEXISTENTE O INOPERATIVO",
+                        "estado": "FAIL"
+                    })
 
                 # Test 4.2: Portabilidad de Datos (Art. 9 Ley 21.719)
                 u_id = uuid.uuid4().hex[:6]
@@ -496,10 +547,26 @@ class Command(BaseCommand):
                         })
                     else:
                         status = "FAILED"
-                        details.append("FALLA: Respuesta de portabilidad no contiene las claves de formato estándar.")
+                        details.append("FALLA: La respuesta de portabilidad no cumple con el estándar de interoperabilidad exigido por el Art. 9.")
+                        evidence.append({
+                            "test": "Validación de Estándar Interoperable de Portabilidad",
+                            "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7",
+                            "resultado": "Formato estructurado inválido o incompleto",
+                            "estado": "FAIL"
+                        })
                 else:
                     status = "FAILED"
-                    details.append(f"FALLA: Endpoint de portabilidad devolvió HTTP {res_port.status_code}")
+                    if res_port.status_code == 404:
+                        msg_p = "FALLA: El endpoint de Portabilidad de Datos (/api/privacidad/portabilidad/) NO EXISTE en el sistema (HTTP 404 Not Found)."
+                    else:
+                        msg_p = f"FALLA: El endpoint de Portabilidad respondió con código HTTP {res_port.status_code}."
+                    details.append(msg_p)
+                    evidence.append({
+                        "test": "Descarga de Datos en Formato Portabilidad (JSON)",
+                        "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7",
+                        "resultado": f"HTTP {res_port.status_code} - ENDPOINT INEXISTENTE O INOPERATIVO",
+                        "estado": "FAIL"
+                    })
 
                 transaction.set_rollback(True)
 
@@ -576,10 +643,22 @@ class Command(BaseCommand):
                         })
                     else:
                         status = "FAILED"
-                        details.append("FALLA: Se consultó la denuncia pero no se generó el log de auditoría obligatorio.")
+                        details.append("FALLA: Se consultó la denuncia confidencial pero NO se generó el registro inmutable de auditoría (Violación de trazabilidad Art. 14 bis).")
+                        evidence.append({
+                            "test": "Registro de Auditoría de Acceso a Denuncia Ley Karin",
+                            "intento": f"GET /api/denuncias-ley-karin/{denuncia.id}/ desde IP 190.161.45.12",
+                            "resultado": "INEXISTENTE: La consulta no generó registro en AuditLogAccesoDenuncia",
+                            "estado": "FAIL"
+                        })
                 else:
                     status = "FAILED"
-                    details.append(f"FALLA: No se pudo consultar la denuncia (HTTP {res_denuncia.status_code}: {res_denuncia.content}).")
+                    details.append(f"FALLA: La consulta a la denuncia confidencial fue rechazada por el servidor con código HTTP {res_denuncia.status_code}.")
+                    evidence.append({
+                        "test": "Acceso a Denuncia Confidencial Ley Karin",
+                        "intento": f"GET /api/denuncias-ley-karin/{denuncia.id}/",
+                        "resultado": f"HTTP {res_denuncia.status_code} - Error en consulta",
+                        "estado": "FAIL"
+                    })
 
                 transaction.set_rollback(True)
 
@@ -625,7 +704,13 @@ class Command(BaseCommand):
                 })
             else:
                 status = "FAILED"
-                details.append(f"ADVERTENCIA: La ruta /admin/ respondió con status {res_admin_default.status_code} en vez de 404.")
+                details.append(f"FALLA: La ruta de administración estándar (/admin/) está activa y expuesta públicamente (HTTP {res_admin_default.status_code}). No cuenta con ofuscación de superficie.")
+                evidence.append({
+                    "test": "Ofuscación de Panel de Control Administrativo",
+                    "intento": "GET /admin/ (Ruta estándar de escaneo)",
+                    "resultado": f"HTTP {res_admin_default.status_code} - EXPUESTO (Panel no ofuscado)",
+                    "estado": "FAIL"
+                })
 
             # Test 6.2: Verificación de panel seguro personalizado
             custom_admin_path = getattr(settings, 'DJANGO_ADMIN_PATH', 'sst-control-panel/')
@@ -655,7 +740,13 @@ class Command(BaseCommand):
                         })
                     else:
                         status = "FAILED"
-                        details.append("FALLA: Visitantes anónimos pueden ver capacitaciones privadas.")
+                        details.append(f"FALLA: Visitantes anónimos pueden enumerar capacitaciones privadas ({len(items)} registros filtrados).")
+                        evidence.append({
+                            "test": "Enumeración Anónima de Capacitaciones",
+                            "intento": "GET /api/registro-capacitacion/ (Sin token)",
+                            "resultado": f"EXPUESTO: {len(items)} registros visibles anónimamente",
+                            "estado": "FAIL"
+                        })
 
         except Exception as e:
             status = "FAILED"
@@ -702,7 +793,13 @@ class Command(BaseCommand):
                 })
             else:
                 status = "FAILED"
-                details.append("FALLA: SESSION_COOKIE_HTTPONLY no está activo.")
+                details.append("FALLA: Directiva SESSION_COOKIE_HTTPONLY deshabilitada (riesgo de secuestro de sesión por XSS).")
+                evidence.append({
+                    "test": "Protección contra robo de sesión por XSS (HttpOnly)",
+                    "intento": "Verificación de directiva SESSION_COOKIE_HTTPONLY",
+                    "resultado": "INSEGURO: False (Cookies expuestas a lectura en JavaScript)",
+                    "estado": "FAIL"
+                })
 
             if time_zone == 'America/Santiago':
                 details.append(f"Trazabilidad horaria oficial: TIME_ZONE configurado congruentemente a '{time_zone}'.")
@@ -737,7 +834,15 @@ class Command(BaseCommand):
                         "estado": "PASS"
                     })
                 else:
-                    details.append("Aviso: Algunas cabeceras no fueron detectadas en next.config.ts.")
+                    status = "FAILED"
+                    faltantes = [h[0] for h in headers_presentes if not h[1]]
+                    details.append(f"FALLA: Cabeceras HTTP de seguridad ausentes en el frontend: {', '.join(faltantes)}.")
+                    evidence.append({
+                        "test": "Cabeceras HTTP de Protección contra Clickjacking y MITM",
+                        "intento": "Inspección de directivas en next.config.ts",
+                        "resultado": f"AUSENTES: {', '.join(faltantes)}",
+                        "estado": "FAIL"
+                    })
 
         except Exception as e:
             status = "FAILED"
