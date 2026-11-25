@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { getApiUrl } from "../../../utils/api";
+import { QRCodeSVG } from "qrcode.react";
+import { authFetch, getApiUrl } from "../../../utils/api";
 
 export default function PerfilPanel() {
   const [username, setUsername] = useState("");
@@ -26,6 +27,22 @@ export default function PerfilPanel() {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Estados MFA TOTP (P1.2)
+  const [mfaEnabled, setMfaEnabled] = useState(false);
+  const [mfaObligatorio, setMfaObligatorio] = useState(false);
+  const [mfaEnrolledAt, setMfaEnrolledAt] = useState<string | null>(null);
+  const [mfaBackupRemaining, setMfaBackupRemaining] = useState<number>(0);
+  const [mfaSetupData, setMfaSetupData] = useState<{ secret: string; otpauth_uri: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaBackupCodes, setMfaBackupCodes] = useState<string[] | null>(null);
+  const [mfaActionPassword, setMfaActionPassword] = useState("");
+  const [mfaActionCode, setMfaActionCode] = useState("");
+  const [mfaShowRegenerate, setMfaShowRegenerate] = useState(false);
+  const [mfaShowDisable, setMfaShowDisable] = useState(false);
+  const [mfaLoading, setMfaLoading] = useState(false);
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaMessage, setMfaMessage] = useState<string | null>(null);
+
   // Cargar perfil inicial
   const loadUserData = async () => {
     const token = localStorage.getItem("access_token");
@@ -42,6 +59,10 @@ export default function PerfilPanel() {
         setUsername(data.username);
         setEmail(data.email);
         setFotoPerfilUrl(data.foto_perfil);
+        setMfaEnabled(Boolean(data.mfa_enabled));
+        setMfaObligatorio(Boolean(data.mfa_obligatorio));
+        setMfaEnrolledAt(data.mfa_enrolled_at || null);
+        setMfaBackupRemaining(Number(data.mfa_backup_codes_remaining || 0));
         setForm({
           username: data.username,
           email: data.email,
@@ -209,6 +230,143 @@ export default function PerfilPanel() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Handlers MFA TOTP
+  const syncMfaFromUser = (u: any) => {
+    if (!u) return;
+    setMfaEnabled(Boolean(u.mfa_enabled));
+    setMfaObligatorio(Boolean(u.mfa_obligatorio));
+    setMfaEnrolledAt(u.mfa_enrolled_at || null);
+    setMfaBackupRemaining(Number(u.mfa_backup_codes_remaining || 0));
+    window.dispatchEvent(new Event("userProfileChanged"));
+  };
+
+  const handleMfaIniciar = async () => {
+    setMfaLoading(true);
+    setMfaError(null);
+    setMfaMessage(null);
+    setMfaBackupCodes(null);
+    try {
+      const res = await authFetch("/api/usuarios/mfa/iniciar/", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "No se pudo iniciar la configuración MFA.");
+      setMfaSetupData({ secret: data.secret, otpauth_uri: data.otpauth_uri });
+      setMfaCode("");
+    } catch (err: any) {
+      setMfaError(err.message || "Error al generar secreto MFA.");
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleMfaConfirmar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaLoading(true);
+    setMfaError(null);
+    try {
+      const res = await authFetch("/api/usuarios/mfa/confirmar/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: mfaCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = Array.isArray(data.code) ? data.code[0] : (data.detail || "Código TOTP inválido.");
+        throw new Error(msg);
+      }
+      setMfaSetupData(null);
+      setMfaCode("");
+      setMfaBackupCodes(data.backup_codes || null);
+      setMfaMessage(data.detail || "MFA activado correctamente.");
+      syncMfaFromUser(data.user);
+    } catch (err: any) {
+      setMfaError(err.message || "No se pudo activar MFA.");
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleMfaRegenerar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaLoading(true);
+    setMfaError(null);
+    try {
+      const res = await authFetch("/api/usuarios/mfa/regenerar-respaldos/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: mfaActionPassword, code: mfaActionCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = Array.isArray(data.current_password)
+          ? data.current_password[0]
+          : Array.isArray(data.code)
+          ? data.code[0]
+          : (data.detail || "No se pudieron regenerar los códigos.");
+        throw new Error(msg);
+      }
+      setMfaBackupCodes(data.backup_codes || null);
+      setMfaShowRegenerate(false);
+      setMfaActionPassword("");
+      setMfaActionCode("");
+      setMfaMessage(data.detail);
+      syncMfaFromUser(data.user);
+    } catch (err: any) {
+      setMfaError(err.message);
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleMfaDesactivar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaLoading(true);
+    setMfaError(null);
+    try {
+      const res = await authFetch("/api/usuarios/mfa/desactivar/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: mfaActionPassword, code: mfaActionCode.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = Array.isArray(data.current_password)
+          ? data.current_password[0]
+          : Array.isArray(data.code)
+          ? data.code[0]
+          : (data.detail || "No se pudo desactivar MFA.");
+        throw new Error(msg);
+      }
+      setMfaShowDisable(false);
+      setMfaBackupCodes(null);
+      setMfaActionPassword("");
+      setMfaActionCode("");
+      setMfaMessage(data.detail);
+      syncMfaFromUser(data.user);
+    } catch (err: any) {
+      setMfaError(err.message);
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  const handleDescargarCodigosRespaldo = () => {
+    if (!mfaBackupCodes) return;
+    const contenido = [
+      "HD Prevención - Códigos de Respaldo MFA (un solo uso)",
+      `Cuenta: ${username} (${email})`,
+      "Guarda estos códigos en un gestor seguro. Cada código solo funciona una vez.",
+      "",
+      ...mfaBackupCodes,
+    ].join("\n");
+    const blob = new Blob([contenido], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "hdprevencion-codigos-respaldo-mfa.txt";
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   // Iniciales fallback
@@ -428,6 +586,235 @@ export default function PerfilPanel() {
         </div>
 
       </form>
+
+      {/* Card Autenticación Multifactor MFA TOTP (P1.2) */}
+      <section
+        id="seguridad-mfa"
+        className="bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 space-y-5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-900 pb-4">
+          <div>
+            <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <span>🔐 Autenticación en Dos Pasos (MFA / TOTP)</span>
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Protege tu cuenta con códigos temporales de 6 dígitos (Google Authenticator, Authy o gestor TOTP compatible).
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {mfaEnabled ? (
+              <span className="text-xs font-bold bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 px-3 py-1 rounded-full">
+                Activo
+              </span>
+            ) : mfaObligatorio ? (
+              <span className="text-xs font-bold bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 px-3 py-1 rounded-full">
+                Pendiente (Obligatorio)
+              </span>
+            ) : (
+              <span className="text-xs font-bold bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700 px-3 py-1 rounded-full">
+                Opcional (Inactivo)
+              </span>
+            )}
+          </div>
+        </div>
+
+        {mfaError && (
+          <div className="bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 p-3 rounded-xl text-xs font-medium">
+            {mfaError}
+          </div>
+        )}
+
+        {mfaMessage && (
+          <div className="bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 p-3 rounded-xl text-xs font-semibold">
+            {mfaMessage}
+          </div>
+        )}
+
+        {mfaBackupCodes && (
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                Guarda tus códigos de respaldo de un solo uso (se muestran por única vez):
+              </p>
+              <button
+                type="button"
+                onClick={handleDescargarCodigosRespaldo}
+                className="text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg cursor-pointer"
+              >
+                Descargar .txt
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {mfaBackupCodes.map((c) => (
+                <code
+                  key={c}
+                  className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-center font-mono text-xs font-bold text-slate-800 dark:text-slate-200"
+                >
+                  {c}
+                </code>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!mfaSetupData ? (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
+              {mfaEnabled ? (
+                <>
+                  <p>
+                    MFA habilitado{mfaEnrolledAt ? ` desde ${new Date(mfaEnrolledAt).toLocaleDateString("es-CL")}` : ""}.
+                  </p>
+                  <p>
+                    Códigos de respaldo disponibles: <strong className="text-slate-800 dark:text-slate-200">{mfaBackupRemaining}</strong>
+                  </p>
+                </>
+              ) : (
+                <p>
+                  {mfaObligatorio
+                    ? "Tu perfil de administración o consultora corporativa requiere configurar MFA TOTP antes de operar módulos sensibles en producción."
+                    : "Añade una capa extra de protección exigiendo un código temporal al iniciar sesión."}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!mfaEnabled && (
+                <button
+                  type="button"
+                  onClick={handleMfaIniciar}
+                  disabled={mfaLoading}
+                  className="bg-slate-900 dark:bg-orange-600 hover:bg-slate-800 dark:hover:bg-orange-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {mfaLoading ? "Generando..." : "Activar MFA con App Autenticadora"}
+                </button>
+              )}
+              {mfaEnabled && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMfaShowRegenerate((v) => !v);
+                      setMfaShowDisable(false);
+                      setMfaError(null);
+                    }}
+                    className="bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-semibold py-2 px-3.5 rounded-xl text-xs cursor-pointer"
+                  >
+                    Regenerar códigos de respaldo
+                  </button>
+                  {!mfaObligatorio && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMfaShowDisable((v) => !v);
+                        setMfaShowRegenerate(false);
+                        setMfaError(null);
+                      }}
+                      className="bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 font-semibold py-2 px-3.5 rounded-xl text-xs cursor-pointer"
+                    >
+                      Desactivar MFA
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleMfaConfirmar} className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center bg-slate-50 dark:bg-slate-900/60 p-5 rounded-xl border border-slate-200 dark:border-slate-800">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="bg-white p-3 rounded-xl shadow-sm">
+                <QRCodeSVG value={mfaSetupData.otpauth_uri} size={172} />
+              </div>
+              <div className="text-center">
+                <p className="text-[11px] text-slate-500">Clave manual (Base32):</p>
+                <code className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 select-all">
+                  {mfaSetupData.secret}
+                </code>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5">
+                <p className="font-bold">1. Escanea el código QR con Google Authenticator o Authy.</p>
+                <p>2. Ingresa el código de 6 dígitos que aparece en la app para confirmar:</p>
+              </div>
+              <input
+                type="text"
+                required
+                maxLength={6}
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                placeholder="123456"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-4 py-2.5 text-center font-mono text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={mfaLoading}
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                >
+                  {mfaLoading ? "Confirmando..." : "Confirmar y Activar MFA"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMfaSetupData(null)}
+                  className="bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold py-2.5 px-4 rounded-xl text-xs cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {(mfaShowRegenerate || mfaShowDisable) && (
+          <form
+            onSubmit={mfaShowRegenerate ? handleMfaRegenerar : handleMfaDesactivar}
+            className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3"
+          >
+            <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
+              {mfaShowRegenerate
+                ? "Confirmar regeneración de códigos de respaldo"
+                : "Confirmar desactivación de MFA"}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="password"
+                required
+                value={mfaActionPassword}
+                onChange={(e) => setMfaActionPassword(e.target.value)}
+                placeholder="Contraseña actual"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs"
+              />
+              <input
+                type="text"
+                required
+                value={mfaActionCode}
+                onChange={(e) => setMfaActionCode(e.target.value)}
+                placeholder="Código TOTP de 6 dígitos"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={mfaLoading}
+                className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+              >
+                {mfaLoading ? "Procesando..." : mfaShowRegenerate ? "Generar nuevos códigos" : "Desactivar MFA"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMfaShowRegenerate(false);
+                  setMfaShowDisable(false);
+                }}
+                className="text-xs text-slate-500 underline cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
 
     </div>
   );

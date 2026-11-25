@@ -237,11 +237,16 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Número de proxies inversos de confianza (Render / CDN) para trazabilidad e IP segura (Ley 21.719 A-2)
 NUM_PROXIES = int(os.environ.get('NUM_PROXIES', 1))
 
+MFA_ENFORCE_PRIVILEGED = os.environ.get(
+    'MFA_ENFORCE_PRIVILEGED',
+    'True' if IS_RENDER_PROD else 'False'
+).lower() in ('true', '1')
+
 # REST Framework y Autenticación JWT
 REST_FRAMEWORK = {
     'NUM_PROXIES': NUM_PROXIES,
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'modulo_prevencion.authentication.MFAJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
@@ -252,6 +257,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/minute',
         'public_qr': '30/minute',
+        'mfa_verify': '10/minute',
     },
 }
 

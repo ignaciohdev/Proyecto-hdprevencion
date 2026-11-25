@@ -111,6 +111,45 @@ class Usuario(AbstractUser):
         blank=True,
         verbose_name="Foto de Perfil"
     )
+    mfa_enabled = models.BooleanField(
+        default=False,
+        verbose_name="MFA TOTP Habilitado"
+    )
+    mfa_secret = EncryptedTextField(
+        blank=True,
+        default='',
+        verbose_name="Secreto TOTP (Cifrado)"
+    )
+    mfa_secret_pendiente = EncryptedTextField(
+        blank=True,
+        default='',
+        verbose_name="Secreto TOTP Pendiente (Cifrado)"
+    )
+    mfa_backup_codes_hashes = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Hashes de Códigos de Respaldo MFA"
+    )
+    mfa_last_used_step = models.BigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name="Último Intervalo TOTP Usado"
+    )
+    mfa_enrolled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de Activación MFA"
+    )
+
+    @property
+    def mfa_obligatorio(self) -> bool:
+        """Indica si el rol requiere MFA TOTP obligatorio (staff, superuser o corporativo)."""
+        return bool(
+            self.is_superuser
+            or self.is_staff
+            or self.tipo_usuario == self.TIPO_CORPORATIVO
+            or self.cuenta_padre_id is not None
+        )
 
     class Meta(AbstractUser.Meta):
         verbose_name = "Usuario"

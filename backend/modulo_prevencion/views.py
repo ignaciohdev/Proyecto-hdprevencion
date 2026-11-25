@@ -57,13 +57,22 @@ from .serializers import (
     SolicitudDerechoARCOSerializer, SolicitudDerechoARCOStatusSerializer
 )
 from .seeder_requisitos import asegurar_requisitos_base
+from .mfa import (
+    generar_secreto_totp,
+    generar_uri_totp,
+    verificar_codigo_totp,
+    generar_codigos_respaldo,
+    consumir_codigo_respaldo,
+    crear_challenge_mfa,
+    verificar_challenge_mfa,
+)
 
 Usuario: Any = get_user_model()
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
     Serializador personalizado de SimpleJWT para inyectar claims adicionales
-    (como el correo, tipo de cuenta y relación corporativa) dentro del payload del token.
+    (como el correo, tipo de cuenta y estado MFA) dentro del payload del token.
     """
     @classmethod
     def get_token(cls, user):
@@ -76,33 +85,123 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['cuenta_padre_id'] = user.cuenta_padre_id
         token['is_superuser'] = user.is_superuser
         token['is_staff'] = user.is_staff
+        token['mfa_enabled'] = bool(getattr(user, 'mfa_enabled', False))
+        token['mfa_obligatorio'] = bool(getattr(user, 'mfa_obligatorio', False))
         
         return token
+
+
+def _emitir_respuesta_login_jwt(user: Any) -> Response:
+    """Emite access/refresh JWT y fija la cookie HttpOnly de sesión."""
+    refresh = CustomTokenObtainPairSerializer.get_token(user)
+    payload = {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+        'mfa_enabled': bool(getattr(user, 'mfa_enabled', False)),
+        'mfa_obligatorio': bool(getattr(user, 'mfa_obligatorio', False)),
+        'mfa_setup_required': bool(getattr(user, 'mfa_obligatorio', False) and not getattr(user, 'mfa_enabled', False)),
+    }
+    response = Response(payload, status=status.HTTP_200_OK)
+    response.set_cookie(
+        key='refresh_token',
+        value=payload['refresh'],
+        max_age=7 * 24 * 60 * 60,
+        httponly=True,
+        secure=True,
+        samesite='None',
+        path='/'
+    )
+    return response
+
+
+def _verificar_segundo_factor(usuario: Any, raw_code: str) -> bool:
+    """Valida código TOTP (anti-replay) o consume código de respaldo de un solo uso."""
+    code = (raw_code or '').strip()
+    if not code or not getattr(usuario, 'mfa_enabled', False):
+        return False
+    secret = getattr(usuario, 'mfa_secret', '')
+    if secret:
+        step = verificar_codigo_totp(secret, code, last_used_step=usuario.mfa_last_used_step)
+        if step is not None:
+            usuario.mfa_last_used_step = step
+            usuario.save(update_fields=['mfa_last_used_step'])
+            return True
+    return consumir_codigo_respaldo(usuario, code)
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     """
     Vista de Login personalizada:
-    - Retorna 'access' y 'refresh' en JSON (para compatibilidad de clientes).
-    - Inyecta el 'refresh_token' en una cookie HttpOnly:
-      httponly=True, secure=True, samesite='None', path='/', max_age=7 días.
+    - Si el usuario tiene MFA TOTP habilitado y no envía código inline,
+      responde mfa_required=True con un challenge_token firmado (sin emitir JWT).
+    - Al completar credenciales (+ MFA si aplica), retorna 'access'/'refresh' e inyecta cookie HttpOnly.
     """
     serializer_class = CustomTokenObtainPairSerializer
 
     def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        if response.status_code == status.HTTP_200_OK and 'refresh' in response.data:
-            refresh_token = response.data['refresh']
-            response.set_cookie(
-                key='refresh_token',
-                value=refresh_token,
-                max_age=7 * 24 * 60 * 60,
-                httponly=True,
-                secure=True,
-                samesite='None',
-                path='/'
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+
+        user = serializer.user
+        if getattr(user, 'mfa_enabled', False):
+            otp_code = (request.data.get('otp_code') or request.data.get('code') or '').strip()
+            if not otp_code:
+                return Response({
+                    'mfa_required': True,
+                    'challenge_token': crear_challenge_mfa(user.pk),
+                    'username': user.username,
+                    'mfa_obligatorio': bool(user.mfa_obligatorio),
+                }, status=status.HTTP_200_OK)
+
+            if not _verificar_segundo_factor(user, otp_code):
+                return Response(
+                    {
+                        'otp_code': ['Código TOTP o de respaldo inválido o ya utilizado.'],
+                        'detail': 'Código de verificación MFA inválido o ya utilizado.',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return _emitir_respuesta_login_jwt(user)
+
+
+class MfaLoginVerifyView(APIView):
+    """
+    Segundo paso de login para usuarios con MFA TOTP activo (POST /api/auth/mfa/verify/).
+    Valida challenge_token + código de 6 dígitos o código de respaldo.
+    """
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'mfa_verify'
+
+    def post(self, request, *args, **kwargs):
+        challenge_token = request.data.get('challenge_token', '')
+        code = (request.data.get('code') or request.data.get('otp_code') or '').strip()
+
+        uid = verificar_challenge_mfa(challenge_token)
+        if uid is None:
+            return Response(
+                {'detail': 'El desafío de verificación MFA expiró o es inválido. Inicia sesión nuevamente.'},
+                status=status.HTTP_401_UNAUTHORIZED
             )
-        return response
+
+        user = Usuario.objects.filter(pk=uid, is_active=True).first()
+        if not user or not getattr(user, 'mfa_enabled', False):
+            return Response(
+                {'detail': 'Verificación MFA no disponible para esta cuenta.'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        if not _verificar_segundo_factor(user, code):
+            return Response(
+                {'code': ['Código TOTP o de respaldo inválido o ya utilizado.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return _emitir_respuesta_login_jwt(user)
 
 
 class CustomTokenRefreshView(TokenRefreshView):
@@ -883,6 +982,137 @@ class UsuarioViewSet(viewsets.ModelViewSet):
             "message": f"Suscripción al plan {plan.nombre} activada con éxito.",
             "user": serializer.data
         })
+
+    @action(detail=False, methods=['post'], url_path='mfa/iniciar')
+    def mfa_iniciar(self, request):
+        """Genera un secreto TOTP pendiente de confirmación para vincular app autenticadora."""
+        usuario: Any = self.request.user
+        secret = generar_secreto_totp()
+        usuario.mfa_secret_pendiente = secret
+        usuario.save(update_fields=['mfa_secret_pendiente'])
+
+        account_label = usuario.email or usuario.username
+        return Response({
+            'secret': secret,
+            'otpauth_uri': generar_uri_totp(secret, account_label),
+            'mfa_enabled': bool(usuario.mfa_enabled),
+            'mfa_obligatorio': bool(usuario.mfa_obligatorio),
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='mfa/confirmar')
+    def mfa_confirmar(self, request):
+        """Valida el primer código TOTP de 6 dígitos, activa MFA y entrega códigos de respaldo únicos."""
+        usuario: Any = self.request.user
+        secret_pendiente = getattr(usuario, 'mfa_secret_pendiente', '')
+        if not secret_pendiente:
+            return Response(
+                {'detail': 'No hay una configuración MFA pendiente. Inicia el enrolamiento primero.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        code = (request.data.get('code') or '').strip()
+        step = verificar_codigo_totp(secret_pendiente, code)
+        if step is None:
+            return Response(
+                {'code': ['El código de 6 dígitos no es válido o expiró. Verifica la hora de tu dispositivo.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        backup_codes, backup_hashes = generar_codigos_respaldo(8)
+        usuario.mfa_secret = secret_pendiente
+        usuario.mfa_secret_pendiente = ''
+        usuario.mfa_enabled = True
+        usuario.mfa_last_used_step = step
+        usuario.mfa_enrolled_at = timezone.now()
+        usuario.mfa_backup_codes_hashes = backup_hashes
+        usuario.save(update_fields=[
+            'mfa_secret', 'mfa_secret_pendiente', 'mfa_enabled',
+            'mfa_last_used_step', 'mfa_enrolled_at', 'mfa_backup_codes_hashes'
+        ])
+
+        return Response({
+            'detail': 'MFA TOTP activado correctamente. Guarda tus códigos de respaldo en un lugar seguro.',
+            'backup_codes': backup_codes,
+            'user': self.get_serializer(usuario).data,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='mfa/regenerar-respaldos')
+    def mfa_regenerar_respaldos(self, request):
+        """Regenera los códigos de respaldo exigiendo contraseña actual y código TOTP vigente."""
+        usuario: Any = self.request.user
+        if not getattr(usuario, 'mfa_enabled', False):
+            return Response(
+                {'detail': 'El MFA TOTP aún no está habilitado en tu cuenta.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        current_password = request.data.get('current_password') or ''
+        if not current_password or not usuario.check_password(current_password):
+            return Response(
+                {'current_password': ['Contraseña actual incorrecta.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        code = (request.data.get('code') or '').strip()
+        step = verificar_codigo_totp(usuario.mfa_secret, code, last_used_step=usuario.mfa_last_used_step)
+        if step is None:
+            return Response(
+                {'code': ['Código TOTP inválido o ya utilizado.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        backup_codes, backup_hashes = generar_codigos_respaldo(8)
+        usuario.mfa_last_used_step = step
+        usuario.mfa_backup_codes_hashes = backup_hashes
+        usuario.save(update_fields=['mfa_last_used_step', 'mfa_backup_codes_hashes'])
+
+        return Response({
+            'detail': 'Se generaron nuevos códigos de respaldo. Los anteriores quedaron anulados.',
+            'backup_codes': backup_codes,
+            'user': self.get_serializer(usuario).data,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='mfa/desactivar')
+    def mfa_desactivar(self, request):
+        """Desactiva MFA TOTP únicamente en cuentas individuales tras verificar contraseña y 2do factor."""
+        usuario: Any = self.request.user
+        if getattr(usuario, 'mfa_obligatorio', False):
+            return Response(
+                {'detail': 'Tu rol administrativo o corporativo exige MFA obligatorio (Ley 21.719) y no puede desactivarse desde el perfil.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not getattr(usuario, 'mfa_enabled', False):
+            return Response({'detail': 'MFA ya se encuentra desactivado.'}, status=status.HTTP_200_OK)
+
+        current_password = request.data.get('current_password') or ''
+        if not current_password or not usuario.check_password(current_password):
+            return Response(
+                {'current_password': ['Contraseña actual incorrecta.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        code = (request.data.get('code') or '').strip()
+        if not _verificar_segundo_factor(usuario, code):
+            return Response(
+                {'code': ['Código TOTP o de respaldo inválido.']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        usuario.mfa_enabled = False
+        usuario.mfa_secret = ''
+        usuario.mfa_secret_pendiente = ''
+        usuario.mfa_backup_codes_hashes = []
+        usuario.mfa_last_used_step = None
+        usuario.mfa_enrolled_at = None
+        usuario.save(update_fields=[
+            'mfa_enabled', 'mfa_secret', 'mfa_secret_pendiente',
+            'mfa_backup_codes_hashes', 'mfa_last_used_step', 'mfa_enrolled_at'
+        ])
+
+        return Response({
+            'detail': 'MFA TOTP desactivado.',
+            'user': self.get_serializer(usuario).data,
+        }, status=status.HTTP_200_OK)
 
 
 class ReporteRiesgoViewSet(viewsets.ModelViewSet):

@@ -37,11 +37,29 @@ class UsuarioSerializer(serializers.ModelSerializer):
     """
     suscripcion_activa = serializers.SerializerMethodField()
     contador_descargas = serializers.SerializerMethodField()
+    mfa_obligatorio = serializers.BooleanField(read_only=True)
+    mfa_setup_required = serializers.SerializerMethodField()
+    mfa_backup_codes_remaining = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
-        fields = ('id', 'uuid', 'username', 'email', 'tipo_usuario', 'cuenta_padre', 'suscripcion_activa', 'contador_descargas', 'foto_perfil')
-        read_only_fields = ('id', 'uuid', 'tipo_usuario', 'cuenta_padre')
+        fields = (
+            'id', 'uuid', 'username', 'email', 'tipo_usuario', 'cuenta_padre',
+            'suscripcion_activa', 'contador_descargas', 'foto_perfil',
+            'mfa_enabled', 'mfa_obligatorio', 'mfa_setup_required',
+            'mfa_enrolled_at', 'mfa_backup_codes_remaining'
+        )
+        read_only_fields = (
+            'id', 'uuid', 'tipo_usuario', 'cuenta_padre',
+            'mfa_enabled', 'mfa_enrolled_at'
+        )
+
+    def get_mfa_setup_required(self, obj):
+        return bool(getattr(obj, 'mfa_obligatorio', False) and not getattr(obj, 'mfa_enabled', False))
+
+    def get_mfa_backup_codes_remaining(self, obj):
+        hashes = getattr(obj, 'mfa_backup_codes_hashes', None) or []
+        return len(hashes)
 
     def get_suscripcion_activa(self, obj):
         owner = obj.cuenta_padre if obj.cuenta_padre else obj

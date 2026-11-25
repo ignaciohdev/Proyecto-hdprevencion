@@ -367,6 +367,25 @@ export default function DashboardLayout({
 
         {/* Contenido Dinámico de Páginas Hijas */}
         <main className="flex-grow p-4 sm:p-6 md:p-8">
+          {user?.mfa_setup_required && pathname !== "/panel/perfil" && (
+            <div className="mb-6 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/70 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+              <div className="text-xs sm:text-sm text-amber-900 dark:text-amber-200">
+                <p className="font-bold flex items-center gap-2">
+                  <span>🔐</span>
+                  <span>Verificación en dos pasos (MFA TOTP) obligatoria para tu cuenta</span>
+                </p>
+                <p className="mt-1 opacity-90">
+                  Las cuentas corporativas y de administración requieren activar Google Authenticator / Authy para proteger datos sensibles bajo la Ley N° 21.719.
+                </p>
+              </div>
+              <a
+                href="/panel/perfil#seguridad-mfa"
+                className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-sm transition-colors text-center"
+              >
+                Configurar MFA ahora →
+              </a>
+            </div>
+          )}
           {children}
         </main>
       </div>

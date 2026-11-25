@@ -2913,6 +2913,178 @@ class Ley21719P1SecurityTestCase(APITestCase):
         self.assertEqual(res_ajeno.json(), [])
 
 
+class Ley21719P1MFATestCase(APITestCase):
+    """
+    Pruebas de integración para MFA TOTP RFC 6238 y códigos de respaldo (P1.2 / sec-mfa):
+    - Enrolamiento QR/otpauth, cifrado en reposo del secreto TOTP y rechazo de replay
+    - Login en 2 pasos (challenge_token + TOTP o backup code de un solo uso)
+    - Enforcement obligatorio para staff/superuser/corporativos bajo MFA_ENFORCE_PRIVILEGED
+    - Bloqueo de desactivación para roles obligatorios y regeneración en individuales
+    """
+
+    def setUp(self):
+        self.corp_user = Usuario.objects.create_user(
+            username="mfa_corp",
+            email="mfa_corp@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario=Usuario.TIPO_CORPORATIVO,
+        )
+        self.indiv_user = Usuario.objects.create_user(
+            username="mfa_indiv",
+            email="mfa_indiv@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+
+    def _login(self, username, password="PasswordFuerte123!"):
+        return self.client.post("/api/auth/login/", {"username": username, "password": password})
+
+    def test_enrolamiento_totp_cifrado_y_antireplay(self):
+        import time
+        from django.db import connection
+        from modulo_prevencion.mfa import calcular_totp
+
+        res_login = self._login("mfa_corp")
+        self.assertEqual(res_login.status_code, 200)
+        self.assertTrue(res_login.json()["mfa_setup_required"])
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {res_login.json()['access']}"}
+
+        # 1. Iniciar enrolamiento
+        res_init = self.client.post("/api/usuarios/mfa/iniciar/", **headers)
+        self.assertEqual(res_init.status_code, 200)
+        secret = res_init.json()["secret"]
+        self.assertIn("otpauth://totp/", res_init.json()["otpauth_uri"])
+
+        # Confirmación rechaza código inválido
+        res_bad = self.client.post("/api/usuarios/mfa/confirmar/", {"code": "000000"}, **headers)
+        self.assertEqual(res_bad.status_code, 400)
+
+        # 2. Confirmar con ventana (step - 1) dentro de skew permitido
+        base_step = int(time.time() // 30)
+        code_confirm = calcular_totp(secret, base_step - 1)
+        res_conf = self.client.post("/api/usuarios/mfa/confirmar/", {"code": code_confirm}, **headers)
+        self.assertEqual(res_conf.status_code, 200)
+        payload = res_conf.json()
+        self.assertTrue(payload["user"]["mfa_enabled"])
+        self.assertEqual(len(payload["backup_codes"]), 8)
+        self.assertEqual(payload["user"]["mfa_backup_codes_remaining"], 8)
+
+        # Secreto almacenado cifrado en BD (enc:v1:...)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT mfa_secret, mfa_secret_pendiente FROM modulo_prevencion_usuario WHERE id = %s", [self.corp_user.id])
+            raw_secret, raw_pending = cursor.fetchone()
+        self.assertTrue(str(raw_secret).startswith("enc:v1:"))
+        self.assertEqual(raw_pending, "")
+
+        # 3. Login pide paso 2 sin emitir JWT todavía
+        res_step1 = self._login("mfa_corp")
+        self.assertEqual(res_step1.status_code, 200)
+        step1_data = res_step1.json()
+        self.assertTrue(step1_data["mfa_required"])
+        self.assertNotIn("access", step1_data)
+        self.assertNotIn("refresh_token", res_step1.cookies)
+        challenge = step1_data["challenge_token"]
+
+        # Reutilizar exacto código ya usado (anti-replay) falla
+        res_replay = self.client.post("/api/auth/mfa/verify/", {"challenge_token": challenge, "code": code_confirm})
+        self.assertEqual(res_replay.status_code, 400)
+
+        # Desafío manipulado falla con 401
+        res_bad_chal = self.client.post("/api/auth/mfa/verify/", {"challenge_token": "tampered", "code": code_confirm})
+        self.assertEqual(res_bad_chal.status_code, 401)
+
+        # 4. Siguiente ventana válida (base_step) completa el login y entrega JWT
+        code_login = calcular_totp(secret, base_step)
+        res_step2 = self.client.post("/api/auth/mfa/verify/", {"challenge_token": challenge, "code": code_login})
+        self.assertEqual(res_step2.status_code, 200)
+        self.assertIn("access", res_step2.json())
+        self.assertIn("refresh_token", res_step2.cookies)
+
+        # 5. Consumo de código de respaldo de un solo uso
+        backup_0 = payload["backup_codes"][0]
+        res_step1_b = self._login("mfa_corp")
+        res_backup_ok = self.client.post(
+            "/api/auth/mfa/verify/",
+            {"challenge_token": res_step1_b.json()["challenge_token"], "code": backup_0},
+        )
+        self.assertEqual(res_backup_ok.status_code, 200)
+
+        # Reusar el mismo código de respaldo falla
+        res_step1_c = self._login("mfa_corp")
+        res_backup_reuse = self.client.post(
+            "/api/auth/mfa/verify/",
+            {"challenge_token": res_step1_c.json()["challenge_token"], "code": backup_0},
+        )
+        self.assertEqual(res_backup_reuse.status_code, 400)
+
+    def test_enforcement_obligatorio_y_gestion_individual(self):
+        import time
+        from django.test import override_settings
+        from modulo_prevencion.mfa import calcular_totp
+
+        headers_corp = {"HTTP_AUTHORIZATION": f"Bearer {self._login('mfa_corp').json()['access']}"}
+        headers_indiv = {"HTTP_AUTHORIZATION": f"Bearer {self._login('mfa_indiv').json()['access']}"}
+
+        # Con MFA_ENFORCE_PRIVILEGED=True, cuenta corporativa sin MFA queda bloqueada en módulos operativos
+        with override_settings(MFA_ENFORCE_PRIVILEGED=True):
+            res_blocked = self.client.get("/api/empresas/", **headers_corp)
+            self.assertEqual(res_blocked.status_code, 403)
+            self.assertEqual(res_blocked.json().get("code"), "mfa_setup_required")
+
+            # Pero sí puede consultar perfil y enrolar MFA
+            self.assertEqual(self.client.get("/api/usuarios/perfil/", **headers_corp).status_code, 200)
+            res_init_c = self.client.post("/api/usuarios/mfa/iniciar/", **headers_corp)
+            self.assertEqual(res_init_c.status_code, 200)
+            base_step = int(time.time() // 30)
+            res_conf_c = self.client.post(
+                "/api/usuarios/mfa/confirmar/",
+                {"code": calcular_totp(res_init_c.json()["secret"], base_step - 1)},
+                **headers_corp,
+            )
+            self.assertEqual(res_conf_c.status_code, 200)
+
+            # Tras activar MFA ya accede normalmente y no puede desactivarlo
+            self.assertEqual(self.client.get("/api/empresas/", **headers_corp).status_code, 200)
+            res_no_disable = self.client.post(
+                "/api/usuarios/mfa/desactivar/",
+                {"current_password": "PasswordFuerte123!", "code": calcular_totp(res_init_c.json()["secret"], base_step)},
+                **headers_corp,
+            )
+            self.assertEqual(res_no_disable.status_code, 400)
+
+            # Cuenta individual sin MFA mantiene acceso normal (opcional)
+            self.assertEqual(self.client.get("/api/empresas/", **headers_indiv).status_code, 200)
+
+        # Cuenta individual activa, regenera respaldos y desactiva MFA correctamente
+        res_init_i = self.client.post("/api/usuarios/mfa/iniciar/", **headers_indiv)
+        secret_i = res_init_i.json()["secret"]
+        base_step = int(time.time() // 30)
+        res_conf_i = self.client.post(
+            "/api/usuarios/mfa/confirmar/",
+            {"code": calcular_totp(secret_i, base_step - 1)},
+            **headers_indiv,
+        )
+        old_backup = res_conf_i.json()["backup_codes"][0]
+
+        res_regen = self.client.post(
+            "/api/usuarios/mfa/regenerar-respaldos/",
+            {"current_password": "PasswordFuerte123!", "code": calcular_totp(secret_i, base_step)},
+            **headers_indiv,
+        )
+        self.assertEqual(res_regen.status_code, 200)
+        new_backup = res_regen.json()["backup_codes"][0]
+        self.assertNotIn(old_backup, res_regen.json()["backup_codes"])
+
+        res_disable = self.client.post(
+            "/api/usuarios/mfa/desactivar/",
+            {"current_password": "PasswordFuerte123!", "code": new_backup},
+            **headers_indiv,
+        )
+        self.assertEqual(res_disable.status_code, 200)
+        self.assertFalse(res_disable.json()["user"]["mfa_enabled"])
+
+
+
 
 
 

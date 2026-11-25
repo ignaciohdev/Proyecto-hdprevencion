@@ -14,6 +14,11 @@ function IngresoInner() {
     password: "",
   });
 
+  const [mfaStep, setMfaStep] = useState(false);
+  const [challengeToken, setChallengeToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaUsername, setMfaUsername] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -26,12 +31,47 @@ function IngresoInner() {
     }));
   };
 
+  const completarIngreso = (data: any) => {
+    localStorage.setItem("access_token", data.access);
+    localStorage.setItem("refresh_token", data.refresh);
+    setSuccess(true);
+    const destino = data.mfa_setup_required ? "/panel/perfil#seguridad-mfa" : nextPath;
+    setTimeout(() => {
+      router.push(destino);
+    }, 1200);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
+      if (mfaStep) {
+        const resMfa = await fetch(getApiUrl("/api/auth/mfa/verify/"), {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            challenge_token: challengeToken,
+            code: mfaCode.trim(),
+          }),
+        });
+
+        const dataMfa = await parseJsonResponse(resMfa);
+        if (!resMfa.ok) {
+          const msg = Array.isArray(dataMfa.code)
+            ? dataMfa.code[0]
+            : (dataMfa.detail || "Código MFA inválido o expirado.");
+          throw new Error(msg);
+        }
+
+        completarIngreso(dataMfa);
+        return;
+      }
+
       const response = await fetch(getApiUrl("/api/auth/login/"), {
         method: "POST",
         credentials: "include",
@@ -47,14 +87,15 @@ function IngresoInner() {
         throw new Error(data.detail || "Credenciales incorrectas.");
       }
 
-      // Guardar tokens JWT en localStorage
-      localStorage.setItem("access_token", data.access);
-      localStorage.setItem("refresh_token", data.refresh);
+      if (data.mfa_required && data.challenge_token) {
+        setChallengeToken(data.challenge_token);
+        setMfaUsername(data.username || formData.username);
+        setMfaCode("");
+        setMfaStep(true);
+        return;
+      }
 
-      setSuccess(true);
-      setTimeout(() => {
-        router.push(nextPath);
-      }, 1500);
+      completarIngreso(data);
     } catch (err: any) {
       if (err.name === "TypeError" || err.message === "Failed to fetch") {
         setError(`No se pudo conectar con el backend (${getApiUrl("/api/auth/login/")}). Verifica que el servicio en Render esté encendido en estado 'Live'.`);
@@ -102,47 +143,88 @@ function IngresoInner() {
 
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-semibold mb-1 text-slate-700 dark:text-slate-300">
-              Nombre de Usuario
-            </label>
-            <input
-              type="text"
-              name="username"
-              required
-              value={formData.username}
-              onChange={handleChange}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
-              placeholder="Tu nombre de usuario"
-            />
-          </div>
+          {!mfaStep ? (
+            <>
+              <div>
+                <label className="block text-sm font-semibold mb-1 text-slate-700 dark:text-slate-300">
+                  Nombre de Usuario
+                </label>
+                <input
+                  type="text"
+                  name="username"
+                  required
+                  value={formData.username}
+                  onChange={handleChange}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                  placeholder="Tu nombre de usuario"
+                />
+              </div>
 
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                Contraseña
-              </label>
-              <a href="#" className="text-xs text-orange-655 hover:underline">
-                ¿Olvidaste tu contraseña?
-              </a>
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    Contraseña
+                  </label>
+                  <a href="#" className="text-xs text-orange-655 hover:underline">
+                    ¿Olvidaste tu contraseña?
+                  </a>
+                </div>
+                <input
+                  type="password"
+                  name="password"
+                  required
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                  placeholder="••••••••"
+                />
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-3.5 rounded-xl bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900/50 text-xs text-orange-800 dark:text-orange-200">
+                <p className="font-bold">Verificación en dos pasos (MFA TOTP)</p>
+                <p className="mt-1">
+                  Ingresa el código de 6 dígitos de tu app autenticadora para <strong>{mfaUsername}</strong>, o uno de tus códigos de respaldo (<span className="font-mono">XXXX-XXXX</span>).
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold mb-1 text-slate-700 dark:text-slate-300">
+                  Código de Verificación MFA
+                </label>
+                <input
+                  type="text"
+                  name="mfa_code"
+                  required
+                  autoFocus
+                  autoComplete="one-time-code"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-center text-lg font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                  placeholder="123456"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMfaStep(false);
+                  setChallengeToken("");
+                  setMfaCode("");
+                  setError(null);
+                }}
+                className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 underline cursor-pointer"
+              >
+                ← Volver a credenciales
+              </button>
             </div>
-            <input
-              type="password"
-              name="password"
-              required
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
-              placeholder="••••••••"
-            />
-          </div>
+          )}
 
           <button
             type="submit"
             disabled={loading}
             className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:scale-100 cursor-pointer"
           >
-            {loading ? "Verificando..." : "Ingresar"}
+            {loading ? "Verificando..." : mfaStep ? "Verificar Código MFA" : "Ingresar"}
           </button>
         </form>
 

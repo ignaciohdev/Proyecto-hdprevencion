@@ -24,11 +24,13 @@ class UsuarioCustomAdmin(UserAdmin):
         'email', 
         'tipo_usuario', 
         'cuenta_padre', 
+        'mfa_enabled',
         'is_staff', 
         'is_active'
     )
     list_filter = (
         'tipo_usuario', 
+        'mfa_enabled',
         'is_staff', 
         'is_active', 
         'groups'
@@ -39,12 +41,13 @@ class UsuarioCustomAdmin(UserAdmin):
         'last_name', 
         'email'
     )
+    readonly_fields = tuple(getattr(UserAdmin, 'readonly_fields', ())) + ('mfa_enrolled_at',)
     
     # Organizar campos en secciones claras en el formulario de edición
     fieldsets = tuple(UserAdmin.fieldsets or ()) + (
         ('Información SaaS (Prevención HD)', {
-            'fields': ('tipo_usuario', 'cuenta_padre'),
-            'description': 'Campos específicos de la jerarquía de suscripciones y tipos de cuentas corporativas o individuales.'
+            'fields': ('tipo_usuario', 'cuenta_padre', 'mfa_enabled', 'mfa_enrolled_at'),
+            'description': 'Campos específicos de jerarquía corporativa y estado MFA TOTP (sin exponer secretos criptográficos).'
         }),
     )
     

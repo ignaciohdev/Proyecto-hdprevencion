@@ -345,11 +345,11 @@
                 </div>
                 <div class="meta-item">
                     <h4>Fecha & Hora</h4>
-                    <p>25 de November de 2026 a las 04:38:07</p>
+                    <p>25 de November de 2026 a las 04:53:02</p>
                 </div>
                 <div class="meta-item">
                     <h4>Duración del Test</h4>
-                    <p>2.45 segundos</p>
+                    <p>2.46 segundos</p>
                 </div>
                 <div class="meta-item">
                     <h4>Dictamen Final</h4>
@@ -409,14 +409,14 @@
                             
                 <tr>
                     <td><strong>Acceso Cruzado No Autorizado a Ficha de Trabajador</strong></td>
-                    <td><code>Usuario A (ID 4) intenta leer Trabajador de Empresa B (ID 4)</code></td>
+                    <td><code>Usuario A (ID 3) intenta leer Trabajador de Empresa B (ID 4)</code></td>
                     <td><span class="ev-result">HTTP 404 - BLOQUEADO / NO ENCONTRADO</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
                 <tr>
                     <td><strong>Inyección de 'cuenta_padre' en Registro</strong></td>
-                    <td><code>POST /api/auth/register/ con cuenta_padre=5</code></td>
+                    <td><code>POST /api/auth/register/ con cuenta_padre=4</code></td>
                     <td><span class="ev-result">Sanitizado a cuenta_padre=None y tipo_usuario='INDIVIDUAL'</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
@@ -466,7 +466,7 @@
                 <tr>
                     <td><strong>Inspección SQL Directa en Tabla DenunciaLeyKarin</strong></td>
                     <td><code>SELECT descripcion_circunstanciada FROM base_datos_cruda</code></td>
-                    <td><span class="ev-result">ALMACENADO EN DISCO: enc:v1:gAAAAABrBmYu3isakSbbtJ7BzrJT... (Texto plano indetectable)</span></td>
+                    <td><span class="ev-result">ALMACENADO EN DISCO: enc:v1:gAAAAABrBmmtC4uKJoKBDdv6UXBt... (Texto plano indetectable)</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
@@ -555,7 +555,7 @@
                         </div>
                     </div>
                     <ul class="details-list">
-                        <li>Canal público ARCO operativo: Ticket emitido (638537d1-f3d8-4d6c-9ecb-801e3bddd078) con flag de bloqueo cautelar activado automáticamente.</li><li>Consulta pública de ticket por UUID: expone solo estado/plazos sin filtrar RUT ni correo.</li><li>Protección Portabilidad Anónima: Petición sin sesión bloqueada con HTTP 401.</li><li>Aislamiento Portabilidad Multi-Tenant: Usuario de otro tenant recibió 0 fichas de empresa ajena.</li><li>Exportación estructurada autenticada: Endpoint /api/privacidad/portabilidad/ entregó JSON interoperable al responsable autorizado.</li>
+                        <li>Canal público ARCO operativo: Ticket emitido (fffab5bf-5077-4abc-a2c1-fe3acdc0d70e) con flag de bloqueo cautelar activado automáticamente.</li><li>Consulta pública de ticket por UUID: expone solo estado/plazos sin filtrar RUT ni correo.</li><li>Protección Portabilidad Anónima: Petición sin sesión bloqueada con HTTP 401.</li><li>Aislamiento Portabilidad Multi-Tenant: Usuario de otro tenant recibió 0 fichas de empresa ajena.</li><li>Exportación estructurada autenticada: Endpoint /api/privacidad/portabilidad/ entregó JSON interoperable al responsable autorizado.</li>
                     </ul>
                     <table class="evidence-table">
                         <thead>
@@ -571,13 +571,13 @@
                 <tr>
                     <td><strong>Ingreso Público de Solicitud de Bloqueo de Datos</strong></td>
                     <td><code>POST /api/privacidad/solicitar-derecho/ (Anónimo)</code></td>
-                    <td><span class="ev-result">HTTP 201 Created - Ticket UUID: 638537d1-f3d8-4d6c-9ecb-801e3bddd078 | Bloqueo Cautelar: ACTIVO</span></td>
+                    <td><span class="ev-result">HTTP 201 Created - Ticket UUID: fffab5bf-5077-4abc-a2c1-fe3acdc0d70e | Bloqueo Cautelar: ACTIVO</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
                 <tr>
                     <td><strong>Privacidad en Seguimiento Público de Ticket ARCO</strong></td>
-                    <td><code>GET /api/privacidad/consultar-derecho/638537d1-f3d8-4d6c-9ecb-801e3bddd078/ (Anónimo)</code></td>
+                    <td><code>GET /api/privacidad/consultar-derecho/fffab5bf-5077-4abc-a2c1-fe3acdc0d70e/ (Anónimo)</code></td>
                     <td><span class="ev-result">HTTP 200 OK - Sin exposición de RUT, correo ni detalle</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
@@ -632,7 +632,7 @@
                         </div>
                     </div>
                     <ul class="details-list">
-                        <li>Inmutabilidad de auditoría: Acceso registrado automáticamente con IP 190.161.45.12 y marca temporal 2026-11-25 04:38:07.530176+00:00.</li>
+                        <li>Inmutabilidad de auditoría: Acceso registrado automáticamente con IP 190.161.45.12 y marca temporal 2026-11-25 04:53:02.497939+00:00.</li>
                     </ul>
                     <table class="evidence-table">
                         <thead>
@@ -648,7 +648,7 @@
                 <tr>
                     <td><strong>Registro de Auditoría de Acceso a Denuncia Ley Karin</strong></td>
                     <td><code>GET /api/denuncias-ley-karin/2/ desde IP 190.161.45.12</code></td>
-                    <td><span class="ev-result">LOG GENERADO: Usuario auditor_user_c3d9d2 - IP 190.161.45.12 - Acción: APERTURA_EXPEDIENTE</span></td>
+                    <td><span class="ev-result">LOG GENERADO: Usuario auditor_user_a3bf28 - IP 190.161.45.12 - Acción: APERTURA_EXPEDIENTE</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 

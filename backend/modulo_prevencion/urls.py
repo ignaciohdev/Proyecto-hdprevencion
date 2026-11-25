@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    RegisterView, CustomTokenObtainPairView, CustomTokenRefreshView, LogoutView,
+    RegisterView, CustomTokenObtainPairView, MfaLoginVerifyView, CustomTokenRefreshView, LogoutView,
     PlantillaMaestraViewSet, DocumentoUsuarioViewSet,
     NoticiaViewSet, MensajeContactoViewSet, ServicioViewSet,
     UsuarioViewSet, PlanViewSet,
@@ -62,6 +62,7 @@ urlpatterns = [
     # Endpoints de autenticación y registro con JWT
     path('auth/register/', RegisterView.as_view(), name='auth_register'),
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('auth/mfa/verify/', MfaLoginVerifyView.as_view(), name='auth_mfa_verify'),
     path('auth/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     path('auth/logout/', LogoutView.as_view(), name='auth_logout'),
     

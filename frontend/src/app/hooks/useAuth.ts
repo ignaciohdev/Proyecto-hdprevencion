@@ -14,6 +14,11 @@ export interface UserProfile {
   is_superuser: boolean;
   is_staff: boolean;
   foto_perfil?: string | null;
+  mfa_enabled?: boolean;
+  mfa_obligatorio?: boolean;
+  mfa_setup_required?: boolean;
+  mfa_enrolled_at?: string | null;
+  mfa_backup_codes_remaining?: number;
   suscripcion_activa?: {
     id: number;
     plan_nombre: string;
