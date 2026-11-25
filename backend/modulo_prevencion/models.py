@@ -1941,6 +1941,11 @@ class ImmutableAppendOnlyQuerySet(models.QuerySet):
             "Los registros de auditoría y consentimiento son append-only e inmutables (no se permite delete)."
         )
 
+    def bulk_update(self, *args, **kwargs):
+        raise ValidationError(
+            "Los registros de auditoría y consentimiento son append-only e inmutables (no se permite bulk_update)."
+        )
+
 
 class ImmutableAppendOnlyManager(models.Manager.from_queryset(ImmutableAppendOnlyQuerySet)):
     """Manager por defecto para modelos append-only inmutables a nivel ORM."""

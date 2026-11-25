@@ -62,7 +62,7 @@ Manual práctico para consulta rápida del responsable de datos (`[COMPLETAR: No
 ## E. Calendario de revisión (Ley 21.719)
 | Cuándo | Qué | Responsable |
 |---|---|---|
-| **Antes de salir a producción real** | Migrar de capa gratuita a BD/Storage de pago con PITR y cron `purgar_datos_vencidos`, completar `[COMPLETAR]` tras escritura, activar SMTP transaccional (acuses ARCO y OTP externos) y suscribir DPAs + Cláusulas Modelo RAEX202503748 con Render/Vercel *(brechas técnicas de código ya cerradas)* | Co-fundadores (CTO + Responsable de datos) |
+| **Antes de salir a producción real** | Migrar de capa gratuita a BD/Storage de pago con PITR y cron `purgar_datos_vencidos`, completar `[COMPLETAR]` tras escritura, activar SMTP transaccional (acuses ARCO y OTP externos) y suscribir DPAs + Cláusulas Modelo RAEX202503748 con Render/Vercel *(brechas técnicas de código y UI ya cerradas y verificadas 90/90)* | Co-fundadores (CTO + Responsable de datos) |
 | **Al firmar con cada empresa cliente** | Incorporar/aceptar DPA (Art. 15 bis) y verificar deber de información en su portal QR | Responsable comercial / legal |
 | **Al sumar proveedor externo o feature con PII** | Actualizar RAT, Anexo de Transferencias (RAEX202503748 si es fuera de Chile) y EIPD si cambia el riesgo | CTO + Responsable de datos |
 | **Cada release relevante / mensual** | Re-correr auditoría `compliance-cl` (detectar *drift*) y watcher de secretos/alertas | CTO / Dev |

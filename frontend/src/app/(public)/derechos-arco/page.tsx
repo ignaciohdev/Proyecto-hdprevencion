@@ -14,6 +14,8 @@ interface ArcoStatusResponse {
   fecha_solicitud: string;
   fecha_limite_30d: string;
   bloqueo_provisional_activo: boolean;
+  fecha_limite_bloqueo_2d?: string | null;
+  aviso_apdp_rechazo_bloqueo?: boolean;
   fecha_resolucion: string | null;
 }
 
@@ -241,9 +243,21 @@ function DerechosArcoInner() {
                   <div className="bg-slate-900/70 p-3.5 rounded-xl border border-slate-800">
                     <span className="text-slate-500 block mb-1">Bloqueo Temporal Provisional (Art. 11)</span>
                     <span className="font-semibold text-white">
-                      {consultaResultado.bloqueo_provisional_activo ? "Activo (tratamiento suspendido)" : "No aplica / Inactivo"}
+                      {consultaResultado.bloqueo_provisional_activo
+                        ? "Activo (tratamiento suspendido)"
+                        : consultaResultado.aviso_apdp_rechazo_bloqueo
+                        ? "Rechazado (informado a APDP)"
+                        : "No aplica / Inactivo"}
                     </span>
                   </div>
+                  {consultaResultado.fecha_limite_bloqueo_2d && (
+                    <div className="bg-slate-900/70 p-3.5 rounded-xl border border-slate-800">
+                      <span className="text-slate-500 block mb-1">Plazo Bloqueo Provisional (2 días hábiles)</span>
+                      <span className="font-semibold text-amber-300">
+                        {consultaResultado.fecha_limite_bloqueo_2d}
+                      </span>
+                    </div>
+                  )}
                   <div className="bg-slate-900/70 p-3.5 rounded-xl border border-slate-800">
                     <span className="text-slate-500 block mb-1">Fecha de Resolución</span>
                     <span className="font-semibold text-white">

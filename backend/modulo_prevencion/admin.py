@@ -1,9 +1,14 @@
+import hashlib
+import json
 from typing import Any
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.forms import AdminAuthenticationForm
+from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -485,7 +490,14 @@ class SolicitudDerechoARCOAdmin(admin.ModelAdmin):
     search_fields = ('uuid', 'rut_titular', 'nombre_titular', 'email_titular')
     date_hierarchy = 'fecha_solicitud'
     readonly_fields = ('uuid', 'fecha_solicitud', 'fecha_limite_30d', 'fecha_limite_bloqueo_2d', 'fecha_aviso_apdp_bloqueo')
-    actions = ('activar_bloqueo_provisional', 'rechazar_bloqueo_y_notificar_apdp', 'marcar_resuelta')
+    actions = (
+        'activar_bloqueo_provisional',
+        'rechazar_bloqueo_y_notificar_apdp',
+        'exportar_portabilidad_arco_json',
+        'ejecutar_supresion_arco',
+        'ejecutar_oposicion_arco',
+        'marcar_resuelta',
+    )
 
     @admin.display(description="Estado")
     def estado_badge(self, obj):
@@ -514,6 +526,90 @@ class SolicitudDerechoARCOAdmin(admin.ModelAdmin):
                 request=request,
                 motivo="Rechazo de bloqueo provisional informado a APDP desde panel administrativo.",
             )
+
+    @admin.action(description="Exportar copia portable JSON (Art. 9)")
+    def exportar_portabilidad_arco_json(self, request, queryset):
+        from .arco import exportar_datos_titular
+
+        UserModel = get_user_model()
+        exportaciones = []
+        for solicitud in queryset:
+            usuario_obj = (
+                UserModel.objects.filter(email__iexact=solicitud.email_titular).first()
+                if solicitud.email_titular else None
+            )
+            exportaciones.append({
+                'solicitud_uuid': str(solicitud.uuid),
+                'tipo_derecho': solicitud.tipo_derecho,
+                'datos': exportar_datos_titular(
+                    usuario=usuario_obj,
+                    rut=solicitud.rut_titular,
+                    email=solicitud.email_titular,
+                ),
+            })
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_ARCO,
+            accion='ADMIN_EXPORT_PORTABILIDAD',
+            usuario=request.user,
+            modelo_afectado='SolicitudDerechoARCO',
+            recurso_id=','.join(str(s.uuid) for s in queryset),
+            exito=True,
+            metadata={'cantidad': len(exportaciones)},
+        )
+        response = HttpResponse(
+            json.dumps(exportaciones, ensure_ascii=False, indent=2),
+            content_type='application/json; charset=utf-8',
+        )
+        response['Content-Disposition'] = 'attachment; filename="arco_portabilidad_admin.json"'
+        return response
+
+    @admin.action(description="Ejecutar supresión/anonimización respetando retención legal (Art. 7)")
+    def ejecutar_supresion_arco(self, request, queryset):
+        from .arco import ejecutar_supresion_titular
+
+        UserModel = get_user_model()
+        ejecutadas = 0
+        for solicitud in queryset:
+            usuario_obj = (
+                UserModel.objects.filter(email__iexact=solicitud.email_titular).first()
+                if solicitud.email_titular else None
+            )
+            ejecutar_supresion_titular(
+                usuario_actor=request.user,
+                request=request,
+                usuario_objetivo=usuario_obj,
+                rut=solicitud.rut_titular,
+                email=solicitud.email_titular,
+                forzar_anonimizacion_sst=False,
+                solicitud=solicitud,
+            )
+            ejecutadas += 1
+        self.message_user(request, f"Supresión/anonimización ejecutada en {ejecutadas} solicitud(es).")
+
+    @admin.action(description="Ejecutar oposición y revocar opcionales (Art. 8)")
+    def ejecutar_oposicion_arco(self, request, queryset):
+        from .arco import ejecutar_oposicion_titular
+
+        UserModel = get_user_model()
+        ejecutadas = 0
+        for solicitud in queryset:
+            usuario_obj = (
+                UserModel.objects.filter(email__iexact=solicitud.email_titular).first()
+                if solicitud.email_titular else None
+            )
+            ejecutar_oposicion_titular(
+                usuario_actor=request.user,
+                request=request,
+                usuario_objetivo=usuario_obj,
+                rut=solicitud.rut_titular,
+                email=solicitud.email_titular,
+                motivo=solicitud.detalle_solicitud,
+                activar_bloqueo_provisional=False,
+                solicitud=solicitud,
+            )
+            ejecutadas += 1
+        self.message_user(request, f"Oposición ejecutada en {ejecutadas} solicitud(es).")
 
     @admin.action(description="Marcar solicitudes seleccionadas como Resueltas")
     def marcar_resuelta(self, request, queryset):
@@ -594,6 +690,19 @@ class AuditLogEventoSeguridadAdmin(admin.ModelAdmin):
         return False
 
 
+ADMIN_MFA_MAX_FAILURES = 5
+ADMIN_MFA_LOCKOUT_SECONDS = 300
+
+
+def _admin_mfa_rate_limit_key(request, username: str) -> str:
+    ip = ''
+    if request is not None:
+        xff = request.META.get('HTTP_X_FORWARDED_FOR', '')
+        ip = xff.split(',')[0].strip() if xff else request.META.get('REMOTE_ADDR', '')
+    digest = hashlib.sha256(f"{ip}:{(username or '').strip().lower()}".encode('utf-8')).hexdigest()[:32]
+    return f"admin_mfa_fail:{digest}"
+
+
 class MFAAdminAuthenticationForm(AdminAuthenticationForm):
     """Formulario de acceso a Django Admin con segundo factor TOTP / códigos de respaldo (sec-mfa)."""
 
@@ -608,14 +717,43 @@ class MFAAdminAuthenticationForm(AdminAuthenticationForm):
         help_text="Ingresa el código TOTP de 6 dígitos de tu app autenticadora o un código de respaldo.",
     )
 
+    def _registrar_fallo_rate_limit(self, rl_key: str, actual: int) -> None:
+        cache.set(rl_key, actual + 1, timeout=ADMIN_MFA_LOCKOUT_SECONDS)
+
     def clean(self):
-        cleaned_data = super().clean()
+        raw_username = ''
+        if hasattr(self, 'data') and self.data:
+            raw_username = str(self.data.get('username') or '')
+        rl_key = _admin_mfa_rate_limit_key(self.request, raw_username)
+        intentos_previos = int(cache.get(rl_key, 0) or 0)
+        if intentos_previos >= ADMIN_MFA_MAX_FAILURES:
+            registrar_evento_seguridad(
+                self.request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                actor_identificador=raw_username[:150] or 'admin',
+                modelo_afectado='Usuario',
+                exito=False,
+                metadata={'flow': 'django_admin_login', 'reason': 'rate_limited'},
+            )
+            raise DjangoValidationError(
+                "Demasiados intentos fallidos de acceso administrativo. Espera 5 minutos antes de reintentar.",
+                code='mfa_rate_limited',
+            )
+
+        try:
+            cleaned_data = super().clean()
+        except DjangoValidationError:
+            self._registrar_fallo_rate_limit(rl_key, intentos_previos)
+            raise
+
         user = self.get_user()
         if user is None:
             return cleaned_data
 
         otp_code = (cleaned_data.get('otp_code') or '').strip()
         if not getattr(user, 'mfa_enabled', False):
+            self._registrar_fallo_rate_limit(rl_key, intentos_previos)
             registrar_evento_seguridad(
                 self.request,
                 categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
@@ -632,6 +770,7 @@ class MFAAdminAuthenticationForm(AdminAuthenticationForm):
             )
 
         if not otp_code:
+            self._registrar_fallo_rate_limit(rl_key, intentos_previos)
             registrar_evento_seguridad(
                 self.request,
                 categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
@@ -648,6 +787,7 @@ class MFAAdminAuthenticationForm(AdminAuthenticationForm):
             )
 
         if not verificar_segundo_factor_usuario(user, otp_code):
+            self._registrar_fallo_rate_limit(rl_key, intentos_previos)
             registrar_evento_seguridad(
                 self.request,
                 categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
@@ -663,6 +803,7 @@ class MFAAdminAuthenticationForm(AdminAuthenticationForm):
                 code='invalid_mfa',
             )
 
+        cache.delete(rl_key)
         registrar_evento_seguridad(
             self.request,
             categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,

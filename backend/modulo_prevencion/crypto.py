@@ -126,13 +126,20 @@ def descifrar_texto(valor: str) -> str:
     try:
         return cipher.decrypt(raw.encode('utf-8')).decode('utf-8')
     except InvalidToken:
-        logger.warning(
+        logger.error(
             "[SEGURIDAD] InvalidToken al descifrar campo `enc:v1:`: verifique FIELD_ENCRYPTION_KEY "
             "o incluya la llave previa en FIELD_ENCRYPTION_OLD_KEYS."
         )
+        logging.getLogger('hdprevencion.security').error(
+            "security_event categoria=CRYPTO accion=DECRYPT_INVALID_TOKEN exito=False"
+        )
         return valor
     except Exception as exc:
-        logger.warning("[SEGURIDAD] Error inesperado al descifrar campo `enc:v1:`: %s", type(exc).__name__)
+        logger.error("[SEGURIDAD] Error inesperado al descifrar campo `enc:v1:`: %s", type(exc).__name__)
+        logging.getLogger('hdprevencion.security').error(
+            "security_event categoria=CRYPTO accion=DECRYPT_ERROR exito=False tipo=%s",
+            type(exc).__name__,
+        )
         return valor
 
 

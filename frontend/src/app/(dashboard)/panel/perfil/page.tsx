@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { authFetch, getApiUrl } from "../../../utils/api";
+import { authFetch, getApiUrl, logoutAuth } from "../../../utils/api";
 
 export default function PerfilPanel() {
   const [username, setUsername] = useState("");
@@ -47,6 +47,15 @@ export default function PerfilPanel() {
   const [marketingNovedades, setMarketingNovedades] = useState(false);
   const [marketingLoading, setMarketingLoading] = useState(false);
   const [marketingMsg, setMarketingMsg] = useState<string | null>(null);
+
+  // Gestión self-service ARCO-POL (Arts. 5–9 Ley 21.719)
+  const [arcoLoading, setArcoLoading] = useState(false);
+  const [arcoError, setArcoError] = useState<string | null>(null);
+  const [arcoMsg, setArcoMsg] = useState<string | null>(null);
+  const [arcoRectificarOpen, setArcoRectificarOpen] = useState(false);
+  const [arcoFirstName, setArcoFirstName] = useState("");
+  const [arcoLastName, setArcoLastName] = useState("");
+  const [arcoEmailRectificar, setArcoEmailRectificar] = useState("");
 
   // Cargar perfil inicial
   const loadUserData = async () => {
@@ -377,6 +386,124 @@ export default function PerfilPanel() {
       }
     } finally {
       setMarketingLoading(false);
+    }
+  };
+
+  const handleDescargarPortabilidad = async (formato: "json" | "csv") => {
+    setArcoLoading(true);
+    setArcoError(null);
+    setArcoMsg(null);
+    try {
+      const res = await authFetch(getApiUrl(`/api/privacidad/portabilidad/?formato=${formato}`));
+      if (!res.ok) {
+        throw new Error("No se pudo generar tu copia portable de datos.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `portabilidad_datos_hdprevencion.${formato}`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setArcoMsg(`Copia portable descargada en formato ${formato.toUpperCase()}.`);
+    } catch (err: any) {
+      setArcoError(err.message || "Error al exportar tus datos.");
+    } finally {
+      setArcoLoading(false);
+    }
+  };
+
+  const handleRectificarCuenta = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cambiosUsuario: Record<string, string> = {};
+    if (arcoFirstName.trim()) cambiosUsuario.first_name = arcoFirstName.trim();
+    if (arcoLastName.trim()) cambiosUsuario.last_name = arcoLastName.trim();
+    if (arcoEmailRectificar.trim()) cambiosUsuario.email = arcoEmailRectificar.trim();
+    if (Object.keys(cambiosUsuario).length === 0) {
+      setArcoError("Ingresa al menos un campo a rectificar (nombre, apellido o correo).");
+      return;
+    }
+
+    setArcoLoading(true);
+    setArcoError(null);
+    setArcoMsg(null);
+    try {
+      const res = await authFetch(getApiUrl("/api/privacidad/rectificar/"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cambios: { usuario: cambiosUsuario } }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "No se pudo completar la rectificación.");
+      }
+      setArcoMsg(data.detail || "Datos rectificados correctamente.");
+      setArcoRectificarOpen(false);
+      await loadUserData();
+    } catch (err: any) {
+      setArcoError(err.message || "Error al rectificar datos.");
+    } finally {
+      setArcoLoading(false);
+    }
+  };
+
+  const handleOposicionOpcional = async () => {
+    setArcoLoading(true);
+    setArcoError(null);
+    setArcoMsg(null);
+    try {
+      const res = await authFetch(getApiUrl("/api/privacidad/oponer/"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          motivo: "Oposición ejercida desde Mi Perfil (Art. 8 Ley 21.719).",
+          activar_bloqueo_provisional: false,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "No se pudo registrar la oposición.");
+      }
+      setMarketingNovedades(false);
+      setArcoMsg("Oposición registrada: se revocaron consentimientos opcionales y se limpiaron contactos opcionales.");
+    } catch (err: any) {
+      setArcoError(err.message || "Error al ejecutar oposición.");
+    } finally {
+      setArcoLoading(false);
+    }
+  };
+
+  const handleSupresionCuenta = async () => {
+    const confirmado = window.confirm(
+      "¿Solicitar supresión/anonimización de tu cuenta y datos personales no sujetos a retención legal obligatoria? Si no existen suscripciones vigentes con retención tributaria, tu sesión se cerrará inmediatamente."
+    );
+    if (!confirmado) return;
+
+    setArcoLoading(true);
+    setArcoError(null);
+    setArcoMsg(null);
+    try {
+      const res = await authFetch(getApiUrl("/api/privacidad/suprimir/"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "No se pudo procesar la solicitud de supresión.");
+      }
+      if (data.suprimidos?.Usuario) {
+        await logoutAuth();
+        return;
+      }
+      const retenidos = Array.isArray(data.retenidos_por_ley) && data.retenidos_por_ley.length > 0
+        ? ` Categorías retenidas por deber legal: ${data.retenidos_por_ley.map((r: any) => r.modelo).join(", ")}.`
+        : "";
+      setArcoMsg(`Supresión ejecutada sobre datos prescindibles.${retenidos}`);
+    } catch (err: any) {
+      setArcoError(err.message || "Error al procesar supresión.");
+    } finally {
+      setArcoLoading(false);
     }
   };
 
@@ -857,6 +984,114 @@ export default function PerfilPanel() {
             {marketingMsg}
           </p>
         )}
+
+        {/* Controles self-service ARCO-POL (Arts. 5-9 Ley 21.719) */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-900 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                Mis Derechos ARCO-POL sobre mi Cuenta
+              </h4>
+              <p className="text-[11px] text-slate-400">
+                Descarga copia interoperable (JSON/CSV), rectifica tus datos, ejerce oposición o solicita supresión.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={arcoLoading}
+                onClick={() => handleDescargarPortabilidad("json")}
+                className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50"
+              >
+                Exportar JSON
+              </button>
+              <button
+                type="button"
+                disabled={arcoLoading}
+                onClick={() => handleDescargarPortabilidad("csv")}
+                className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer disabled:opacity-50"
+              >
+                Exportar CSV
+              </button>
+              <button
+                type="button"
+                disabled={arcoLoading}
+                onClick={() => {
+                  setArcoEmailRectificar(email);
+                  setArcoRectificarOpen((v) => !v);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                {arcoRectificarOpen ? "Cerrar rectificación" : "Rectificar datos"}
+              </button>
+              <button
+                type="button"
+                disabled={arcoLoading}
+                onClick={handleOposicionOpcional}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                Oponerme a opcionales
+              </button>
+              <button
+                type="button"
+                disabled={arcoLoading}
+                onClick={handleSupresionCuenta}
+                className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-semibold cursor-pointer disabled:opacity-50"
+              >
+                Suprimir cuenta
+              </button>
+            </div>
+          </div>
+
+          {arcoRectificarOpen && (
+            <form
+              onSubmit={handleRectificarCuenta}
+              className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-900/70 p-4 rounded-xl border border-slate-200 dark:border-slate-800"
+            >
+              <input
+                type="text"
+                value={arcoFirstName}
+                onChange={(e) => setArcoFirstName(e.target.value)}
+                placeholder="Nombres (opcional)"
+                className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white"
+              />
+              <input
+                type="text"
+                value={arcoLastName}
+                onChange={(e) => setArcoLastName(e.target.value)}
+                placeholder="Apellidos (opcional)"
+                className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white"
+              />
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={arcoEmailRectificar}
+                  onChange={(e) => setArcoEmailRectificar(e.target.value)}
+                  placeholder="Correo electrónico"
+                  className="flex-1 bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-900 dark:text-white"
+                />
+                <button
+                  type="submit"
+                  disabled={arcoLoading}
+                  className="px-3 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold cursor-pointer disabled:opacity-50"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          )}
+
+          {arcoError && (
+            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium">
+              ⚠️ {arcoError}
+            </p>
+          )}
+          {arcoMsg && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+              ✅ {arcoMsg}
+            </p>
+          )}
+        </div>
 
         <div className="pt-2 border-t border-slate-100 dark:border-slate-900 flex flex-wrap gap-4 text-xs">
           <a href="/privacidad" target="_blank" className="text-orange-600 hover:underline font-semibold">

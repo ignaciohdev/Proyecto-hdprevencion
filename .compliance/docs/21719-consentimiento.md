@@ -7,7 +7,7 @@
 ---
 
 ## 1. Avisos cortos y opt-in en el punto de captura (`frontend/`)
-> *Estado de implementación (post-Bloques 1–4):* implementados en todos los puntos de captura aplicables: `(auth)/registro/page.tsx`, `(public)/contacto/page.tsx`, `(public)/capacitaciones/page.tsx`, `(public)/participacion/[uid]/buzon/page.tsx`, `(public)/participacion/[uid]/reportar/page.tsx` (opt-in condicional si aporta identificación opcional), `capacitaciones/firmar/[uid]/page.tsx`, `ModalNuevaEntrega.tsx` y `ModalQRFirmaMovilEPP.tsx`. Sin pendientes de código.
+> *Estado de implementación (verificado 90/90 tests OK):* implementados en todos los puntos de captura aplicables: `(auth)/registro/page.tsx`, `(public)/contacto/page.tsx`, `(public)/capacitaciones/page.tsx`, `(public)/participacion/[uid]/buzon/page.tsx`, `(public)/participacion/[uid]/reportar/page.tsx` (opt-in condicional si aporta identificación opcional), `capacitaciones/firmar/[uid]/page.tsx`, `ModalNuevaEntrega.tsx` y `ModalQRFirmaMovilEPP.tsx`, con `_parse_bool()` homologado en `SugerenciaConsultaPublicaCreateView`. Sin pendientes de código *(al habilitar SMTP se añadirá enlace directo de desuscripción en los correos)*.
 
 ### 1.1. Registro de usuario / prevencionista (`frontend/src/app/(auth)/registro/page.tsx`)
 **Aviso corto bajo el formulario:**

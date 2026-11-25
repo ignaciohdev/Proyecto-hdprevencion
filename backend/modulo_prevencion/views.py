@@ -2481,8 +2481,8 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
             )
 
         # Flujo A: Sugerencia Laboral Abierta
-        es_anonimo = bool(data.get('es_anonimo', data.get('anonimo', True)))
-        if not es_anonimo and not bool(data.get('acepta_privacidad')):
+        es_anonimo = _parse_bool(data.get('es_anonimo', data.get('anonimo')), default=True)
+        if not es_anonimo and not _parse_bool(data.get('acepta_privacidad'), default=False):
             return Response(
                 {
                     "acepta_privacidad": [
@@ -4319,7 +4319,7 @@ class PortabilidadDatosView(APIView):
         payload = exportar_datos_titular(
             usuario=None if rut else request.user,
             rut=rut,
-            email=request.user.email or '',
+            email='' if rut else (request.user.email or ''),
             usuarios_grupo=usuarios_grupo,
         )
 
@@ -4350,6 +4350,10 @@ class PortabilidadDatosView(APIView):
 def _resolver_alcance_arco_request(request):
     """Determina usuario_objetivo y usuarios_grupo aislados por tenant/privilegios."""
     from django.contrib.auth import get_user_model
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    from .arco import resolver_emails_trabajador_tenant
+    from .crypto import normalizar_rut_blind_index
+
     UserModel = get_user_model()
 
     data = request.data if isinstance(request.data, dict) else {}
@@ -4359,7 +4363,10 @@ def _resolver_alcance_arco_request(request):
 
     solicitud_uuid = data.get('solicitud_uuid')
     if solicitud_uuid:
-        solicitud = SolicitudDerechoARCO.objects.filter(uuid=solicitud_uuid).first()
+        try:
+            solicitud = SolicitudDerechoARCO.objects.filter(uuid=solicitud_uuid).first()
+        except (ValueError, DjangoValidationError):
+            raise ValueError("El código UUID de solicitud ARCO no es válido.")
 
     if request.user.is_staff or request.user.is_superuser:
         usuario_objetivo = None
@@ -4369,12 +4376,26 @@ def _resolver_alcance_arco_request(request):
             usuario_objetivo = request.user
         usuarios_grupo = None
     else:
-        if email and email != (request.user.email or '').strip().lower() and not rut:
-            raise PermissionError("No puede operar derechos ARCO sobre la cuenta de otro usuario.")
-        usuario_objetivo = request.user if not rut else None
+        caller_email = (request.user.email or '').strip().lower()
         usuarios_grupo = get_usuarios_grupo(request.user)
-        if not email:
-            email = (request.user.email or '').strip().lower()
+        if not rut:
+            if email and email != caller_email:
+                raise PermissionError("No puede operar derechos ARCO sobre la cuenta de otro usuario.")
+            usuario_objetivo = request.user
+            email = caller_email
+            if solicitud is not None and (solicitud.email_titular or '').strip().lower() != caller_email:
+                raise PermissionError("No tiene permisos para vincular esa solicitud ARCO a su cuenta.")
+        else:
+            usuario_objetivo = None
+            existe_en_tenant, emails_autorizados = resolver_emails_trabajador_tenant(rut, usuarios_grupo)
+            if email and (not existe_en_tenant or email not in emails_autorizados):
+                raise PermissionError(
+                    "El correo indicado no corresponde a un trabajador autorizado de tu organización para ese RUT."
+                )
+            if solicitud is not None:
+                sol_rut_norm = normalizar_rut_blind_index(solicitud.rut_titular or '')
+                if not existe_en_tenant or sol_rut_norm != normalizar_rut_blind_index(rut):
+                    raise PermissionError("No tiene permisos para operar sobre esa solicitud ARCO externa.")
 
     return usuario_objetivo, rut, email, usuarios_grupo, solicitud
 
@@ -4384,6 +4405,7 @@ class RectificacionDatosView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
+        from django.core.exceptions import ValidationError as DjangoValidationError
         from .arco import ejecutar_rectificacion_titular
 
         cambios = request.data.get('cambios')
@@ -4397,17 +4419,22 @@ class RectificacionDatosView(APIView):
             usuario_objetivo, rut, email, usuarios_grupo, solicitud = _resolver_alcance_arco_request(request)
         except PermissionError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        resultado = ejecutar_rectificacion_titular(
-            usuario_actor=request.user,
-            request=request,
-            usuario_objetivo=usuario_objetivo,
-            rut=rut,
-            email=email,
-            usuarios_grupo=usuarios_grupo,
-            cambios=cambios,
-            solicitud=solicitud,
-        )
+        try:
+            resultado = ejecutar_rectificacion_titular(
+                usuario_actor=request.user,
+                request=request,
+                usuario_objetivo=usuario_objetivo,
+                rut=rut,
+                email=email,
+                usuarios_grupo=usuarios_grupo,
+                cambios=cambios,
+                solicitud=solicitud,
+            )
+        except DjangoValidationError as exc:
+            return Response({"detail": exc.messages[0] if getattr(exc, 'messages', None) else str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"detail": "Rectificación procesada.", **resultado}, status=status.HTTP_200_OK)
 
 
@@ -4425,6 +4452,8 @@ class SupresionAnonimizacionView(APIView):
             usuario_objetivo, rut, email, usuarios_grupo, solicitud = _resolver_alcance_arco_request(request)
         except PermissionError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         forzar_sst = bool(_parse_bool(request.data.get('forzar_anonimizacion_sst')))
         if forzar_sst and not (request.user.is_staff or request.user.is_superuser):
@@ -4457,6 +4486,8 @@ class OposicionTratamientoView(APIView):
             usuario_objetivo, rut, email, usuarios_grupo, solicitud = _resolver_alcance_arco_request(request)
         except PermissionError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         motivo = str(request.data.get('motivo') or '').strip()
         activar_bloqueo = request.data.get('activar_bloqueo_provisional', True)

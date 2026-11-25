@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Any
 
 from django.apps import apps
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -822,6 +823,100 @@ def _exportar_datos_cuenta(usuario: Usuario, identidad: dict[str, Any]) -> dict[
     }
 
 
+def _scope_empresa(qs, usuarios_grupo: list[Usuario] | None, field: str = 'empresa__prevencionista__in'):
+    if usuarios_grupo is not None:
+        return qs.filter(**{field: usuarios_grupo})
+    return qs
+
+
+def resolver_emails_trabajador_tenant(
+    rut: str,
+    usuarios_grupo: list[Usuario] | None = None,
+) -> tuple[bool, set[str]]:
+    """
+    Determina si un RUT tiene registros dentro del alcance multi-tenant `usuarios_grupo`
+    y retorna los correos electrónicos verificados de ese titular en dicha organización.
+    """
+    rut_norm = normalizar_rut_blind_index(rut)
+    if not rut_norm or rut_norm.startswith('ANON'):
+        return False, set()
+
+    rut_hmac = calcular_rut_hmac(rut)
+    rut_variantes = _normalizar_rut_variantes(rut)
+    existe = False
+    correos: set[str] = set()
+
+    for trab in _scope_empresa(Trabajador.objects.all(), usuarios_grupo):
+        if normalizar_rut_blind_index(trab.rut) == rut_norm:
+            existe = True
+            if trab.correo and trab.correo.strip():
+                correos.add(trab.correo.strip().lower())
+
+    for rep in _scope_empresa(ReporteRiesgo.objects.all(), usuarios_grupo):
+        rep_rut_match = normalizar_rut_blind_index(rep.rut_reportante or '') == rut_norm
+        rep_mail = (rep.contacto_reportante or '').strip().lower()
+        if rep_rut_match or (rep_mail and rep_mail in correos):
+            existe = True
+            if rep_rut_match and rep_mail and '@' in rep_mail:
+                correos.add(rep_mail)
+
+    if rut_hmac:
+        karin_qs = _scope_empresa(DenunciaLeyKarin.objects.filter(rut_hmac=rut_hmac), usuarios_grupo)
+        for dk in karin_qs:
+            existe = True
+            if dk.correo_denunciante and dk.correo_denunciante.strip():
+                correos.add(dk.correo_denunciante.strip().lower())
+
+    if not existe:
+        acc_q = Q(rut_hmac=rut_hmac) if rut_hmac else Q(pk__in=[])
+        if rut_variantes:
+            acc_q |= Q(trabajador__rut__in=rut_variantes)
+        if _scope_empresa(InvestigacionAccidente.objects.filter(acc_q), usuarios_grupo).exists():
+            existe = True
+
+    if not existe:
+        for ent in _scope_empresa(EntregaEPP.objects.select_related('trabajador'), usuarios_grupo):
+            if ent.trabajador and normalizar_rut_blind_index(ent.trabajador.rut) == rut_norm:
+                existe = True
+                break
+
+    if not existe:
+        for cap in _scope_empresa(RegistroCapacitacion.objects.all(), usuarios_grupo):
+            if _rut_en_asistentes(cap.asistentes, rut_variantes, rut_norm):
+                existe = True
+                break
+
+    if not existe:
+        for insp in _scope_empresa(Inspeccion.objects.all(), usuarios_grupo):
+            if normalizar_rut_blind_index(insp.firma_rut or '') == rut_norm:
+                existe = True
+                break
+
+    if not existe:
+        for m in _scope_empresa(
+            MiembroCPHS.objects.all(),
+            usuarios_grupo,
+            field='comite__empresa__prevencionista__in',
+        ):
+            if normalizar_rut_blind_index(m.rut) == rut_norm:
+                existe = True
+                break
+
+    if not existe:
+        sub_qs = TrabajadorSubcontratado.objects.all()
+        if usuarios_grupo is not None:
+            sub_qs = sub_qs.filter(
+                Q(contratista__empresa_principal__prevencionista__in=usuarios_grupo)
+                | Q(contratista__usuario__in=usuarios_grupo)
+            )
+        for ts in sub_qs:
+            if normalizar_rut_blind_index(ts.rut) == rut_norm:
+                existe = True
+                break
+
+    return existe, correos
+
+
 def _exportar_datos_trabajador_tenant(
     identidad: dict[str, Any],
     *,
@@ -831,12 +926,10 @@ def _exportar_datos_trabajador_tenant(
     rut_hmac = identidad['rut_hmac']
     rut_variantes = identidad['rut_variantes']
 
-    def _scope_empresa(qs, field='empresa__prevencionista__in'):
-        if usuarios_grupo is not None:
-            return qs.filter(**{field: usuarios_grupo})
-        return qs
+    def _scope_local(qs, field='empresa__prevencionista__in'):
+        return _scope_empresa(qs, usuarios_grupo, field=field)
 
-    trabajadores_qs = _scope_empresa(Trabajador.objects.select_related('empresa', 'centro_trabajo'))
+    trabajadores_qs = _scope_local(Trabajador.objects.select_related('empresa', 'centro_trabajo'))
     fichas = [
         {
             'id': t.id,
@@ -854,7 +947,7 @@ def _exportar_datos_trabajador_tenant(
     ]
     correos_trabajadores = {f['correo'].strip().lower() for f in fichas if f.get('correo')}
 
-    entregas_qs = _scope_empresa(EntregaEPP.objects.select_related('empresa', 'trabajador'))
+    entregas_qs = _scope_local(EntregaEPP.objects.select_related('empresa', 'trabajador'))
     registros_epp = [
         {
             'id': e.id,
@@ -872,7 +965,7 @@ def _exportar_datos_trabajador_tenant(
     acc_q = Q(rut_hmac=rut_hmac) if rut_hmac else Q(pk__in=[])
     if rut_variantes:
         acc_q |= Q(trabajador__rut__in=rut_variantes)
-    accidentes_qs = _scope_empresa(
+    accidentes_qs = _scope_local(
         InvestigacionAccidente.objects.filter(acc_q).select_related('empresa').distinct()
     )
     investigaciones_accidentes = [
@@ -889,7 +982,7 @@ def _exportar_datos_trabajador_tenant(
         for acc in accidentes_qs
     ]
 
-    caps_qs = _scope_empresa(RegistroCapacitacion.objects.select_related('empresa', 'tema'))
+    caps_qs = _scope_local(RegistroCapacitacion.objects.select_related('empresa', 'tema'))
     capacitaciones = [
         {
             'uuid': str(cap.uuid),
@@ -902,7 +995,7 @@ def _exportar_datos_trabajador_tenant(
         if _rut_en_asistentes(cap.asistentes, rut_variantes, rut_norm)
     ]
 
-    reportes_qs = _scope_empresa(ReporteRiesgo.objects.select_related('empresa', 'centro_trabajo'))
+    reportes_qs = _scope_local(ReporteRiesgo.objects.select_related('empresa', 'centro_trabajo'))
     reportes_riesgo = [
         {
             'uuid': str(rep.uuid),
@@ -922,7 +1015,7 @@ def _exportar_datos_trabajador_tenant(
         )
     ]
 
-    inspecciones_qs = _scope_empresa(Inspeccion.objects.select_related('empresa', 'plantilla'))
+    inspecciones_qs = _scope_local(Inspeccion.objects.select_related('empresa', 'plantilla'))
     inspecciones = [
         {
             'id': insp.id,
@@ -937,7 +1030,7 @@ def _exportar_datos_trabajador_tenant(
         if normalizar_rut_blind_index(insp.firma_rut or '') == rut_norm
     ]
 
-    sugerencias_qs = _scope_empresa(SugerenciaLaboral.objects.select_related('empresa'))
+    sugerencias_qs = _scope_local(SugerenciaLaboral.objects.select_related('empresa'))
     sugerencias_laborales = [
         {
             'uuid': str(sg.uuid),
@@ -957,7 +1050,7 @@ def _exportar_datos_trabajador_tenant(
         )
     ]
 
-    cphs_qs = _scope_empresa(
+    cphs_qs = _scope_local(
         MiembroCPHS.objects.select_related('comite__empresa'),
         field='comite__empresa__prevencionista__in',
     )
@@ -993,7 +1086,7 @@ def _exportar_datos_trabajador_tenant(
     ]
 
     # Consulta indexada por HMAC en DenunciaLeyKarin (sin exponer identidad de terceros por Ley 21.643)
-    karin_qs = _scope_empresa(DenunciaLeyKarin.objects.filter(rut_hmac=rut_hmac)) if rut_hmac else DenunciaLeyKarin.objects.none()
+    karin_qs = _scope_local(DenunciaLeyKarin.objects.filter(rut_hmac=rut_hmac)) if rut_hmac else DenunciaLeyKarin.objects.none()
     denuncias_ley_karin_resumen = [
         {
             'codigo_seguimiento': dk.codigo_seguimiento,
@@ -1005,36 +1098,54 @@ def _exportar_datos_trabajador_tenant(
         for dk in karin_qs
     ]
 
-    cons_q = Q(identificador_titular__in=rut_variantes) if rut_variantes else Q(pk__in=[])
-    if rut_hmac:
-        cons_q |= Q(identificador_titular=rut_hmac)
-    for correo in correos_trabajadores:
-        cons_q |= Q(identificador_titular__iexact=correo)
+    existe_en_tenant = any((
+        fichas,
+        registros_epp,
+        investigaciones_accidentes,
+        capacitaciones,
+        reportes_riesgo,
+        inspecciones,
+        sugerencias_laborales,
+        comites_paritarios,
+        subcontratacion,
+        denuncias_ley_karin_resumen,
+    ))
 
-    consentimientos = [
-        {
-            'id': c.id,
-            'flujo': c.flujo,
-            'otorgado': c.otorgado,
-            'version_politica': c.version_politica,
-            'categorias': _formatear_valor(c.categorias),
-            'fecha_evento': _formatear_valor(c.fecha_evento),
-        }
-        for c in RegistroConsentimiento.objects.filter(cons_q)
-    ]
+    if usuarios_grupo is not None and not existe_en_tenant:
+        consentimientos = []
+        solicitudes_arco = []
+    else:
+        cons_q = Q(identificador_titular__in=rut_variantes) if rut_variantes else Q(pk__in=[])
+        if rut_hmac:
+            cons_q |= Q(identificador_titular=rut_hmac)
+        for correo in correos_trabajadores:
+            cons_q |= Q(identificador_titular__iexact=correo)
 
-    solicitudes_arco = [
-        {
-            'uuid': str(sol.uuid),
-            'tipo_derecho': sol.tipo_derecho,
-            'estado': sol.estado,
-            'bloqueo_provisional_activo': sol.bloqueo_provisional_activo,
-            'fecha_solicitud': _formatear_valor(sol.fecha_solicitud),
-        }
-        for sol in SolicitudDerechoARCO.objects.filter(
-            Q(rut_titular__in=rut_variantes) | Q(email_titular__in=correos_trabajadores)
-        )
-    ]
+        consentimientos = [
+            {
+                'id': c.id,
+                'flujo': c.flujo,
+                'otorgado': c.otorgado,
+                'version_politica': c.version_politica,
+                'categorias': _formatear_valor(c.categorias),
+                'fecha_evento': _formatear_valor(c.fecha_evento),
+            }
+            for c in RegistroConsentimiento.objects.filter(cons_q)
+        ]
+
+        sol_q = Q(rut_titular__in=rut_variantes) if rut_variantes else Q(pk__in=[])
+        if correos_trabajadores:
+            sol_q |= Q(email_titular__in=correos_trabajadores)
+        solicitudes_arco = [
+            {
+                'uuid': str(sol.uuid),
+                'tipo_derecho': sol.tipo_derecho,
+                'estado': sol.estado,
+                'bloqueo_provisional_activo': sol.bloqueo_provisional_activo,
+                'fecha_solicitud': _formatear_valor(sol.fecha_solicitud),
+            }
+            for sol in SolicitudDerechoARCO.objects.filter(sol_q)
+        ]
 
     return {
         'fichas_laborales': fichas,
@@ -1052,6 +1163,19 @@ def _exportar_datos_trabajador_tenant(
     }
 
 
+def _fusionar_listas_unicas(lista_a: list[dict[str, Any]], lista_b: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    vistos: set[Any] = set()
+    combinada: list[dict[str, Any]] = []
+    for item in (*lista_a, *lista_b):
+        val = item.get(key)
+        if val is not None and val in vistos:
+            continue
+        if val is not None:
+            vistos.add(val)
+        combinada.append(item)
+    return combinada
+
+
 def exportar_datos_titular(
     *,
     usuario: Usuario | None = None,
@@ -1059,9 +1183,23 @@ def exportar_datos_titular(
     email: str = '',
     usuarios_grupo: list[Usuario] | None = None,
 ) -> dict[str, Any]:
-    """Genera la exportación portable completa (cuenta o titular trabajador por RUT/HMAC)."""
+    """Genera la exportación portable completa (cuenta, trabajador por RUT/HMAC, o ambos)."""
     identidad = _resolver_identidad(usuario=usuario, rut=rut, email=email)
-    if identidad['rut_norm']:
+    tiene_rut = bool(identidad['rut_norm'] and not identidad['rut_norm'].startswith('ANON'))
+    if usuario is not None and tiene_rut:
+        alcance = 'cuenta_y_trabajador'
+        datos_cuenta = _exportar_datos_cuenta(usuario, identidad)
+        datos_trab = _exportar_datos_trabajador_tenant(identidad, usuarios_grupo=usuarios_grupo)
+        datos = {
+            **datos_trab,
+            **datos_cuenta,
+            'reportes_riesgo': _fusionar_listas_unicas(datos_trab['reportes_riesgo'], datos_cuenta['reportes_riesgo'], 'uuid'),
+            'inspecciones': _fusionar_listas_unicas(datos_trab['inspecciones'], datos_cuenta['inspecciones'], 'id'),
+            'sugerencias_laborales': _fusionar_listas_unicas(datos_trab['sugerencias_laborales'], datos_cuenta['sugerencias_laborales'], 'uuid'),
+            'consentimientos': _fusionar_listas_unicas(datos_trab['consentimientos'], datos_cuenta['consentimientos'], 'id'),
+            'solicitudes_arco': _fusionar_listas_unicas(datos_trab['solicitudes_arco'], datos_cuenta['solicitudes_arco'], 'uuid'),
+        }
+    elif tiene_rut or identidad['rut_norm']:
         alcance = 'trabajador_tenant'
         datos = _exportar_datos_trabajador_tenant(identidad, usuarios_grupo=usuarios_grupo)
     elif usuario is not None:
@@ -1074,7 +1212,7 @@ def exportar_datos_titular(
         'ambito': alcance,
         'alcance': alcance,
         'estandar_interoperabilidad': 'Ley N° 21.719 Art. 9 (Portabilidad)',
-        **({'rut_titular': identidad['rut'] or identidad['rut_norm']} if alcance == 'trabajador_tenant' else {}),
+        **({'rut_titular': identidad['rut'] or identidad['rut_norm']} if alcance in ('trabajador_tenant', 'cuenta_y_trabajador') else {}),
         'fecha_exportacion': timezone.now().isoformat(),
         'base_legal': 'Art. 9 y Art. 14 ter Ley N° 21.719 (Derecho de Acceso y Portabilidad en formato interoperable)',
         'resumen_mapa_legal': {
@@ -1097,6 +1235,13 @@ def _aplicar_cambios_campos(instancia: Any, cambios: dict[str, Any], campos_perm
     modificados: list[str] = []
     for campo, valor in (cambios or {}).items():
         if campo in campos_permitidos and hasattr(instancia, campo):
+            if isinstance(instancia, Usuario) and campo == 'email':
+                nuevo_email = str(valor or '').strip()
+                if not nuevo_email or '@' not in nuevo_email:
+                    raise DjangoValidationError("El correo electrónico proporcionado no es válido.")
+                if Usuario.objects.exclude(pk=instancia.pk).filter(email__iexact=nuevo_email).exists():
+                    raise DjangoValidationError("Ya existe otra cuenta registrada con ese correo electrónico.")
+                valor = nuevo_email
             setattr(instancia, campo, valor)
             modificados.append(campo)
     if modificados:
@@ -1174,10 +1319,16 @@ def ejecutar_rectificacion_titular(
                 if _aplicar_cambios_campos(sub, cambios['trabajador_subcontratado'], MAPA_DATOS_PERSONALES['TrabajadorSubcontratado']['campos_rectificables']):
                     actualizados['TrabajadorSubcontratado'] = actualizados.get('TrabajadorSubcontratado', 0) + 1
 
-    if isinstance(cambios.get('mensaje_contacto'), dict) and (usuario_objetivo or identidad['email']):
-        mc_qs = MensajeContacto.objects.filter(
-            Q(usuario=usuario_objetivo) if usuario_objetivo else Q(email__iexact=identidad['email'])
-        )
+    if isinstance(cambios.get('mensaje_contacto'), dict):
+        if usuario_objetivo is not None:
+            mc_q = Q(usuario=usuario_objetivo)
+            if usuario_objetivo.email:
+                mc_q |= Q(email__iexact=usuario_objetivo.email)
+            mc_qs = MensajeContacto.objects.filter(mc_q)
+        elif usuarios_grupo is None and identidad['email']:
+            mc_qs = MensajeContacto.objects.filter(email__iexact=identidad['email'])
+        else:
+            mc_qs = MensajeContacto.objects.none()
         for mc in mc_qs:
             if _aplicar_cambios_campos(mc, cambios['mensaje_contacto'], MAPA_DATOS_PERSONALES['MensajeContacto']['campos_rectificables']):
                 actualizados['MensajeContacto'] = actualizados.get('MensajeContacto', 0) + 1
@@ -1235,15 +1386,22 @@ def ejecutar_supresion_titular(
     suprimidos: dict[str, int] = {}
     retenidos_por_ley: list[dict[str, Any]] = []
 
+    emails_trabajador_tenant: set[str] = set()
+    if rut_norm:
+        _, emails_trabajador_tenant = resolver_emails_trabajador_tenant(rut, usuarios_grupo)
+    if email_norm:
+        emails_trabajador_tenant.add(email_norm)
+
     # 1. ReporteRiesgo: siempre permite suprimir PII opcional del reportante externo/interno
     rep_qs = ReporteRiesgo.objects.all()
     if usuarios_grupo is not None:
         rep_qs = rep_qs.filter(Q(empresa__prevencionista__in=usuarios_grupo) | Q(usuario=usuario_objetivo))
     for rep in rep_qs:
+        rep_contacto = (rep.contacto_reportante or '').strip().lower()
         coincide = (
             (usuario_objetivo and rep.usuario_id == usuario_objetivo.id)
             or (rut_norm and normalizar_rut_blind_index(rep.rut_reportante or '') == rut_norm)
-            or (email_norm and (rep.contacto_reportante or '').strip().lower() == email_norm)
+            or (rep_contacto and rep_contacto in emails_trabajador_tenant)
         )
         if coincide and (rep.nombre_reportante or rep.rut_reportante or rep.contacto_reportante):
             rep.nombre_reportante = ''
@@ -1267,13 +1425,14 @@ def ejecutar_supresion_titular(
             insp.save(update_fields=['firma_nombre', 'firma_rut'])
             suprimidos['Inspeccion'] = suprimidos.get('Inspeccion', 0) + 1
 
-    # 3. SugerenciaLaboral y SugerenciaConsulta
+    # 3. SugerenciaLaboral (con tenant empresa) y SugerenciaConsulta / MensajeContacto (solo cuenta propia o staff)
     sug_lab_qs = SugerenciaLaboral.objects.all()
     if usuarios_grupo is not None:
         sug_lab_qs = sug_lab_qs.filter(empresa__prevencionista__in=usuarios_grupo)
     for sg in sug_lab_qs:
+        sg_contacto = (sg.contacto_remitente or '').strip().lower()
         coincide = (
-            (email_norm and (sg.contacto_remitente or '').strip().lower() == email_norm)
+            (sg_contacto and sg_contacto in emails_trabajador_tenant)
             or (rut_norm and normalizar_rut_blind_index(sg.contacto_remitente or '') == rut_norm)
         )
         if coincide:
@@ -1283,8 +1442,17 @@ def ejecutar_supresion_titular(
             sg.save(update_fields=['es_anonimo', 'nombre_remitente', 'contacto_remitente'])
             suprimidos['SugerenciaLaboral'] = suprimidos.get('SugerenciaLaboral', 0) + 1
 
-    if usuario_objetivo or email_norm:
-        sc_q = Q(usuario=usuario_objetivo) if usuario_objetivo else Q(contacto_remitente__iexact=email_norm)
+    if usuario_objetivo is not None or (usuarios_grupo is None and email_norm):
+        if usuario_objetivo is not None:
+            sc_q = Q(usuario=usuario_objetivo)
+            mc_q = Q(usuario=usuario_objetivo)
+            if usuario_objetivo.email:
+                sc_q |= Q(contacto_remitente__iexact=usuario_objetivo.email)
+                mc_q |= Q(email__iexact=usuario_objetivo.email)
+        else:
+            sc_q = Q(contacto_remitente__iexact=email_norm)
+            mc_q = Q(email__iexact=email_norm)
+
         for sgc in SugerenciaConsulta.objects.filter(sc_q):
             sgc.anonimo = True
             sgc.nombre_remitente = ''
@@ -1292,7 +1460,6 @@ def ejecutar_supresion_titular(
             sgc.save(update_fields=['anonimo', 'nombre_remitente', 'contacto_remitente'])
             suprimidos['SugerenciaConsulta'] = suprimidos.get('SugerenciaConsulta', 0) + 1
 
-        mc_q = Q(usuario=usuario_objetivo) if usuario_objetivo else Q(email__iexact=email_norm)
         for mc in MensajeContacto.objects.filter(mc_q):
             mc.nombre = 'Titular Suprimido'
             mc.email = f'suprimido+{mc.pk}@anon.invalid'
@@ -1497,7 +1664,16 @@ def ejecutar_oposicion_titular(
     identidad = _resolver_identidad(usuario=usuario_objetivo, rut=rut, email=email)
     rut_norm = identidad['rut_norm']
     email_norm = identidad['email']
-    identificador = email_norm or rut_norm or (usuario_objetivo.username if usuario_objetivo else 'titular')
+    if usuario_objetivo is None and rut_norm:
+        identificador = identidad['rut_hmac'] or rut_norm
+    else:
+        identificador = email_norm or rut_norm or (usuario_objetivo.username if usuario_objetivo else 'titular')
+
+    emails_trabajador_tenant: set[str] = set()
+    if rut_norm:
+        _, emails_trabajador_tenant = resolver_emails_trabajador_tenant(rut, usuarios_grupo)
+    if email_norm:
+        emails_trabajador_tenant.add(email_norm)
 
     # 1. Revocar consentimientos opcionales de forma inmutable (append-only)
     consentimientos_revocados = 0
@@ -1522,10 +1698,11 @@ def ejecutar_oposicion_titular(
     if usuarios_grupo is not None:
         rep_qs = rep_qs.filter(Q(empresa__prevencionista__in=usuarios_grupo) | Q(usuario=usuario_objetivo))
     for rep in rep_qs:
+        rep_contacto = (rep.contacto_reportante or '').strip().lower()
         coincide = (
             (usuario_objetivo and rep.usuario_id == usuario_objetivo.id)
             or (rut_norm and normalizar_rut_blind_index(rep.rut_reportante or '') == rut_norm)
-            or (email_norm and (rep.contacto_reportante or '').strip().lower() == email_norm)
+            or (rep_contacto and rep_contacto in emails_trabajador_tenant)
         )
         if coincide and (rep.nombre_reportante or rep.rut_reportante or rep.contacto_reportante):
             rep.nombre_reportante = ''

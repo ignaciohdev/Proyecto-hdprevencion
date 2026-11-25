@@ -4688,6 +4688,269 @@ class Bloque3ArcoHmacCifradoYPurgaTestCase(APITestCase):
         self.assertTrue(cap_vieja.asistentes[0]['rut'].startswith("ANON-"))
 
 
+class Bloque4ReanalisisCierreBrechasTestCase(APITestCase):
+    """
+    Pruebas de regresión del re-análisis sobre código:
+    1. Scoping estricto de email y aislamiento multi-tenant en endpoints ARCO por RUT (_resolver_alcance_arco_request).
+    2. Rate limiting / lockout en MFAAdminSite y acciones ejecutivas en SolicitudDerechoARCOAdmin.
+    3. Bloqueo de bulk_update en bitácoras append-only, _parse_bool en buzón y alerta ante InvalidToken.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.owner_a = Usuario.objects.create_user(
+            username="b4_owner_a",
+            email="owner_a@hdprevencion.cl",
+            password="OwnerAPassword#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        self.owner_b = Usuario.objects.create_user(
+            username="b4_owner_b",
+            email="owner_b@hdprevencion.cl",
+            password="OwnerBPassword#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        self.emp_a = Empresa.objects.create(prevencionista=self.owner_a, razon_social="Empresa A B4 SpA", rut="76.101.202-3")
+        self.emp_b = Empresa.objects.create(prevencionista=self.owner_b, razon_social="Empresa B B4 SpA", rut="76.303.404-5")
+        self.centro_a = CentroTrabajo.objects.create(empresa=self.emp_a, nombre="Faena A", direccion="Calle 1", comuna="Santiago")
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_arco_email_scoping_y_aislamiento_tenant(self):
+        from .models import MensajeContacto, RegistroConsentimiento, SolicitudDerechoARCO, SugerenciaConsulta, Trabajador
+
+        Trabajador.objects.create(
+            empresa=self.emp_a,
+            centro_trabajo=self.centro_a,
+            rut="18.555.666-7",
+            nombres="Juan",
+            apellidos="TrabajadorA",
+            cargo="Operador",
+            correo="juan.traba@empresaA.cl",
+        )
+        msg_owner_a = MensajeContacto.objects.create(
+            usuario=self.owner_a,
+            nombre="Owner A",
+            email="owner_a@hdprevencion.cl",
+            asunto="Soporte A",
+            mensaje="Mensaje propio de A",
+        )
+        msg_victima_b = MensajeContacto.objects.create(
+            usuario=self.owner_b,
+            nombre="Victima B",
+            email="victima_b@otraempresa.cl",
+            asunto="Confidencial B",
+            mensaje="No debe borrarse por A",
+        )
+        sug_a = SugerenciaConsulta.objects.create(
+            usuario=self.owner_a,
+            anonimo=False,
+            nombre_remitente="Owner A",
+            contacto_remitente="owner_a@hdprevencion.cl",
+            mensaje="Sugerencia propia de A",
+        )
+        sug_victima_b = SugerenciaConsulta.objects.create(
+            usuario=self.owner_b,
+            anonimo=False,
+            nombre_remitente="Victima B",
+            contacto_remitente="victima_b@otraempresa.cl",
+            mensaje="Sugerencia ajena de B",
+        )
+        sol_a = SolicitudDerechoARCO.objects.create(
+            tipo_derecho=SolicitudDerechoARCO.TIPO_ACCESO,
+            rut_titular="18.555.666-7",
+            nombre_titular="Juan TrabajadorA",
+            email_titular="juan.traba@empresaA.cl",
+            detalle_solicitud="Solicitud exclusiva de A",
+        )
+
+        # 1. Owner A pasa rut + email ajeno -> rechazado 403 en rectificar/suprimir/oponer
+        self.client.force_authenticate(user=self.owner_a)
+        for view_name, body in (
+            ('privacidad_rectificar', {"rut": "18.555.666-7", "email": "victima_b@otraempresa.cl", "cambios": {"mensaje_contacto": {"nombre": "Hack"}}}),
+            ('privacidad_suprimir', {"rut": "18.555.666-7", "email": "victima_b@otraempresa.cl"}),
+            ('privacidad_oponer', {"rut": "18.555.666-7", "email": "victima_b@otraempresa.cl", "activar_bloqueo_provisional": False}),
+        ):
+            res = self.client.post(reverse(view_name), body, format='json')
+            self.assertEqual(res.status_code, 403)
+
+        msg_victima_b.refresh_from_db()
+        sug_victima_b.refresh_from_db()
+        self.assertEqual(msg_victima_b.nombre, "Victima B")
+        self.assertFalse(sug_victima_b.anonimo)
+
+        # 2. Owner A suprime/opone trabajador por RUT sin email -> NO toca mensajes ni sugerencias propias de Owner A
+        res_opo = self.client.post(
+            reverse('privacidad_oponer'),
+            {"rut": "18.555.666-7", "motivo": "Oposición trabajador", "activar_bloqueo_provisional": False},
+            format='json',
+        )
+        self.assertEqual(res_opo.status_code, 200)
+        res_sup = self.client.post(
+            reverse('privacidad_suprimir'),
+            {"rut": "18.555.666-7"},
+            format='json',
+        )
+        self.assertEqual(res_sup.status_code, 200)
+        msg_owner_a.refresh_from_db()
+        sug_a.refresh_from_db()
+        self.assertEqual(msg_owner_a.email, "owner_a@hdprevencion.cl")
+        self.assertFalse(sug_a.anonimo)
+        # El identificador revocado en RegistroConsentimiento pertenece al worker (no al email de owner_a)
+        self.assertFalse(
+            RegistroConsentimiento.objects.filter(
+                identificador_titular="owner_a@hdprevencion.cl",
+                otorgado=False,
+            ).exists()
+        )
+
+        # 3. Owner B consulta portabilidad por RUT de trabajador de A -> no recibe solicitudes_arco ni consentimientos
+        self.client.force_authenticate(user=self.owner_b)
+        res_b = self.client.get(reverse('privacidad_portabilidad') + "?rut=18.555.666-7")
+        self.assertEqual(res_b.status_code, 200)
+        self.assertEqual(res_b.json()['solicitudes_arco'], [])
+        self.assertEqual(res_b.json()['consentimientos'], [])
+
+        # 4. Rectificación de email duplicado de usuario -> 400
+        self.client.force_authenticate(user=self.owner_a)
+        res_dup = self.client.post(
+            reverse('privacidad_rectificar'),
+            {"cambios": {"usuario": {"email": "owner_b@hdprevencion.cl"}}},
+            format='json',
+        )
+        self.assertEqual(res_dup.status_code, 400)
+        self.assertEqual(sol_a.estado, SolicitudDerechoARCO.ESTADO_PENDIENTE)
+
+    def test_admin_mfa_rate_limit_y_acciones_arco(self):
+        from django.contrib import admin as django_admin
+        from django.test import RequestFactory
+        from .mfa import generar_codigos_respaldo, generar_secreto_totp
+        from .models import AuditLogEventoSeguridad, RegistroConsentimiento, SolicitudDerechoARCO
+
+        secret = generar_secreto_totp()
+        _, hashed = generar_codigos_respaldo(2)
+        admin_u = Usuario.objects.create_superuser(
+            username="b4_admin_rl",
+            email="admin_b4@hdprevencion.cl",
+            password="AdminStrongPassword#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+            mfa_enabled=True,
+            mfa_secret=secret,
+            mfa_backup_codes_hashes=hashed,
+        )
+
+        for _ in range(5):
+            res = self.client.post(
+                "/sst-control-panel/login/",
+                {"username": "b4_admin_rl", "password": "AdminStrongPassword#2026!", "otp_code": "000000"},
+            )
+            self.assertEqual(res.status_code, 200)
+
+        res_locked = self.client.post(
+            "/sst-control-panel/login/",
+            {"username": "b4_admin_rl", "password": "AdminStrongPassword#2026!", "otp_code": "000000"},
+        )
+        self.assertEqual(res_locked.status_code, 200)
+        self.assertContains(res_locked, "Demasiados intentos fallidos")
+        self.assertTrue(
+            AuditLogEventoSeguridad.objects.filter(
+                actor_identificador="b4_admin_rl",
+                accion="MFA_FAIL",
+                metadata__reason="rate_limited",
+            ).exists()
+        )
+
+        # Verificar acciones administrativas reales ARCO en SolicitudDerechoARCOAdmin
+        user_sol = Usuario.objects.create_user(
+            username="b4_titular_sol",
+            email="titular_b4@hdprevencion.cl",
+            password="TitularStrongPassword#2026!",
+        )
+        sol_opo = SolicitudDerechoARCO.objects.create(
+            tipo_derecho=SolicitudDerechoARCO.TIPO_OPOSICION,
+            rut_titular="19.111.222-3",
+            nombre_titular="Titular B4",
+            email_titular="titular_b4@hdprevencion.cl",
+            detalle_solicitud="Oposición desde admin",
+        )
+        admin_inst = django_admin.site._registry[SolicitudDerechoARCO]
+        req = RequestFactory().post("/sst-control-panel/")
+        req.user = admin_u
+        req._messages = MagicMock()
+
+        resp_port = admin_inst.exportar_portabilidad_arco_json(
+            req, SolicitudDerechoARCO.objects.filter(pk=sol_opo.pk)
+        )
+        self.assertEqual(resp_port.status_code, 200)
+        self.assertIn("titular_b4@hdprevencion.cl", resp_port.content.decode("utf-8"))
+
+        admin_inst.ejecutar_oposicion_arco(req, SolicitudDerechoARCO.objects.filter(pk=sol_opo.pk))
+        sol_opo.refresh_from_db()
+        self.assertEqual(sol_opo.estado, SolicitudDerechoARCO.ESTADO_RESUELTA)
+        self.assertTrue(
+            RegistroConsentimiento.objects.filter(usuario=user_sol, otorgado=False).exists()
+        )
+
+    def test_bulk_update_inmutable_parse_bool_buzon_y_crypto_alert(self):
+        from .crypto import descifrar_texto
+        from .models import AuditLogEventoSeguridad, RegistroConsentimiento
+
+        log = AuditLogEventoSeguridad.objects.create(
+            usuario=self.owner_a,
+            actor_identificador=self.owner_a.username,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SEGURIDAD,
+            accion="BULK_TEST",
+            exito=True,
+        )
+        with self.assertRaises(DjangoValidationError):
+            AuditLogEventoSeguridad.objects.bulk_update([log], ['accion'])
+
+        # SugerenciaConsultaPublicaCreateView usa _parse_bool("false") correctamente
+        url_buzon = f"/api/publico/{self.owner_a.uuid}/buzon/"
+        res_bad = self.client.post(
+            url_buzon,
+            {
+                "empresa": self.emp_a.id,
+                "mensaje": "Aporte multipart falso bool",
+                "es_anonimo": "false",
+                "acepta_privacidad": "false",
+                "nombre_remitente": "Maria B4",
+                "contacto_remitente": "maria.b4@empresaA.cl",
+            },
+            format='json',
+        )
+        self.assertEqual(res_bad.status_code, 400)
+
+        res_ok = self.client.post(
+            url_buzon,
+            {
+                "empresa": self.emp_a.id,
+                "mensaje": "Aporte multipart válido",
+                "es_anonimo": "false",
+                "acepta_privacidad": "true",
+                "nombre_remitente": "Maria B4",
+                "contacto_remitente": "maria.b4@empresaA.cl",
+            },
+            format='json',
+        )
+        self.assertEqual(res_ok.status_code, 201)
+        self.assertTrue(
+            RegistroConsentimiento.objects.filter(
+                flujo=RegistroConsentimiento.FLUJO_SUGERENCIA_IDENTIFICADA,
+                identificador_titular="maria.b4@empresaA.cl",
+                otorgado=True,
+            ).exists()
+        )
+
+        # InvalidToken emite alerta en logger hdprevencion.security
+        with self.assertLogs('hdprevencion.security', level='ERROR') as cm:
+            out = descifrar_texto("enc:v1:token_corrupto_invalido")
+        self.assertEqual(out, "enc:v1:token_corrupto_invalido")
+        self.assertTrue(any("DECRYPT_INVALID_TOKEN" in line for line in cm.output))
+
+
+
 
 
 

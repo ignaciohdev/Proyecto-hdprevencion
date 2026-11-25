@@ -12,7 +12,7 @@
   2. **Vercel Inc.** (Estados Unidos) — Alojamiento del frontend web y edge routing (`frontend/vercel.json`).
 
 ### Servicios externos verificados SIN transferencia internacional de datos personales
-- **Open-Meteo (`api.open-meteo.com`):** Invocado en `backend/modulo_prevencion/views.py:3917-4132` (`ClimaUvView`) enviando únicamente coordenadas geográficas (`latitude`, `longitude`) de faenas/comunas chilenas y `User-Agent`. **No se transfieren datos personales.**
+- **Open-Meteo (`api.open-meteo.com`):** Invocado en `backend/modulo_prevencion/views.py:4045-4260` (`ClimaUvView`) enviando únicamente coordenadas geográficas (`latitude`, `longitude`) de faenas/comunas chilenas y `User-Agent`. **No se transfieren datos personales.**
 - **APIs de correo electrónico / Inteligencia Artificial:** Actualmente **inactivas en runtime** (el módulo web no envía correos externos ni datos a Gemini/LLMs en ejecución; si en el futuro se activan servicios como Resend, SES, SendGrid o Gemini en runtime, deberá suscribirse un nuevo Anexo antes de habilitarlos).
 
 ---
