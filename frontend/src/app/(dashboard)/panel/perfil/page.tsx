@@ -12,6 +12,7 @@ export default function PerfilPanel() {
   const [form, setForm] = useState({
     username: "",
     email: "",
+    current_password: "",
     password: "",
     password_confirm: "",
   });
@@ -44,6 +45,7 @@ export default function PerfilPanel() {
         setForm({
           username: data.username,
           email: data.email,
+          current_password: "",
           password: "",
           password_confirm: "",
         });
@@ -122,10 +124,17 @@ export default function PerfilPanel() {
     setSuccess(null);
 
     // Validar contraseña
-    if (form.password && form.password !== form.password_confirm) {
-      setError("Las contraseñas nuevas no coinciden.");
-      setLoading(false);
-      return;
+    if (form.password) {
+      if (!form.current_password) {
+        setError("Debes ingresar tu contraseña actual para establecer una nueva.");
+        setLoading(false);
+        return;
+      }
+      if (form.password !== form.password_confirm) {
+        setError("Las contraseñas nuevas no coinciden.");
+        setLoading(false);
+        return;
+      }
     }
 
     const token = localStorage.getItem("access_token");
@@ -141,7 +150,9 @@ export default function PerfilPanel() {
     formData.append("email", form.email);
 
     if (form.password) {
+      formData.append("current_password", form.current_password);
       formData.append("password", form.password);
+      formData.append("password_confirm", form.password_confirm);
     }
 
     if (selectedFile) {
@@ -164,7 +175,11 @@ export default function PerfilPanel() {
       if (!res.ok) {
         const data = await res.json();
         let errorMsg = "Error al actualizar el perfil.";
-        if (data.username) errorMsg = `Usuario: ${data.username[0]}`;
+        if (data.current_password) {
+          errorMsg = Array.isArray(data.current_password) ? data.current_password[0] : data.current_password;
+        } else if (data.password) {
+          errorMsg = Array.isArray(data.password) ? data.password[0] : data.password;
+        } else if (data.username) errorMsg = `Usuario: ${data.username[0]}`;
         else if (data.email) errorMsg = `Correo: ${data.email[0]}`;
         else if (data.detail) errorMsg = data.detail;
         throw new Error(errorMsg);
@@ -182,6 +197,7 @@ export default function PerfilPanel() {
       setClearPhoto(false);
       setForm((prev) => ({
         ...prev,
+        current_password: "",
         password: "",
         password_confirm: "",
       }));
@@ -345,6 +361,19 @@ export default function PerfilPanel() {
               <p className="text-xs text-slate-400 mt-1">Completa estos campos únicamente si deseas actualizar tu contraseña de acceso.</p>
             </div>
 
+            <div className="mb-4">
+              <label className="block text-xs font-semibold mb-2 text-slate-500 dark:text-slate-400">Contraseña Actual (requerida al cambiar clave)</label>
+              <input
+                type="password"
+                name="current_password"
+                value={form.current_password}
+                onChange={handleChange}
+                placeholder="Ingresa tu contraseña actual"
+                autoComplete="current-password"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium"
+              />
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold mb-2 text-slate-500 dark:text-slate-400">Nueva Contraseña</label>
@@ -354,6 +383,7 @@ export default function PerfilPanel() {
                   value={form.password}
                   onChange={handleChange}
                   placeholder="••••••••"
+                  autoComplete="new-password"
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all font-medium"
                 />
               </div>

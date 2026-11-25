@@ -25,6 +25,14 @@ export const getApiUrl = (path: string): string => {
   return `http://localhost:8000${apiPath}`;
 };
 
+// Helper para construir rutas hacia el panel de administración backend (DJANGO_ADMIN_PATH)
+export const getAdminUrl = (subpath: string = ""): string => {
+  const adminBase = (process.env.NEXT_PUBLIC_ADMIN_PATH || "sst-control-panel")
+    .replace(/^\/+|\/+$/g, "");
+  const cleanSubpath = subpath.replace(/^\/+/, "");
+  return getApiUrl(`/${adminBase}/${cleanSubpath}`);
+};
+
 /**
  * Parser seguro de respuestas HTTP para evitar errores de sintaxis 'Unexpected token <'
  * cuando el servidor responde con HTML (404 de Vercel o 502/503/504 por spin-down de Render).

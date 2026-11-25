@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getApiUrl } from "../../../utils/api";
+import { getAdminUrl } from "../../../utils/api";
 
 export default function ModeradorPanel() {
   const [username, setUsername] = useState("");
@@ -79,7 +79,7 @@ export default function ModeradorPanel() {
             </div>
           </div>
           <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-900 text-center">
-            <a href={getApiUrl("/admin/modulo_prevencion/plantillamaestra/")} target="_blank" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 underline">Ver todas en Django Admin</a>
+            <a href={getAdminUrl("modulo_prevencion/plantillamaestra/")} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 underline">Ver todas en Django Admin</a>
           </div>
         </div>
 

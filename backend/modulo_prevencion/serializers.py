@@ -2,6 +2,8 @@ from typing import Any
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from .models import (
@@ -98,12 +100,22 @@ class RegisterSerializer(serializers.ModelSerializer):
         # 1. Validar coincidencia de contraseña
         if attrs['password'] != attrs['password_confirm']:
             raise ValidationError({"password": "Las contraseñas ingresadas no coinciden."})
-        
-        # 2. Validar correo electrónico único (Django por defecto valida username, pero no email como unique)
+
+        # 2. Validar fortaleza mínima según AUTH_PASSWORD_VALIDATORS de Django (Ley 21.719 / P1)
+        temp_user = Usuario(
+            username=attrs.get('username', ''),
+            email=attrs.get('email', ''),
+        )
+        try:
+            validate_password(attrs['password'], user=temp_user)
+        except DjangoValidationError as exc:
+            raise ValidationError({"password": list(exc.messages)})
+
+        # 3. Validar correo electrónico único (Django por defecto valida username, pero no email como unique)
         email = attrs.get('email')
         if Usuario.objects.filter(email=email).exists():
             raise ValidationError({"email": "Ya existe un usuario registrado con este correo electrónico."})
-            
+
         return attrs
 
     def create(self, validated_data):

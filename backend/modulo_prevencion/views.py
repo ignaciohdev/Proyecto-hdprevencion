@@ -17,6 +17,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from .models import (
@@ -214,14 +216,14 @@ class IsAdminOrReadOnly(permissions.BasePermission):
 
 class ContactoPermission(permissions.BasePermission):
     """
-    Cualquier usuario autenticado puede enviar mensajes (POST),
-    pero solo los administradores pueden leer el listado.
+    Cualquier usuario (anónimo o autenticado) puede enviar mensajes (POST),
+    pero solo los administradores pueden listar o leer mensajes recibidos.
     """
     def has_permission(self, request, view):
         user: Any = request.user
         if request.method == 'POST':
-            return user and user.is_authenticated
-        return user and (user.is_staff or user.is_superuser)
+            return True
+        return bool(user and user.is_authenticated and (user.is_staff or user.is_superuser))
 
 
 # ViewSets
@@ -729,6 +731,7 @@ class MensajeContactoViewSet(viewsets.ModelViewSet):
     queryset = MensajeContacto.objects.all()
     serializer_class = MensajeContactoSerializer
     permission_classes = [ContactoPermission]
+    throttle_classes = [AnonRateThrottle]
 
     def perform_create(self, serializer):
         if self.request.user and self.request.user.is_authenticated:
@@ -804,11 +807,31 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         if 'foto_perfil' in data and (data['foto_perfil'] == '' or data['foto_perfil'] == 'null' or data['foto_perfil'] is None):
             data.pop('foto_perfil')
 
+        password = request.data.get('password')
+        if password:
+            current_password = request.data.get('current_password') or ''
+            if not current_password or not usuario.check_password(current_password):
+                return Response(
+                    {"current_password": ["Debes ingresar tu contraseña actual correcta para cambiar la contraseña."]},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if 'password_confirm' in request.data and request.data.get('password_confirm') != password:
+                return Response(
+                    {"password": ["Las contraseñas ingresadas no coinciden."]},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                validate_password(password, user=usuario)
+            except DjangoValidationError as exc:
+                return Response(
+                    {"password": list(exc.messages)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         serializer = self.get_serializer(usuario, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        
-        password = request.data.get('password')
+
         if password:
             usuario.set_password(password)
             usuario.save()
@@ -874,10 +897,12 @@ class ReporteRiesgoViewSet(viewsets.ModelViewSet):
         return ReporteRiesgo.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         user: Any = self.request.user
         serializer.save(usuario=user)
 
     def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         instance = serializer.save()
         if instance.estado == ReporteRiesgo.ESTADO_RESUELTO and not instance.fecha_resolucion:
             instance.fecha_resolucion = timezone.now()
@@ -908,6 +933,7 @@ class InspeccionViewSet(viewsets.ModelViewSet):
         return Inspeccion.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         user: Any = self.request.user
         req: Any = self.request
         respuestas = req.data.get('respuestas', [])
@@ -924,6 +950,10 @@ class InspeccionViewSet(viewsets.ModelViewSet):
         porcentaje = (aprobados / total_evaluados * 100) if total_evaluados > 0 else 0.00
         porcentaje = round(porcentaje, 2)
         serializer.save(usuario=user, porcentaje_cumplimiento=porcentaje)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
 
 
 class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
@@ -942,8 +972,13 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         user: Any = self.request.user
         serializer.save(usuario=user)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
 
     def destroy(self, request, *args, **kwargs):
         raise exceptions.MethodNotAllowed(
@@ -1087,9 +1122,16 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
                 horas_trabajadas_estimadas = 0.0
         else:
             if empresa_id:
-                num_trabajadores = Trabajador.objects.filter(empresa_id=empresa_id, activo=True).count()
+                num_trabajadores = Trabajador.objects.filter(
+                    empresa_id=empresa_id,
+                    empresa__prevencionista__in=usuarios_grupo,
+                    estado=Trabajador.ESTADO_ACTIVO
+                ).count()
             else:
-                num_trabajadores = Trabajador.objects.filter(empresa__prevencionista__in=usuarios_grupo, activo=True).count()
+                num_trabajadores = Trabajador.objects.filter(
+                    empresa__prevencionista__in=usuarios_grupo,
+                    estado=Trabajador.ESTADO_ACTIVO
+                ).count()
 
             if num_trabajadores > 0:
                 horas_trabajadas_estimadas = float(num_trabajadores * 180 * 12)
@@ -1134,8 +1176,13 @@ class TemaCapacitacionViewSet(viewsets.ModelViewSet):
         ).distinct()
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         user: Any = self.request.user
         serializer.save(usuario=user)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
 
 
 class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
@@ -1194,8 +1241,13 @@ class RegistroCapacitacionViewSet(viewsets.ModelViewSet):
         return RegistroCapacitacion.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         user: Any = self.request.user
         serializer.save(usuario=user)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
 
     @action(detail=True, methods=['patch'], url_path='finalizar')
     def finalizar(self, request, uuid=None):
@@ -1686,7 +1738,8 @@ class SugerenciaConsultaViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return SugerenciaConsulta.objects.filter(usuario=self.request.user)
+        usuarios_grupo = get_usuarios_grupo(self.request.user)
+        return SugerenciaConsulta.objects.filter(usuario__in=usuarios_grupo)
 
     def perform_create(self, serializer):
         serializer.save(usuario=self.request.user)
@@ -1848,6 +1901,8 @@ class PublicoEmpresasListView(APIView):
     para permitir la selección adecuada en el portal QR.
     """
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'public_qr'
 
     def get(self, request, prevencionista_uuid):
         try:
@@ -1855,19 +1910,34 @@ class PublicoEmpresasListView(APIView):
         except (Usuario.DoesNotExist, ValueError):
             return Response({"error": "Prevencionista no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
-        empresas = Empresa.objects.filter(prevencionista=prevencionista, activo=True)
         empresa_param = request.query_params.get('empresa')
-        if empresa_param:
-            empresas = empresas.filter(id=empresa_param)
+        if not empresa_param:
+            return Response(
+                {"error": "Debe especificar el parámetro ?empresa=<id> para acceder al canal público."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            empresa_id = int(empresa_param)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "El identificador de empresa debe ser numérico."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        usuarios_grupo = get_usuarios_grupo(prevencionista)
+        empresas = Empresa.objects.filter(
+            prevencionista__in=usuarios_grupo,
+            activo=True,
+            id=empresa_id
+        )
 
         res = []
         for emp in empresas:
-            centros = list(emp.centros_trabajo.values('id', 'nombre', 'direccion'))
+            centros = list(emp.centros_trabajo.values('id', 'nombre'))
             res.append({
                 'id': emp.id,
                 'razon_social': emp.razon_social,
                 'nombre_fantasia': emp.nombre_fantasia or emp.razon_social,
-                'rut': emp.rut,
                 'centros_trabajo': centros
             })
         return Response(res, status=status.HTTP_200_OK)
@@ -1882,6 +1952,58 @@ def get_usuarios_grupo(user: Any) -> list[Any]:
     if cuentas_hijas is not None and hasattr(cuentas_hijas, 'all'):
         return [owner] + list(cuentas_hijas.all())
     return [owner]
+
+
+def validar_integridad_tenant(
+    user: Any,
+    validated_data: dict[str, Any],
+    instance: Any = None,
+    empresa_field: str = 'empresa',
+) -> None:
+    """
+    Valida en create/update que todas las relaciones (FK) pertenezcan al grupo corporativo
+    del usuario autenticado y sean consistentes entre sí (prevención de IDOR/bypass vía PATCH).
+    """
+    usuarios_grupo = get_usuarios_grupo(user)
+
+    empresa_modificada = empresa_field in validated_data
+    empresa = validated_data.get(empresa_field) if empresa_modificada else getattr(instance, empresa_field, None)
+    if empresa_modificada and empresa is not None:
+        if not empresa.prevencionista or empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({empresa_field: "No tienes permiso para operar sobre la empresa seleccionada."})
+
+    if 'contratista' in validated_data:
+        contratista = validated_data.get('contratista')
+        if contratista is not None and contratista.usuario not in usuarios_grupo:
+            raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
+
+    comite_modificado = 'comite' in validated_data
+    comite = validated_data.get('comite') if comite_modificado else getattr(instance, 'comite', None)
+    if comite_modificado and comite is not None:
+        if not comite.empresa.prevencionista or comite.empresa.prevencionista not in usuarios_grupo:
+            raise ValidationError({"comite": "No tienes permiso sobre el comité seleccionado."})
+
+    if 'matriz' in validated_data:
+        matriz = validated_data.get('matriz')
+        if matriz is not None and (not matriz.empresa.prevencionista or matriz.empresa.prevencionista not in usuarios_grupo):
+            raise ValidationError({"matriz": "No tienes autorización sobre la matriz seleccionada."})
+
+    centro_modificado = 'centro_trabajo' in validated_data
+    centro = validated_data.get('centro_trabajo') if centro_modificado else getattr(instance, 'centro_trabajo', None)
+    if centro is not None:
+        if centro_modificado and (not centro.empresa.prevencionista or centro.empresa.prevencionista not in usuarios_grupo):
+            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a tu grupo corporativo."})
+        if (empresa_modificada or centro_modificado) and empresa is not None and centro.empresa_id != empresa.id:
+            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa seleccionada."})
+
+    trabajador_modificado = 'trabajador' in validated_data
+    trabajador = validated_data.get('trabajador') if trabajador_modificado else getattr(instance, 'trabajador', None)
+    empresa_objetivo = comite.empresa if comite is not None else empresa
+    if trabajador is not None:
+        if trabajador_modificado and (not trabajador.empresa.prevencionista or trabajador.empresa.prevencionista not in usuarios_grupo):
+            raise ValidationError({"trabajador": "No tienes permiso sobre el trabajador seleccionado."})
+        if (empresa_modificada or comite_modificado or trabajador_modificado) and empresa_objetivo is not None and trabajador.empresa_id != empresa_objetivo.id:
+            raise ValidationError({"trabajador": "El trabajador no pertenece a la empresa seleccionada."})
 
 
 class ContratistaViewSet(viewsets.ModelViewSet):
@@ -1901,7 +2023,21 @@ class ContratistaViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(
+            self.request.user,
+            serializer.validated_data,
+            empresa_field='empresa_principal',
+        )
         serializer.save(usuario=self.request.user)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(
+            self.request.user,
+            serializer.validated_data,
+            instance=serializer.instance,
+            empresa_field='empresa_principal',
+        )
+        serializer.save()
 
     def get_serializer_class(self) -> Any:
         if self.action == 'list':
@@ -1931,10 +2067,8 @@ class ContratistaViewSet(viewsets.ModelViewSet):
             elif estado == 'SIN_DOCUMENTOS':
                 contratistas_sin_docs += 1
 
-        # Estadísticas de documentos
-        from datetime import date
-        hoy = date.today()
-        docs = DocumentoContratista.objects.filter(contratista__usuario=request.user)
+        # Estadísticas de documentos (aisladas al grupo corporativo / filtro activo)
+        docs = DocumentoContratista.objects.filter(contratista__in=queryset)
         total_docs = docs.count()
         docs_vencidos = 0
         docs_por_vencer = 0
@@ -1951,7 +2085,7 @@ class ContratistaViewSet(viewsets.ModelViewSet):
 
         # Trabajadores totales activos
         total_trabajadores = TrabajadorSubcontratado.objects.filter(
-            contratista__usuario=request.user,
+            contratista__in=queryset,
             activo=True
         ).count()
 
@@ -1987,10 +2121,11 @@ class DocumentoContratistaViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        contratista = serializer.validated_data.get('contratista')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if contratista.usuario not in usuarios_grupo:
-            raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
 
@@ -2012,10 +2147,11 @@ class TrabajadorSubcontratadoViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        contratista = serializer.validated_data.get('contratista')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if contratista.usuario not in usuarios_grupo:
-            raise ValidationError({"contratista": "No tienes permisos sobre este contratista."})
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
 
@@ -2114,10 +2250,11 @@ class CentroTrabajoViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        empresa = serializer.validated_data.get('empresa')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"empresa": "No tienes permiso para asociar centros de trabajo a esta empresa."})
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
 
@@ -2152,15 +2289,11 @@ class TrabajadorViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        empresa = serializer.validated_data.get('empresa')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"empresa": "No tienes permiso para registrar trabajadores en esta empresa."})
-            
-        centro_trabajo = serializer.validated_data.get('centro_trabajo')
-        if centro_trabajo and centro_trabajo.empresa != empresa:
-            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa seleccionada."})
-            
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
     def destroy(self, request, *args, **kwargs):
@@ -2232,13 +2365,11 @@ class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def perform_create(self, serializer):
-        empresa = serializer.validated_data.get('empresa')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"empresa": "No tienes permiso para registrar denuncias en esta empresa."})
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         serializer.save()
 
     def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         instance = serializer.save()
         AuditLogAccesoDenuncia.objects.create(
             denuncia=instance,
@@ -2355,10 +2486,11 @@ class SugerenciaLaboralViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        empresa = serializer.validated_data.get('empresa')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"empresa": "No tienes permiso para registrar sugerencias en esta empresa."})
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
     @action(detail=True, methods=['post', 'patch'], url_path='responder')
@@ -2403,15 +2535,11 @@ class ComiteParitarioViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        empresa = serializer.validated_data.get('empresa')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"empresa": "No tienes permiso para constituir comités en esta empresa."})
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
 
-        centro_trabajo = serializer.validated_data.get('centro_trabajo')
-        if centro_trabajo and centro_trabajo.empresa != empresa:
-            raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa seleccionada."})
-
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
     @action(detail=True, methods=['get'], url_path='estadisticas')
@@ -2529,14 +2657,8 @@ class MiembroCPHSViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         comite = serializer.validated_data.get('comite')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if comite.empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"comite": "No tienes permiso para agregar miembros a este comité."})
-
-        trabajador = serializer.validated_data.get('trabajador')
-        if trabajador and trabajador.empresa != comite.empresa:
-            raise ValidationError({"trabajador": "El trabajador no pertenece a la empresa de este comité."})
 
         # Si se asigna cargo Presidente o Secretario, actualizar al anterior a VOCAL si existiese
         cargo = serializer.validated_data.get('cargo')
@@ -2546,10 +2668,12 @@ class MiembroCPHSViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         cargo = serializer.validated_data.get('cargo')
         instance = self.get_object()
+        comite_objetivo = serializer.validated_data.get('comite', instance.comite)
         if cargo in [MiembroCPHS.CARGO_PRESIDENTE, MiembroCPHS.CARGO_SECRETARIO]:
-            MiembroCPHS.objects.filter(comite=instance.comite, cargo=cargo).exclude(id=instance.id).update(cargo=MiembroCPHS.CARGO_VOCAL)
+            MiembroCPHS.objects.filter(comite=comite_objetivo, cargo=cargo).exclude(id=instance.id).update(cargo=MiembroCPHS.CARGO_VOCAL)
         serializer.save()
 
 
@@ -2613,10 +2737,8 @@ class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         comite = serializer.validated_data.get('comite')
-        usuarios_grupo = get_usuarios_grupo(self.request.user)
-        if comite.empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError({"comite": "No tienes permiso para registrar actas en este comité."})
 
         # Art. 40 D.S. N° 44: Quórum legal obligatorio
         asistentes = serializer.validated_data.get('asistentes', [])
@@ -2632,7 +2754,8 @@ class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
             serializer.save()
 
     def perform_update(self, serializer):
-        comite = serializer.instance.comite
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        comite = serializer.validated_data.get('comite', serializer.instance.comite)
         asistentes = serializer.validated_data.get('asistentes', serializer.instance.asistentes)
         validar_quorum_legal_cphs(comite, asistentes)
         serializer.save()
@@ -2874,12 +2997,12 @@ class MatrizLegalViewSet(viewsets.ModelViewSet):
         return qs.order_by('-fecha_actualizacion')
 
     def perform_create(self, serializer):
-        user = self.request.user
-        usuarios_grupo = get_usuarios_grupo(user)
-        empresa = serializer.validated_data.get('empresa')
-        if empresa and empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError("No tienes autorización para asociar una matriz legal a esta empresa.")
-        serializer.save(prevencionista=user)
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save(prevencionista=self.request.user)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
 
     @action(detail=False, methods=['post'], url_path='generar-automatica')
     def generar_automatica(self, request):
@@ -3043,6 +3166,14 @@ class ItemMatrizLegalViewSet(viewsets.ModelViewSet):
 
         return qs.order_by('orden', 'identificacion_norma', 'articulo')
 
+    def perform_create(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
+
 
 class MatrizRiesgoMiperViewSet(viewsets.ModelViewSet):
     """
@@ -3072,12 +3203,12 @@ class MatrizRiesgoMiperViewSet(viewsets.ModelViewSet):
         return qs.order_by('-fecha_actualizacion')
 
     def perform_create(self, serializer):
-        user = self.request.user
-        usuarios_grupo = get_usuarios_grupo(user)
-        empresa = serializer.validated_data.get('empresa')
-        if empresa and empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError("No tienes autorización para asociar una matriz MIPER a esta empresa.")
-        serializer.save(prevencionista=user)
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
+        serializer.save(prevencionista=self.request.user)
+
+    def perform_update(self, serializer):
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
+        serializer.save()
 
     @action(detail=True, methods=['get'], url_path='matriz-calor')
     def matriz_calor(self, request, pk=None):
@@ -3174,19 +3305,11 @@ class ItemMatrizRiesgoViewSet(viewsets.ModelViewSet):
         return qs.order_by('orden', 'id')
 
     def perform_create(self, serializer):
-        user = self.request.user
-        usuarios_grupo = get_usuarios_grupo(user)
-        matriz = serializer.validated_data.get('matriz')
-        if matriz and matriz.empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError("No tienes autorización para agregar ítems a esta matriz MIPER.")
+        validar_integridad_tenant(self.request.user, serializer.validated_data)
         serializer.save()
 
     def perform_update(self, serializer):
-        user = self.request.user
-        usuarios_grupo = get_usuarios_grupo(user)
-        matriz = serializer.instance.matriz
-        if matriz and matriz.empresa.prevencionista not in usuarios_grupo:
-            raise ValidationError("No tienes autorización para modificar ítems de esta matriz MIPER.")
+        validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
         serializer.save()
 
     def perform_destroy(self, instance):

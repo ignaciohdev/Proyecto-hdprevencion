@@ -191,8 +191,20 @@ USE_I18N = True
 
 USE_TZ = True
 
-# Seguridad de transporte y cookies (Ley 21.719 M-3)
+# Seguridad de transporte y cookies (Ley 21.719 M-3 / P1)
+IS_RENDER_PROD = 'RENDER' in os.environ and not DEBUG
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = os.environ.get(
+    'DJANGO_SECURE_SSL_REDIRECT',
+    'True' if IS_RENDER_PROD else 'False'
+).lower() in ('true', '1')
+SECURE_HSTS_SECONDS = int(os.environ.get(
+    'DJANGO_SECURE_HSTS_SECONDS',
+    '31536000' if IS_RENDER_PROD else '0'
+))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = IS_RENDER_PROD
+SECURE_HSTS_PRELOAD = IS_RENDER_PROD
+SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
@@ -263,24 +275,26 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
 ]
 
-# Permitir cualquier deployment o preview en Vercel
-CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https:\/\/.*\.vercel\.app$",
-]
+# Permitir previews wildcard de Vercel solo en desarrollo o mediante opt-in explícito
+ALLOW_VERCEL_PREVIEW_CORS = os.environ.get('ALLOW_VERCEL_PREVIEW_CORS', 'False').lower() in ('true', '1')
+CORS_ALLOWED_ORIGIN_REGEXES = []
+if DEBUG or ALLOW_VERCEL_PREVIEW_CORS:
+    CORS_ALLOWED_ORIGIN_REGEXES.append(r"^https:\/\/[a-z0-9-]+\.vercel\.app$")
 
-frontend_url = os.environ.get('FRONTEND_URL')
-if frontend_url:
-    clean_frontend = frontend_url.rstrip('/')
-    if clean_frontend not in CORS_ALLOWED_ORIGINS:
+frontend_url = os.environ.get('FRONTEND_URL', '')
+for raw_origin in frontend_url.split(','):
+    clean_frontend = raw_origin.strip().rstrip('/')
+    if clean_frontend and clean_frontend not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(clean_frontend)
 
 # Configuración de CSRF Trusted Origins
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://*.vercel.app",
     "https://*.onrender.com",
 ]
+if DEBUG or ALLOW_VERCEL_PREVIEW_CORS:
+    CSRF_TRUSTED_ORIGINS.append("https://*.vercel.app")
 
 render_external_url = os.environ.get('RENDER_EXTERNAL_URL')
 if render_external_url:
@@ -288,9 +302,9 @@ if render_external_url:
     if clean_render not in CSRF_TRUSTED_ORIGINS:
         CSRF_TRUSTED_ORIGINS.append(clean_render)
 
-if frontend_url:
-    clean_frontend = frontend_url.rstrip('/')
-    if clean_frontend not in CSRF_TRUSTED_ORIGINS:
+for raw_origin in frontend_url.split(','):
+    clean_frontend = raw_origin.strip().rstrip('/')
+    if clean_frontend and clean_frontend not in CSRF_TRUSTED_ORIGINS:
         CSRF_TRUSTED_ORIGINS.append(clean_frontend)
 
 

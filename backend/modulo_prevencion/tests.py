@@ -2630,6 +2630,290 @@ class Ley21719P0SecurityTestCase(APITestCase):
             self.assertEqual(descifrar_texto(token_rotado), "Relato ultra confidencial")
 
 
+class Ley21719P1SecurityTestCase(APITestCase):
+    """
+    Pruebas de regresión para controles P1.1 (Ley 21.719):
+    - Validación de fortaleza de contraseñas y clave actual en registro y perfil
+    - Contacto público con POST anónimo y lectura restringida a staff
+    - Aislamiento multi-tenant y consultas grupales (accidentes, contratistas, sugerencias)
+    - Bloqueo de reasignación cross-tenant vía PATCH
+    - Restricción de PublicoEmpresasListView sin enumeración de cartera ni RUT
+    """
+
+    def setUp(self):
+        from .models import Contratista, DocumentoContratista, TrabajadorSubcontratado, SugerenciaConsulta
+
+        self.owner = Usuario.objects.create_user(
+            username="p1_owner",
+            email="p1_owner@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario="CORPORATIVO",
+        )
+        self.hija = Usuario.objects.create_user(
+            username="p1_hija",
+            email="p1_hija@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario="CORPORATIVO",
+            cuenta_padre=self.owner,
+        )
+        self.ajeno = Usuario.objects.create_user(
+            username="p1_ajeno",
+            email="p1_ajeno@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario="INDIVIDUAL",
+        )
+        self.staff = Usuario.objects.create_user(
+            username="p1_staff",
+            email="p1_staff@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            is_staff=True,
+        )
+
+        self.emp_a = Empresa.objects.create(
+            prevencionista=self.owner,
+            razon_social="Empresa Alfa SpA",
+            rut="76.111.222-3",
+        )
+        self.centro_a = CentroTrabajo.objects.create(
+            empresa=self.emp_a,
+            nombre="Casa Matriz Alfa",
+            direccion="Av. Principal 100",
+        )
+        self.trab_a_activo = Trabajador.objects.create(
+            empresa=self.emp_a,
+            centro_trabajo=self.centro_a,
+            rut="12.345.678-5",
+            nombres="Juan",
+            apellidos="Pérez",
+            estado=Trabajador.ESTADO_ACTIVO,
+        )
+        Trabajador.objects.create(
+            empresa=self.emp_a,
+            centro_trabajo=self.centro_a,
+            rut="11.111.111-1",
+            nombres="Pedro",
+            apellidos="Desvinculado",
+            estado=Trabajador.ESTADO_DESVINCULADO,
+        )
+
+        self.emp_b = Empresa.objects.create(
+            prevencionista=self.ajeno,
+            razon_social="Empresa Beta SpA",
+            rut="77.999.888-4",
+        )
+        self.centro_b = CentroTrabajo.objects.create(
+            empresa=self.emp_b,
+            nombre="Sucursal Beta",
+            direccion="Calle Falsa 999",
+        )
+
+        self.contratista_a = Contratista.objects.create(
+            usuario=self.owner,
+            empresa_principal=self.emp_a,
+            centro_trabajo=self.centro_a,
+            razon_social="Servicios Contratista Alfa",
+            rut="78.222.333-1",
+        )
+        DocumentoContratista.objects.create(
+            contratista=self.contratista_a,
+            tipo="F30",
+            fecha_emision="2026-01-01",
+            fecha_vencimiento="2027-01-01",
+        )
+        TrabajadorSubcontratado.objects.create(
+            contratista=self.contratista_a,
+            rut="15.222.333-4",
+            nombre_completo="Subcontratado Uno",
+            cargo="Técnico",
+            fecha_ingreso_obra=timezone.localdate(),
+            activo=True,
+        )
+
+        self.contratista_b = Contratista.objects.create(
+            usuario=self.ajeno,
+            empresa_principal=self.emp_b,
+            centro_trabajo=self.centro_b,
+            razon_social="Contratista Beta",
+            rut="79.444.555-2",
+        )
+        SugerenciaConsulta.objects.create(
+            usuario=self.owner,
+            tipo=SugerenciaConsulta.TIPO_SUGERENCIA,
+            mensaje="Mejorar señalética de evacuación",
+        )
+
+    def _auth(self, username, password="PasswordFuerte123!"):
+        res = self.client.post("/api/auth/login/", {"username": username, "password": password})
+        self.assertEqual(res.status_code, 200)
+        return {"HTTP_AUTHORIZATION": f"Bearer {res.json()['access']}"}
+
+    def test_registro_y_perfil_exigen_politica_contrasenas_y_clave_actual(self):
+        # 1. Registro rechaza contraseña débil
+        res_reg_debil = self.client.post("/api/auth/register/", {
+            "username": "nuevo_debil",
+            "email": "debil@hdprevencion.cl",
+            "password": "123",
+            "password_confirm": "123",
+        })
+        self.assertEqual(res_reg_debil.status_code, 400)
+        self.assertIn("password", res_reg_debil.json())
+
+        # 2. Registro acepta contraseña robusta
+        res_reg_ok = self.client.post("/api/auth/register/", {
+            "username": "nuevo_robusto",
+            "email": "robusto@hdprevencion.cl",
+            "password": "ClaveSegura#2026!",
+            "password_confirm": "ClaveSegura#2026!",
+        })
+        self.assertEqual(res_reg_ok.status_code, 201)
+
+        headers = self._auth("p1_owner")
+        # 3. Cambio de contraseña en perfil exige contraseña actual
+        res_no_current = self.client.patch("/api/usuarios/perfil/", {
+            "password": "NuevaClaveSegura#2026!",
+            "password_confirm": "NuevaClaveSegura#2026!",
+        }, **headers)
+        self.assertEqual(res_no_current.status_code, 400)
+        self.assertIn("current_password", res_no_current.json())
+
+        # 4. Rechaza contraseña actual incorrecta
+        res_wrong_current = self.client.patch("/api/usuarios/perfil/", {
+            "current_password": "ClaveIncorrecta!",
+            "password": "NuevaClaveSegura#2026!",
+        }, **headers)
+        self.assertEqual(res_wrong_current.status_code, 400)
+
+        # 5. Rechaza contraseña nueva débil
+        res_weak_new = self.client.patch("/api/usuarios/perfil/", {
+            "current_password": "PasswordFuerte123!",
+            "password": "password",
+        }, **headers)
+        self.assertEqual(res_weak_new.status_code, 400)
+        self.assertIn("password", res_weak_new.json())
+
+        # 6. Permite cambio válido y actualiza credenciales
+        res_ok = self.client.patch("/api/usuarios/perfil/", {
+            "current_password": "PasswordFuerte123!",
+            "password": "NuevaClaveSegura#2026!",
+            "password_confirm": "NuevaClaveSegura#2026!",
+        }, **headers)
+        self.assertEqual(res_ok.status_code, 200)
+        self._auth("p1_owner", password="NuevaClaveSegura#2026!")
+
+    def test_contacto_permite_post_anonimo_pero_protege_lectura(self):
+        res_post = self.client.post("/api/contacto/", {
+            "nombre": "Carlos Visitante",
+            "email": "carlos@empresa.cl",
+            "asunto": "Cotización SaaS",
+            "mensaje": "Necesito asesoría en Ley 21.719",
+        })
+        self.assertEqual(res_post.status_code, 201)
+
+        res_get_anon = self.client.get("/api/contacto/")
+        self.assertEqual(res_get_anon.status_code, 401)
+
+        res_get_user = self.client.get("/api/contacto/", **self._auth("p1_owner"))
+        self.assertEqual(res_get_user.status_code, 403)
+
+        res_get_staff = self.client.get("/api/contacto/", **self._auth("p1_staff"))
+        self.assertEqual(res_get_staff.status_code, 200)
+
+    def test_accidentes_estadisticas_sin_horas_y_aislamiento_tenant(self):
+        headers = self._auth("p1_owner")
+        # Sin ?horas_trabajadas= no debe lanzar FieldError (activo=True) y debe contar solo 1 trabajador ACTIVO (1*180*12=2160)
+        res_ok = self.client.get("/api/accidentes/estadisticas/", **headers)
+        self.assertEqual(res_ok.status_code, 200)
+        self.assertEqual(res_ok.json()["horas_trabajadas_estimadas"], 2160.0)
+
+        # Filtrar por empresa ajena no debe contar trabajadores de emp_b
+        res_cross = self.client.get(f"/api/accidentes/estadisticas/?empresa={self.emp_b.id}", **headers)
+        self.assertEqual(res_cross.status_code, 200)
+        self.assertEqual(res_cross.json()["horas_trabajadas_estimadas"], 200000.0)
+
+    def test_contratista_dashboard_y_sugerencias_grupo_corporativo(self):
+        headers_hija = self._auth("p1_hija")
+        headers_ajeno = self._auth("p1_ajeno")
+
+        res_dash = self.client.get("/api/contratistas/dashboard/", **headers_hija)
+        self.assertEqual(res_dash.status_code, 200)
+        data_dash = res_dash.json()
+        self.assertEqual(data_dash["total_contratistas"], 1)
+        self.assertEqual(data_dash["total_documentos"], 1)
+        self.assertEqual(data_dash["total_trabajadores"], 1)
+
+        res_sug = self.client.get("/api/buzon/", **headers_hija)
+        self.assertEqual(res_sug.status_code, 200)
+        sug_list = res_sug.json().get("results", res_sug.json()) if isinstance(res_sug.json(), dict) else res_sug.json()
+        self.assertEqual(len(sug_list), 1)
+
+        res_sug_ajeno = self.client.get("/api/buzon/", **headers_ajeno)
+        self.assertEqual(res_sug_ajeno.status_code, 200)
+        sug_ajeno_list = res_sug_ajeno.json().get("results", res_sug_ajeno.json()) if isinstance(res_sug_ajeno.json(), dict) else res_sug_ajeno.json()
+        self.assertEqual(len(sug_ajeno_list), 0)
+
+    def test_patch_no_permite_reasignar_fk_cross_tenant(self):
+        headers_owner = self._auth("p1_owner")
+
+        # Trabajador no puede reasignarse a empresa o centro de tenant B
+        res_trab_emp = self.client.patch(
+            f"/api/trabajadores/{self.trab_a_activo.id}/",
+            {"empresa": self.emp_b.id},
+            **headers_owner,
+        )
+        self.assertEqual(res_trab_emp.status_code, 400)
+
+        res_trab_centro = self.client.patch(
+            f"/api/trabajadores/{self.trab_a_activo.id}/",
+            {"centro_trabajo": self.centro_b.id},
+            **headers_owner,
+        )
+        self.assertEqual(res_trab_centro.status_code, 400)
+
+        # Centro de trabajo no puede reasignarse a empresa de tenant B
+        res_centro = self.client.patch(
+            f"/api/centros-trabajo/{self.centro_a.id}/",
+            {"empresa": self.emp_b.id},
+            **headers_owner,
+        )
+        self.assertEqual(res_centro.status_code, 400)
+
+        # Contratista no puede reasignar empresa_principal o centro_trabajo a tenant B
+        res_cont = self.client.patch(
+            f"/api/contratistas/{self.contratista_a.id}/",
+            {"empresa_principal": self.emp_b.id},
+            **headers_owner,
+        )
+        self.assertEqual(res_cont.status_code, 400)
+
+        # DocumentoContratista no puede reasignarse a contratista de tenant B
+        doc_id = self.contratista_a.documentos.first().id
+        res_doc = self.client.patch(
+            f"/api/documentos-contratista/{doc_id}/",
+            {"contratista": self.contratista_b.id},
+            **headers_owner,
+        )
+        self.assertEqual(res_doc.status_code, 400)
+
+    def test_publico_empresas_requiere_empresa_y_no_expone_rut(self):
+        res_sin_param = self.client.get(f"/api/publico/{self.owner.uuid}/empresas/")
+        self.assertEqual(res_sin_param.status_code, 400)
+
+        res_con_param = self.client.get(f"/api/publico/{self.owner.uuid}/empresas/?empresa={self.emp_a.id}")
+        self.assertEqual(res_con_param.status_code, 200)
+        payload = res_con_param.json()
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["razon_social"], "Empresa Alfa SpA")
+        self.assertNotIn("rut", payload[0])
+        self.assertEqual(payload[0]["centros_trabajo"][0]["nombre"], "Casa Matriz Alfa")
+        self.assertNotIn("direccion", payload[0]["centros_trabajo"][0])
+
+        # UID de otro prevencionista no devuelve empresa de Alfa
+        res_ajeno = self.client.get(f"/api/publico/{self.ajeno.uuid}/empresas/?empresa={self.emp_a.id}")
+        self.assertEqual(res_ajeno.status_code, 200)
+        self.assertEqual(res_ajeno.json(), [])
+
+
+
 
 
 
