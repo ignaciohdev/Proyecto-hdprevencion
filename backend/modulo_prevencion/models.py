@@ -1070,9 +1070,9 @@ class InvestigacionAccidente(models.Model):
         verbose_name="Trabajador Afectado"
     )
     
-    # Datos del Afectado
-    nombre_afectado = models.CharField(max_length=150, verbose_name="Nombre Completo del Afectado")
-    rut_afectado = models.CharField(max_length=15, verbose_name="RUT del Afectado")
+    # Datos del Afectado (Cifrados en reposo — Art. 16 bis Ley 21.719)
+    nombre_afectado = EncryptedTextField(verbose_name="Nombre Completo del Afectado (Cifrado)")
+    rut_afectado = EncryptedTextField(verbose_name="RUT del Afectado (Cifrado)")
     cargo_afectado = models.CharField(max_length=100, verbose_name="Cargo / Puesto de Trabajo")
     edad_afectado = models.PositiveIntegerField(verbose_name="Edad del Afectado")
     antiguedad_afectado = models.CharField(max_length=50, verbose_name="Antigüedad en la Empresa")
@@ -1088,9 +1088,9 @@ class InvestigacionAccidente(models.Model):
     lugar_evento = models.CharField(max_length=255, verbose_name="Ubicación Física / Lugar del Suceso")
     descripcion_evento = EncryptedTextField(verbose_name="Descripción Cronológica del Accidente/Incidente (Cifrado)")
 
-    # Evaluación Inicial de Lesiones
-    tipo_lesion = models.CharField(max_length=100, verbose_name="Tipo de Lesión")
-    parte_cuerpo_afectada = models.CharField(max_length=100, verbose_name="Parte del Cuerpo Afectada")
+    # Evaluación Inicial de Lesiones (Cifrado en reposo — Datos sensibles de salud)
+    tipo_lesion = EncryptedTextField(verbose_name="Tipo de Lesión (Cifrado)")
+    parte_cuerpo_afectada = EncryptedTextField(verbose_name="Parte del Cuerpo Afectada (Cifrado)")
 
     # Análisis de Causas
     causas_inmediatas = models.JSONField(
@@ -1723,36 +1723,31 @@ class DenunciaLeyKarin(models.Model):
         verbose_name="Tipo de Afectación"
     )
 
-    # Identificación del Denunciante (Obligatorio para denuncia formal y medidas de protección)
-    rut_denunciante = models.CharField(
-        max_length=15,
+    # Identificación del Denunciante (Cifrado en reposo — Ley Karin + Art. 16 Ley 21.719)
+    rut_denunciante = EncryptedTextField(
         validators=[validar_rut_chileno],
-        verbose_name="RUT del Denunciante"
+        verbose_name="RUT del Denunciante (Cifrado)"
     )
-    nombre_denunciante = models.CharField(
-        max_length=150,
-        verbose_name="Nombre Completo del Denunciante"
+    nombre_denunciante = EncryptedTextField(
+        verbose_name="Nombre Completo del Denunciante (Cifrado)"
     )
-    correo_denunciante = models.EmailField(
-        verbose_name="Correo Electrónico del Denunciante"
+    correo_denunciante = EncryptedTextField(
+        verbose_name="Correo Electrónico del Denunciante (Cifrado)"
     )
-    telefono_denunciante = models.CharField(
-        max_length=30,
+    telefono_denunciante = EncryptedTextField(
         blank=True,
         default="",
-        verbose_name="Teléfono del Denunciante"
+        verbose_name="Teléfono del Denunciante (Cifrado)"
     )
 
-    # Datos de la Persona Denunciada
-    nombre_denunciado = models.CharField(
-        max_length=150,
-        verbose_name="Nombre de la Persona Denunciada"
+    # Datos de la Persona Denunciada (Cifrado en reposo — Ley Karin + Art. 16 Ley 21.719)
+    nombre_denunciado = EncryptedTextField(
+        verbose_name="Nombre de la Persona Denunciada (Cifrado)"
     )
-    cargo_area_denunciado = models.CharField(
-        max_length=150,
+    cargo_area_denunciado = EncryptedTextField(
         blank=True,
         default="",
-        verbose_name="Cargo o Área de la Persona Denunciada"
+        verbose_name="Cargo o Área de la Persona Denunciada (Cifrado)"
     )
 
     # Relato de los Hechos (Cifrado en reposo Ley 21.719 Art. 16)
@@ -2619,8 +2614,8 @@ class EntregaEPP(models.Model):
         default=True,
         verbose_name="Declara haber recibido inducción de uso y mantención adecuada (Art. 53 D.S. 594)"
     )
-    firma_digital = models.TextField(
-        verbose_name="Firma Digitalizada (Base64 PNG)"
+    firma_digital = EncryptedTextField(
+        verbose_name="Firma Digitalizada (Base64 PNG Cifrado)"
     )
     ip_registro = models.GenericIPAddressField(
         null=True,
@@ -3603,6 +3598,101 @@ class RegistroConsentimiento(models.Model):
     def __str__(self):
         estado = "Otorgado" if self.otorgado else "Revocado"
         return f"{self.identificador_titular} · {self.flujo} ({estado})"
+
+
+class AuditLogEventoSeguridad(models.Model):
+    """
+    Registro transversal append-only de eventos de seguridad, autenticación, MFA,
+    exportaciones ARCO y operaciones SST críticas (P2 / sec-logs, Art. 14 quinquies Ley 21.719).
+    """
+    CATEGORIA_AUTH = 'AUTH'
+    CATEGORIA_MFA = 'MFA'
+    CATEGORIA_ARCO = 'ARCO'
+    CATEGORIA_SST = 'SST'
+    CATEGORIA_SEGURIDAD = 'SEGURIDAD'
+    CATEGORIA_CHOICES = [
+        (CATEGORIA_AUTH, 'Autenticación y Credenciales'),
+        (CATEGORIA_MFA, 'Segundo Factor (MFA TOTP)'),
+        (CATEGORIA_ARCO, 'Derechos ARCO-POL y Portabilidad'),
+        (CATEGORIA_SST, 'Registros SST Sensibles'),
+        (CATEGORIA_SEGURIDAD, 'Seguridad de Plataforma'),
+    ]
+
+    usuario = models.ForeignKey(
+        Usuario,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='eventos_seguridad',
+        verbose_name="Usuario Actor"
+    )
+    actor_identificador = models.CharField(
+        max_length=150,
+        db_index=True,
+        verbose_name="Identificador del Actor"
+    )
+    categoria = models.CharField(
+        max_length=30,
+        choices=CATEGORIA_CHOICES,
+        db_index=True,
+        verbose_name="Categoría"
+    )
+    accion = models.CharField(
+        max_length=50,
+        db_index=True,
+        verbose_name="Acción"
+    )
+    modelo_afectado = models.CharField(
+        max_length=80,
+        blank=True,
+        default='',
+        verbose_name="Modelo Afectado"
+    )
+    recurso_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        verbose_name="ID del Recurso"
+    )
+    exito = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Evento Exitoso"
+    )
+    ip_origen = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name="IP de Origen"
+    )
+    user_agent = models.CharField(
+        max_length=300,
+        blank=True,
+        default='',
+        verbose_name="User-Agent"
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Metadatos Técnicos"
+    )
+    fecha_evento = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="Fecha y Hora"
+    )
+
+    class Meta:
+        verbose_name = "Audit Log de Evento de Seguridad (Append-Only)"
+        verbose_name_plural = "Audit Logs de Eventos de Seguridad (Append-Only)"
+        ordering = ['-fecha_evento']
+        indexes = [
+            models.Index(fields=['categoria', 'accion']),
+            models.Index(fields=['fecha_evento', 'exito']),
+        ]
+
+    def __str__(self):
+        return f"[{self.categoria}:{self.accion}] {self.actor_identificador} ({'OK' if self.exito else 'FAIL'})"
+
 
 
 

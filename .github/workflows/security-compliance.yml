@@ -1,0 +1,90 @@
+name: Seguridad y Cumplimiento Ley 21.719
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: Detección de Secretos (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositorio completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ejecutar Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  backend-compliance-tests:
+    name: Checks Django y Pruebas Ley 21.719
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar dependencias backend
+        run: pip install -r requirements.txt
+
+      - name: Validar sistema y migraciones pendientes
+        env:
+          DJANGO_DEBUG: 'False'
+          DJANGO_SECRET_KEY: 'ci-ephemeral-secret-key-not-for-prod'
+          FIELD_ENCRYPTION_KEY: 'Y2ktZXBoZW1lcmFsLWZlcm5ldC1rZXktMzItYnl0ZXM='
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+
+      - name: Ejecutar suite de seguridad Ley 21.719
+        env:
+          DJANGO_DEBUG: 'False'
+          DJANGO_SECRET_KEY: 'ci-ephemeral-secret-key-not-for-prod'
+          FIELD_ENCRYPTION_KEY: 'Y2ktZXBoZW1lcmFsLWZlcm5ldC1rZXktMzItYnl0ZXM='
+          HIBP_CHECK_ENABLED: 'False'
+        run: |
+          python manage.py test \
+            modulo_prevencion.tests.Ley21719P0SecurityTestCase \
+            modulo_prevencion.tests.Ley21719P1SecurityTestCase \
+            modulo_prevencion.tests.Ley21719P1MFATestCase \
+            modulo_prevencion.tests.Ley21719P1ConsentTestCase \
+            modulo_prevencion.tests.Ley21719P1RetencionYOperacionTestCase \
+            modulo_prevencion.tests.Ley21719P2ObservabilityTestCase \
+            modulo_prevencion.tests.MultiTenantDomainTestCase \
+            modulo_prevencion.tests.AccidentesComplianceTestCase \
+            modulo_prevencion.tests.LeyKarinComplianceTestCase \
+            --verbosity=2
+
+  frontend-build:
+    name: Verificación TypeScript y Build Next.js
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run build

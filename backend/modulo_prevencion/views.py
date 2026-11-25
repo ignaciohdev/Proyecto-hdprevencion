@@ -34,6 +34,7 @@ from .models import (
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo,
     SolicitudDerechoARCO, RegistroConsentimiento,
+    AuditLogEventoSeguridad,
     validar_rut_chileno
 )
 from .serializers import (
@@ -67,6 +68,7 @@ from .mfa import (
     verificar_challenge_mfa,
 )
 from .consentimiento import registrar_consentimiento
+from .auditoria import registrar_evento_seguridad
 
 Usuario: Any = get_user_model()
 
@@ -141,15 +143,45 @@ class CustomTokenObtainPairView(TokenObtainPairView):
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
+        actor_intento = str(request.data.get('username') or request.data.get('email') or 'anonimo')[:150]
         try:
             serializer.is_valid(raise_exception=True)
         except TokenError as e:
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+                accion='LOGIN_FAIL',
+                actor_identificador=actor_intento,
+                modelo_afectado='Usuario',
+                exito=False,
+                metadata={'reason': 'token_error'},
+            )
             raise InvalidToken(e.args[0])
+        except exceptions.APIException:
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+                accion='LOGIN_FAIL',
+                actor_identificador=actor_intento,
+                modelo_afectado='Usuario',
+                exito=False,
+                metadata={'reason': 'invalid_credentials'},
+            )
+            raise
 
         user = serializer.user
         if getattr(user, 'mfa_enabled', False):
             otp_code = (request.data.get('otp_code') or request.data.get('code') or '').strip()
             if not otp_code:
+                registrar_evento_seguridad(
+                    request,
+                    categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                    accion='MFA_CHALLENGE',
+                    usuario=user,
+                    modelo_afectado='Usuario',
+                    recurso_id=user.pk,
+                    exito=True,
+                )
                 return Response({
                     'mfa_required': True,
                     'challenge_token': crear_challenge_mfa(user.pk),
@@ -158,6 +190,16 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                 }, status=status.HTTP_200_OK)
 
             if not _verificar_segundo_factor(user, otp_code):
+                registrar_evento_seguridad(
+                    request,
+                    categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                    accion='MFA_FAIL',
+                    usuario=user,
+                    modelo_afectado='Usuario',
+                    recurso_id=user.pk,
+                    exito=False,
+                    metadata={'flow': 'inline_login'},
+                )
                 return Response(
                     {
                         'otp_code': ['Código TOTP o de respaldo inválido o ya utilizado.'],
@@ -166,6 +208,16 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+            accion='LOGIN_OK',
+            usuario=user,
+            modelo_afectado='Usuario',
+            recurso_id=user.pk,
+            exito=True,
+            metadata={'mfa': bool(getattr(user, 'mfa_enabled', False))},
+        )
         return _emitir_respuesta_login_jwt(user)
 
 
@@ -184,6 +236,14 @@ class MfaLoginVerifyView(APIView):
 
         uid = verificar_challenge_mfa(challenge_token)
         if uid is None:
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                modelo_afectado='Usuario',
+                exito=False,
+                metadata={'reason': 'invalid_challenge'},
+            )
             return Response(
                 {'detail': 'El desafío de verificación MFA expiró o es inválido. Inicia sesión nuevamente.'},
                 status=status.HTTP_401_UNAUTHORIZED
@@ -191,17 +251,46 @@ class MfaLoginVerifyView(APIView):
 
         user = Usuario.objects.filter(pk=uid, is_active=True).first()
         if not user or not getattr(user, 'mfa_enabled', False):
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                usuario=user,
+                modelo_afectado='Usuario',
+                recurso_id=uid,
+                exito=False,
+                metadata={'reason': 'user_unavailable'},
+            )
             return Response(
                 {'detail': 'Verificación MFA no disponible para esta cuenta.'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
         if not _verificar_segundo_factor(user, code):
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                usuario=user,
+                modelo_afectado='Usuario',
+                recurso_id=user.pk,
+                exito=False,
+                metadata={'flow': 'challenge_verify'},
+            )
             return Response(
                 {'code': ['Código TOTP o de respaldo inválido o ya utilizado.']},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+            accion='MFA_OK',
+            usuario=user,
+            modelo_afectado='Usuario',
+            recurso_id=user.pk,
+            exito=True,
+        )
         return _emitir_respuesta_login_jwt(user)
 
 
@@ -250,12 +339,29 @@ class LogoutView(APIView):
 
     def post(self, request, *args, **kwargs):
         refresh_token = request.data.get('refresh') or request.COOKIES.get('refresh_token')
+        token_user_id = None
         if refresh_token:
             try:
                 token = RefreshToken(refresh_token)
+                token_user_id = token.get('user_id')
                 token.blacklist()
             except Exception:
                 pass
+
+        auth_user = request.user if getattr(request.user, 'is_authenticated', False) else None
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+            accion='LOGOUT',
+            usuario=auth_user,
+            actor_identificador=(
+                getattr(auth_user, 'username', '')
+                or (f"user_id:{token_user_id}" if token_user_id else 'anonimo')
+            ),
+            modelo_afectado='Usuario',
+            recurso_id=getattr(auth_user, 'pk', None) or token_user_id or '',
+            exito=True,
+        )
 
         response = Response({"detail": "Sesión cerrada exitosamente."}, status=status.HTTP_200_OK)
         response.delete_cookie('refresh_token', path='/', samesite='None')
@@ -942,6 +1048,16 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         if password:
             current_password = request.data.get('current_password') or ''
             if not current_password or not usuario.check_password(current_password):
+                registrar_evento_seguridad(
+                    request,
+                    categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+                    accion='PASSWORD_CHANGE',
+                    usuario=usuario,
+                    modelo_afectado='Usuario',
+                    recurso_id=usuario.pk,
+                    exito=False,
+                    metadata={'reason': 'wrong_current_password'},
+                )
                 return Response(
                     {"current_password": ["Debes ingresar tu contraseña actual correcta para cambiar la contraseña."]},
                     status=status.HTTP_400_BAD_REQUEST
@@ -954,6 +1070,16 @@ class UsuarioViewSet(viewsets.ModelViewSet):
             try:
                 validate_password(password, user=usuario)
             except DjangoValidationError as exc:
+                registrar_evento_seguridad(
+                    request,
+                    categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+                    accion='PASSWORD_CHANGE',
+                    usuario=usuario,
+                    modelo_afectado='Usuario',
+                    recurso_id=usuario.pk,
+                    exito=False,
+                    metadata={'reason': 'policy_rejected'},
+                )
                 return Response(
                     {"password": list(exc.messages)},
                     status=status.HTTP_400_BAD_REQUEST
@@ -966,6 +1092,15 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         if password:
             usuario.set_password(password)
             usuario.save()
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+                accion='PASSWORD_CHANGE',
+                usuario=usuario,
+                modelo_afectado='Usuario',
+                recurso_id=usuario.pk,
+                exito=True,
+            )
             
         # Retornar datos frescos cargados del usuario
         fresh_serializer = self.get_serializer(usuario)
@@ -1045,6 +1180,15 @@ class UsuarioViewSet(viewsets.ModelViewSet):
         code = (request.data.get('code') or '').strip()
         step = verificar_codigo_totp(secret_pendiente, code)
         if step is None:
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_ENABLE_FAIL',
+                usuario=usuario,
+                modelo_afectado='Usuario',
+                recurso_id=usuario.pk,
+                exito=False,
+            )
             return Response(
                 {'code': ['El código de 6 dígitos no es válido o expiró. Verifica la hora de tu dispositivo.']},
                 status=status.HTTP_400_BAD_REQUEST
@@ -1061,6 +1205,16 @@ class UsuarioViewSet(viewsets.ModelViewSet):
             'mfa_secret', 'mfa_secret_pendiente', 'mfa_enabled',
             'mfa_last_used_step', 'mfa_enrolled_at', 'mfa_backup_codes_hashes'
         ])
+
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+            accion='MFA_ENABLED',
+            usuario=usuario,
+            modelo_afectado='Usuario',
+            recurso_id=usuario.pk,
+            exito=True,
+        )
 
         return Response({
             'detail': 'MFA TOTP activado correctamente. Guarda tus códigos de respaldo en un lugar seguro.',
@@ -1118,6 +1272,16 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
         current_password = request.data.get('current_password') or ''
         if not current_password or not usuario.check_password(current_password):
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_DISABLE_FAIL',
+                usuario=usuario,
+                modelo_afectado='Usuario',
+                recurso_id=usuario.pk,
+                exito=False,
+                metadata={'reason': 'wrong_password'},
+            )
             return Response(
                 {'current_password': ['Contraseña actual incorrecta.']},
                 status=status.HTTP_400_BAD_REQUEST
@@ -1125,6 +1289,16 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
         code = (request.data.get('code') or '').strip()
         if not _verificar_segundo_factor(usuario, code):
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_DISABLE_FAIL',
+                usuario=usuario,
+                modelo_afectado='Usuario',
+                recurso_id=usuario.pk,
+                exito=False,
+                metadata={'reason': 'invalid_code'},
+            )
             return Response(
                 {'code': ['Código TOTP o de respaldo inválido.']},
                 status=status.HTTP_400_BAD_REQUEST
@@ -1140,6 +1314,16 @@ class UsuarioViewSet(viewsets.ModelViewSet):
             'mfa_enabled', 'mfa_secret', 'mfa_secret_pendiente',
             'mfa_backup_codes_hashes', 'mfa_last_used_step', 'mfa_enrolled_at'
         ])
+
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+            accion='MFA_DISABLED',
+            usuario=usuario,
+            modelo_afectado='Usuario',
+            recurso_id=usuario.pk,
+            exito=True,
+        )
 
         return Response({
             'detail': 'MFA TOTP desactivado.',
@@ -1259,11 +1443,31 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         validar_integridad_tenant(self.request.user, serializer.validated_data)
         user: Any = self.request.user
-        serializer.save(usuario=user)
+        instance = serializer.save(usuario=user)
+        registrar_evento_seguridad(
+            self.request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='ACCIDENTE_CREATE',
+            usuario=user,
+            modelo_afectado='InvestigacionAccidente',
+            recurso_id=instance.pk,
+            exito=True,
+            metadata={'empresa_id': instance.empresa_id, 'tipo_evento': instance.tipo_evento},
+        )
 
     def perform_update(self, serializer):
         validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
-        serializer.save()
+        instance = serializer.save()
+        registrar_evento_seguridad(
+            self.request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='ACCIDENTE_UPDATE',
+            usuario=self.request.user,
+            modelo_afectado='InvestigacionAccidente',
+            recurso_id=instance.pk,
+            exito=True,
+            metadata={'empresa_id': instance.empresa_id},
+        )
 
     def destroy(self, request, *args, **kwargs):
         raise exceptions.MethodNotAllowed(
@@ -1297,6 +1501,16 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
             accidente.diat_fecha_presentacion = timezone.now()
 
         accidente.save()
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='ACCIDENTE_DIAT',
+            usuario=request.user,
+            modelo_afectado='InvestigacionAccidente',
+            recurso_id=accidente.pk,
+            exito=True,
+            metadata={'empresa_id': accidente.empresa_id},
+        )
         serializer = self.get_serializer(accidente)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -1351,6 +1565,16 @@ class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
             accidente.plazo_investigacion_suseso_30d = request.data.get('plazo_investigacion_suseso_30d')
 
         accidente.save()
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='ACCIDENTE_PROTOCOLO_GRAVE',
+            usuario=request.user,
+            modelo_afectado='InvestigacionAccidente',
+            recurso_id=accidente.pk,
+            exito=True,
+            metadata={'empresa_id': accidente.empresa_id, 'faena_suspendida': bool(accidente.faena_suspendida)},
+        )
         serializer = self.get_serializer(accidente)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -2607,24 +2831,67 @@ class TrabajadorViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         validar_integridad_tenant(self.request.user, serializer.validated_data)
-        serializer.save()
+        instance = serializer.save()
+        registrar_evento_seguridad(
+            self.request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='TRABAJADOR_CREATE',
+            usuario=self.request.user,
+            modelo_afectado='Trabajador',
+            recurso_id=instance.pk,
+            exito=True,
+            metadata={'empresa_id': instance.empresa_id},
+        )
 
     def perform_update(self, serializer):
         validar_integridad_tenant(self.request.user, serializer.validated_data, instance=serializer.instance)
-        serializer.save()
+        instance = serializer.save()
+        registrar_evento_seguridad(
+            self.request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='TRABAJADOR_UPDATE',
+            usuario=self.request.user,
+            modelo_afectado='Trabajador',
+            recurso_id=instance.pk,
+            exito=True,
+            metadata={'empresa_id': instance.empresa_id},
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        pk_id = instance.pk
+        empresa_id = instance.empresa_id
         tiene_accidentes = instance.accidentes_sufridos.exists()
         tiene_epp = instance.entregas_epp.exists()
         if tiene_accidentes or tiene_epp:
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+                accion='TRABAJADOR_DELETE',
+                usuario=request.user,
+                modelo_afectado='Trabajador',
+                recurso_id=pk_id,
+                exito=False,
+                metadata={'empresa_id': empresa_id, 'reason': 'sst_dependency'},
+            )
             return Response(
                 {
                     "error": "No es posible eliminar la ficha de este trabajador porque registra accidentes laborales (Ley 16.744) o comprobantes de entrega de EPP con deber legal de conservación. Considere inactivar su estado."
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
-        return super().destroy(request, *args, **kwargs)
+        response = super().destroy(request, *args, **kwargs)
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='TRABAJADOR_DELETE',
+            usuario=request.user,
+            modelo_afectado='Trabajador',
+            recurso_id=pk_id,
+            exito=True,
+            metadata={'empresa_id': empresa_id},
+        )
+        return response
 
 
 class DenunciaLeyKarinViewSet(viewsets.ModelViewSet):
@@ -3167,9 +3434,19 @@ class EntregaEPPViewSet(viewsets.ModelViewSet):
             raise ValidationError({"centro_trabajo": "El centro de trabajo no pertenece a la empresa indicada."})
 
         ip = get_client_ip(self.request)
-        serializer.save(
+        instance = serializer.save(
             responsable_entrega=self.request.user,
             ip_registro=ip
+        )
+        registrar_evento_seguridad(
+            self.request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+            accion='EPP_CREATE',
+            usuario=self.request.user,
+            modelo_afectado='EntregaEPP',
+            recurso_id=instance.pk,
+            exito=True,
+            metadata={'empresa_id': instance.empresa_id, 'entrega_riohs': bool(instance.entrega_riohs)},
         )
 
     def update(self, request, *args, **kwargs):
@@ -4001,9 +4278,14 @@ class PortabilidadDatosView(APIView):
             for e in entregas
         ]
 
-        accidentes = InvestigacionAccidente.objects.filter(
-            empresa__prevencionista__in=usuarios_grupo, rut_afectado__iexact=rut_norm
-        ).select_related('empresa')
+        accidentes_qs = InvestigacionAccidente.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo
+        ).select_related('empresa', 'trabajador')
+        accidentes = [
+            a for a in accidentes_qs
+            if (a.rut_afectado or '').strip().lower() == rut_lower
+            or (a.trabajador and (a.trabajador.rut or '').strip().lower() == rut_lower)
+        ]
         datos_accidentes = [
             {
                 "empresa": a.empresa.razon_social if a.empresa else None,
@@ -4098,6 +4380,17 @@ class PortabilidadDatosView(APIView):
         else:
             payload["ambito"] = "cuenta_usuario"
             payload.update(self._exportar_cuenta_propia(request.user))
+
+        registrar_evento_seguridad(
+            request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_ARCO,
+            accion='EXPORT_PORTABILIDAD',
+            usuario=request.user,
+            modelo_afectado='PortabilidadDatos',
+            recurso_id=request.user.pk,
+            exito=True,
+            metadata={'ambito': payload['ambito'], 'consulta_trabajador': bool(rut)},
+        )
 
         return Response(payload, status=status.HTTP_200_OK)
 

@@ -176,6 +176,9 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
+    {
+        'NAME': 'modulo_prevencion.validators.HIBPPasswordValidator',
+    },
 ]
 
 
@@ -312,6 +315,36 @@ for raw_origin in frontend_url.split(','):
     clean_frontend = raw_origin.strip().rstrip('/')
     if clean_frontend and clean_frontend not in CSRF_TRUSTED_ORIGINS:
         CSRF_TRUSTED_ORIGINS.append(clean_frontend)
+
+# Verificación k-anonymity Have I Been Pwned (activa en Render producción o explícitamente por env)
+HIBP_CHECK_ENABLED = os.environ.get(
+    'HIBP_CHECK_ENABLED',
+    'True' if IS_RENDER_PROD else 'False'
+).lower() == 'true'
+
+# Logging estructurado hacia stdout para agregación y alertas de seguridad (sec-logs / sec-monitoring)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'security_fmt': {
+            'format': '%(asctime)s [%(levelname)s] %(name)s %(message)s',
+        },
+    },
+    'handlers': {
+        'security_console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'security_fmt',
+        },
+    },
+    'loggers': {
+        'hdprevencion.security': {
+            'handlers': ['security_console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+    },
+}
 
 
 

@@ -12,7 +12,8 @@ from .models import (
     SugerenciaConsulta, SolicitudCapacitacion,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo,
-    RegistroConsentimiento, SolicitudDerechoARCO, RegistroBrechaSeguridad
+    RegistroConsentimiento, SolicitudDerechoARCO, RegistroBrechaSeguridad,
+    AuditLogEventoSeguridad
 )
 
 @admin.register(Usuario)
@@ -538,6 +539,33 @@ class RegistroBrechaSeguridadAdmin(admin.ModelAdmin):
         return mark_safe(
             f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-weight:bold;">{obj.severidad}</span>'
         )
+
+
+@admin.register(AuditLogEventoSeguridad)
+class AuditLogEventoSeguridadAdmin(admin.ModelAdmin):
+    """Trazabilidad inmutable (append-only) de eventos críticos de seguridad y privacidad."""
+    list_display = (
+        'fecha_evento', 'categoria', 'accion', 'actor_identificador',
+        'modelo_afectado', 'recurso_id', 'exito', 'ip_origen'
+    )
+    list_filter = ('categoria', 'accion', 'exito')
+    search_fields = ('actor_identificador', 'accion', 'modelo_afectado', 'recurso_id', 'ip_origen')
+    date_hierarchy = 'fecha_evento'
+    readonly_fields = (
+        'usuario', 'actor_identificador', 'categoria', 'accion',
+        'modelo_afectado', 'recurso_id', 'exito', 'ip_origen',
+        'user_agent', 'metadata', 'fecha_evento'
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 
 

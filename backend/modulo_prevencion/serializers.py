@@ -365,7 +365,11 @@ class InvestigacionAccidenteSerializer(serializers.ModelSerializer):
             'fecha_creacion'
         )
         extra_kwargs = {
-            'usuario': {'required': False}
+            'usuario': {'required': False},
+            'nombre_afectado': {'max_length': 150},
+            'rut_afectado': {'max_length': 15},
+            'tipo_lesion': {'max_length': 100},
+            'parte_cuerpo_afectada': {'max_length': 100},
         }
 
     def validate_empresa(self, value):
@@ -699,6 +703,10 @@ class DenunciaLeyKarinSerializer(serializers.ModelSerializer):
     dias_restantes_mutualidad = serializers.IntegerField(read_only=True)
     semaforo = serializers.CharField(read_only=True)
     accesos_auditoria = AuditLogAccesoDenunciaSerializer(many=True, read_only=True)
+    rut_denunciante = serializers.CharField(max_length=15)
+    correo_denunciante = serializers.EmailField()
+    telefono_denunciante = serializers.CharField(max_length=30, required=False, allow_blank=True, default="")
+    cargo_area_denunciado = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
 
     class Meta:
         model = DenunciaLeyKarin
@@ -734,6 +742,11 @@ class DenunciaLeyKarinSerializer(serializers.ModelSerializer):
 
 
 class DenunciaLeyKarinPublicaCreateSerializer(serializers.ModelSerializer):
+    rut_denunciante = serializers.CharField(max_length=15)
+    correo_denunciante = serializers.EmailField()
+    telefono_denunciante = serializers.CharField(max_length=30, required=False, allow_blank=True, default="")
+    cargo_area_denunciado = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+
     class Meta:
         model = DenunciaLeyKarin
         fields = (

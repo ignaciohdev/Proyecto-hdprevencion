@@ -1,10 +1,16 @@
 from datetime import timedelta
 from typing import Any
+import hashlib
 import json
+import time
 from unittest.mock import patch, MagicMock
 from django.urls import reverse
 from django.utils import timezone
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.management import call_command
+from django.db import connection
+from django.test import override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 from .models import (
@@ -16,8 +22,11 @@ from .models import (
     EntregaEPP,
     Contratista, DocumentoContratista, TrabajadorSubcontratado,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
-    MatrizRiesgoMiper, ItemMatrizRiesgo
+    MatrizRiesgoMiper, ItemMatrizRiesgo,
+    AuditLogEventoSeguridad
 )
+from .mfa import calcular_totp, TOTP_PERIOD_SECONDS
+from .validators import HIBPPasswordValidator
 from .seeder_requisitos import asegurar_requisitos_base
 
 class CapacitacionIntegrationTestCase(APITestCase):
@@ -3402,6 +3411,336 @@ class Ley21719P1RetencionYOperacionTestCase(APITestCase):
         trab_antiguo.refresh_from_db()
         self.assertEqual(trab_antiguo.nombres, "Titular Anonimizado")
         self.assertTrue(trab_antiguo.rut.startswith("ANON-"))
+
+
+class Ley21719P2ObservabilityTestCase(APITestCase):
+    """
+    Pruebas automatizadas de remediaciones P2 Ley N° 21.719:
+    - Cifrado ampliado en reposo (DenunciaLeyKarin, InvestigacionAccidente, EntregaEPP) + filtro en portabilidad.
+    - Comando cifrar_y_rotar_campos (--dry-run y cifrado real de texto plano legado).
+    - HIBPPasswordValidator (k-anonymity SHA-1 y comportamiento fail-open offline).
+    - AuditLogEventoSeguridad append-only transversal y registro read-only en Django Admin.
+    """
+    client: Any
+
+    def setUp(self):
+        cache.clear()
+        self.password = "ClaveSeguraP2!2026"
+        self.owner = Usuario.objects.create_user(
+            username="p2_owner",
+            email="p2_owner@hdprevencion.cl",
+            password=self.password,
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        self.empresa = Empresa.objects.create(
+            prevencionista=self.owner,
+            razon_social="Empresa Observabilidad SpA",
+            rut="76.999.888-7",
+        )
+        self.centro = CentroTrabajo.objects.create(
+            empresa=self.empresa,
+            nombre="Planta P2",
+            direccion="Av. Seguridad 100",
+        )
+        self.trabajador = Trabajador.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            rut="15.111.222-3",
+            nombres="Camila",
+            apellidos="Verificada",
+            cargo="Operadora",
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_cifrado_reposo_ampliado_y_portabilidad_python_filter(self):
+        denuncia = DenunciaLeyKarin.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tipo_afectacion=DenunciaLeyKarin.TIPO_ACOSO_LABORAL,
+            rut_denunciante="14.555.666-8",
+            nombre_denunciante="Denunciante Reservado",
+            correo_denunciante="reservado@test.cl",
+            telefono_denunciante="+56912345678",
+            nombre_denunciado="Jefatura Denunciada",
+            cargo_area_denunciado="Operaciones",
+            descripcion_circunstanciada="Relato confidencial de hechos.",
+        )
+        accidente = InvestigacionAccidente.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            trabajador=self.trabajador,
+            nombre_afectado="Camila Verificada",
+            rut_afectado="15.111.222-3",
+            cargo_afectado="Operadora",
+            edad_afectado=32,
+            antiguedad_afectado="3 años",
+            tipo_evento=InvestigacionAccidente.TIPO_TRABAJO,
+            fecha_hora_evento=timezone.now(),
+            lugar_evento="Zona de Carga",
+            descripcion_evento="Tropezón con bandeja.",
+            tipo_lesion="Contusión Lumbar",
+            parte_cuerpo_afectada="Zona Lumbar",
+        )
+        entrega = EntregaEPP.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            trabajador=self.trabajador,
+            responsable_entrega=self.owner,
+            items_epp=[{"tipo": "Casco", "marca_modelo": "V-Gard", "cantidad": 1, "motivo": "ENTREGA_INICIAL"}],
+            firma_digital="data:image/png;base64,FIRMA_EN_REPOSO_SECRET_999",
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT rut_denunciante, nombre_denunciante, correo_denunciante, telefono_denunciante, "
+                "nombre_denunciado, cargo_area_denunciado "
+                "FROM modulo_prevencion_denuncialeykarin WHERE id = %s",
+                [denuncia.pk],
+            )
+            row_den = cursor.fetchone()
+            for raw_col in row_den:
+                self.assertTrue(str(raw_col).startswith("enc:v1:"), f"Columna sin prefijo cifrado: {raw_col}")
+            self.assertNotIn("Denunciante Reservado", "".join(row_den))
+            self.assertNotIn("14.555.666-8", "".join(row_den))
+
+            cursor.execute(
+                "SELECT nombre_afectado, rut_afectado, tipo_lesion, parte_cuerpo_afectada "
+                "FROM modulo_prevencion_investigacionaccidente WHERE id = %s",
+                [accidente.pk],
+            )
+            row_acc = cursor.fetchone()
+            for raw_col in row_acc:
+                self.assertTrue(str(raw_col).startswith("enc:v1:"))
+            self.assertNotIn("Contusión Lumbar", "".join(row_acc))
+            self.assertNotIn("15.111.222-3", "".join(row_acc))
+
+            cursor.execute(
+                "SELECT firma_digital FROM modulo_prevencion_entregaepp WHERE id = %s",
+                [entrega.pk],
+            )
+            raw_firma = cursor.fetchone()[0]
+            self.assertTrue(raw_firma.startswith("enc:v1:"))
+            self.assertNotIn("FIRMA_EN_REPOSO_SECRET_999", raw_firma)
+
+        # Lectura ORM descifra transparently
+        denuncia.refresh_from_db()
+        accidente.refresh_from_db()
+        entrega.refresh_from_db()
+        self.assertEqual(denuncia.correo_denunciante, "reservado@test.cl")
+        self.assertEqual(accidente.tipo_lesion, "Contusión Lumbar")
+        self.assertEqual(entrega.firma_digital, "data:image/png;base64,FIRMA_EN_REPOSO_SECRET_999")
+
+        # Portabilidad sigue ubicando accidentes por rut_afectado cifrado vía filtro en Python
+        self.client.force_authenticate(user=self.owner)
+        res_port = self.client.get(reverse('privacidad_portabilidad') + "?rut=15.111.222-3")
+        self.assertEqual(res_port.status_code, status.HTTP_200_OK)
+        accidentes_exportados = res_port.json()["investigaciones_accidentes"]
+        self.assertEqual(len(accidentes_exportados), 1)
+        self.assertEqual(accidentes_exportados[0]["tipo_lesion"], "Contusión Lumbar")
+
+    def test_comando_cifrar_y_rotar_campos_legacy_plaintext(self):
+        accidente = InvestigacionAccidente.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            trabajador=self.trabajador,
+            nombre_afectado="Valor Inicial",
+            rut_afectado="15.111.222-3",
+            cargo_afectado="Operadora",
+            edad_afectado=29,
+            antiguedad_afectado="1 año",
+            tipo_evento=InvestigacionAccidente.TIPO_TRABAJO,
+            fecha_hora_evento=timezone.now(),
+            lugar_evento="Patio",
+            descripcion_evento="Desc inicial",
+            tipo_lesion="Herida leve",
+            parte_cuerpo_afectada="Mano",
+        )
+        # Simula dato legado previo al cifrado directamente en SQL
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE modulo_prevencion_investigacionaccidente SET nombre_afectado = %s WHERE id = %s",
+                ["Nombre Plano Legado", accidente.pk],
+            )
+
+        call_command("cifrar_y_rotar_campos", dry_run=True)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT nombre_afectado FROM modulo_prevencion_investigacionaccidente WHERE id = %s",
+                [accidente.pk],
+            )
+            self.assertEqual(cursor.fetchone()[0], "Nombre Plano Legado")
+
+        call_command("cifrar_y_rotar_campos")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT nombre_afectado FROM modulo_prevencion_investigacionaccidente WHERE id = %s",
+                [accidente.pk],
+            )
+            raw_migrado = cursor.fetchone()[0]
+            self.assertTrue(raw_migrado.startswith("enc:v1:"))
+
+        accidente.refresh_from_db()
+        self.assertEqual(accidente.nombre_afectado, "Nombre Plano Legado")
+
+    def test_hibp_validator_k_anonymity_y_fail_open(self):
+        compromised_pwd = "CompromisedPwd!2026"
+        sha1_hex = hashlib.sha1(compromised_pwd.encode("utf-8")).hexdigest().upper()
+        suffix = sha1_hex[5:]
+
+        validator = HIBPPasswordValidator()
+
+        # Deshabilitado por defecto: no debe realizar petición HTTP
+        with override_settings(HIBP_CHECK_ENABLED=False):
+            with patch("urllib.request.urlopen") as mock_open:
+                validator.validate(compromised_pwd)
+                mock_open.assert_not_called()
+
+        # Habilitado y coincidencia en rango HIBP: rechaza contraseña
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = f"00000AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:1\n{suffix}:15\n".encode("utf-8")
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+
+        with override_settings(HIBP_CHECK_ENABLED=True):
+            with patch("urllib.request.urlopen", return_value=mock_resp):
+                with self.assertRaises(DjangoValidationError):
+                    validator.validate(compromised_pwd)
+
+            # Sin coincidencia de sufijo: permite continuar
+            mock_safe = MagicMock()
+            mock_safe.read.return_value = b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:3\n"
+            mock_safe.__enter__ = MagicMock(return_value=mock_safe)
+            mock_safe.__exit__ = MagicMock(return_value=False)
+            with patch("urllib.request.urlopen", return_value=mock_safe):
+                validator.validate(compromised_pwd)
+
+            # Timeout / falla de red: comportamiento fail-open controlado
+            with patch("urllib.request.urlopen", side_effect=TimeoutError("hibp timeout")):
+                validator.validate(compromised_pwd)
+
+    def test_audit_log_seguridad_transversal_y_admin_inmutable(self):
+        from django.contrib import admin as django_admin
+
+        # 1. Login fallido y login exitoso
+        res_fail = self.client.post(reverse("token_obtain_pair"), {
+            "username": "p2_owner",
+            "password": "WrongPassword999!",
+        })
+        self.assertEqual(res_fail.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="LOGIN_FAIL", exito=False).exists())
+
+        res_ok = self.client.post(reverse("token_obtain_pair"), {
+            "username": "p2_owner",
+            "password": self.password,
+        })
+        self.assertEqual(res_ok.status_code, status.HTTP_200_OK)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="LOGIN_OK", usuario=self.owner, exito=True).exists())
+
+        # 2. Enrolamiento y verificación MFA
+        self.client.force_authenticate(user=self.owner)
+        res_init = self.client.post("/api/usuarios/mfa/iniciar/")
+        self.assertEqual(res_init.status_code, status.HTTP_200_OK)
+        current_step = int(time.time() // TOTP_PERIOD_SECONDS)
+        totp_code = calcular_totp(res_init.data["secret"], current_step - 1)
+        res_confirm = self.client.post("/api/usuarios/mfa/confirmar/", {"code": totp_code})
+        self.assertEqual(res_confirm.status_code, status.HTTP_200_OK)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="MFA_ENABLED", exito=True).exists())
+
+        # Segundo factor por challenge_token + auth_mfa_verify
+        self.client.force_authenticate(user=None)
+        res_challenge = self.client.post(reverse("token_obtain_pair"), {
+            "username": "p2_owner",
+            "password": self.password,
+        })
+        self.assertEqual(res_challenge.status_code, status.HTTP_200_OK)
+        challenge_token = res_challenge.data["challenge_token"]
+        self.owner.refresh_from_db()
+        res_mfa_bad = self.client.post(reverse("auth_mfa_verify"), {
+            "challenge_token": challenge_token,
+            "code": "000000",
+        })
+        self.assertEqual(res_mfa_bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="MFA_FAIL", exito=False).exists())
+
+        # Para evitar colisión anti-replay en el mismo step de 30s usamos un backup code
+        backup_code = res_confirm.data["backup_codes"][0]
+        res_mfa_ok = self.client.post(reverse("auth_mfa_verify"), {
+            "challenge_token": challenge_token,
+            "code": backup_code,
+        })
+        self.assertEqual(res_mfa_ok.status_code, status.HTTP_200_OK)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="MFA_OK", exito=True).exists())
+
+        # 3. Cambio de contraseña y Portabilidad
+        self.client.force_authenticate(user=self.owner)
+        res_pwd = self.client.patch(reverse("usuario-perfil"), {
+            "current_password": self.password,
+            "password": "NuevaClaveFuerteP2!2026",
+            "password_confirm": "NuevaClaveFuerteP2!2026",
+        }, format="json")
+        self.assertEqual(res_pwd.status_code, status.HTTP_200_OK)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="PASSWORD_CHANGE", exito=True).exists())
+
+        res_port = self.client.get(reverse("privacidad_portabilidad"))
+        self.assertEqual(res_port.status_code, status.HTTP_200_OK)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="EXPORT_PORTABILIDAD", categoria="ARCO", exito=True).exists())
+
+        # 4. CRUD SST crítico (Trabajador, Accidente, EntregaEPP)
+        res_trab_create = self.client.post(reverse("trabajador-list"), {
+            "empresa": self.empresa.id,
+            "centro_trabajo": self.centro.id,
+            "rut": "16.222.333-K",
+            "nombres": "Diego",
+            "apellidos": "Auditor",
+            "cargo": "Técnico",
+        }, format="json")
+        self.assertEqual(res_trab_create.status_code, status.HTTP_201_CREATED)
+        trab_id = res_trab_create.data["id"]
+        res_trab_upd = self.client.patch(reverse("trabajador-detail", args=[trab_id]), {"cargo": "Supervisor"}, format="json")
+        self.assertEqual(res_trab_upd.status_code, status.HTTP_200_OK)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="TRABAJADOR_CREATE", recurso_id=str(trab_id)).exists())
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="TRABAJADOR_UPDATE", recurso_id=str(trab_id)).exists())
+
+        res_acc = self.client.post(reverse("investigacionaccidente-list"), {
+            "empresa": self.empresa.id,
+            "trabajador": trab_id,
+            "nombre_afectado": "Diego Auditor",
+            "rut_afectado": "16.222.333-K",
+            "cargo_afectado": "Supervisor",
+            "edad_afectado": 34,
+            "antiguedad_afectado": "2 años",
+            "tipo_evento": InvestigacionAccidente.TIPO_INCIDENTE,
+            "fecha_hora_evento": timezone.now().isoformat(),
+            "lugar_evento": "Bodega",
+            "descripcion_evento": "Casi accidente sin lesión.",
+            "tipo_lesion": "Sin lesión",
+            "parte_cuerpo_afectada": "Ninguna",
+        }, format="json")
+        self.assertEqual(res_acc.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="ACCIDENTE_CREATE", recurso_id=str(res_acc.data["id"])).exists())
+
+        res_epp = self.client.post(reverse("entregaepp-list"), {
+            "empresa": self.empresa.id,
+            "centro_trabajo": self.centro.id,
+            "trabajador": trab_id,
+            "items_epp": [{"tipo": "Casco", "marca_modelo": "3M", "cantidad": 1, "motivo": "ENTREGA_INICIAL"}],
+            "entrega_riohs": False,
+            "declaracion_capacitacion": True,
+            "firma_digital": "data:image/png;base64,ABC123SIGNATURE",
+        }, format="json")
+        self.assertEqual(res_epp.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(AuditLogEventoSeguridad.objects.filter(accion="EPP_CREATE", recurso_id=str(res_epp.data["id"])).exists())
+
+        # 5. Registro en Django Admin append-only (sin add/change/delete)
+        admin_cls = django_admin.site._registry.get(AuditLogEventoSeguridad)
+        self.assertIsNotNone(admin_cls)
+        fake_req = MagicMock()
+        self.assertFalse(admin_cls.has_add_permission(fake_req))
+        self.assertFalse(admin_cls.has_change_permission(fake_req))
+        self.assertFalse(admin_cls.has_delete_permission(fake_req))
+
 
 
 
