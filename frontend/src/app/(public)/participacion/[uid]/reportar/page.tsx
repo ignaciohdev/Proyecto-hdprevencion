@@ -18,8 +18,15 @@ export default function ReportarRiesgoPage() {
     contacto_reportante: '',
   });
 
+  const [aceptaPrivacidad, setAceptaPrivacidad] = useState(false);
   const [formState, setFormState] = useState<FormState>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+
+  const tieneDatosOpcionales = Boolean(
+    form.nombre_reportante.trim() ||
+    form.rut_reportante.trim() ||
+    form.contacto_reportante.trim()
+  );
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -28,6 +35,12 @@ export default function ReportarRiesgoPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.descripcion.trim() || !form.lugar.trim()) return;
+
+    if (tieneDatosOpcionales && !aceptaPrivacidad) {
+      setErrorMsg('Debes autorizar expresamente el tratamiento de tus datos identificatorios opcionales o dejarlos en blanco para reportar de forma anónima.');
+      setFormState('error');
+      return;
+    }
 
     setFormState('submitting');
     setErrorMsg('');
@@ -42,6 +55,7 @@ export default function ReportarRiesgoPage() {
           nombre_reportante: form.nombre_reportante || null,
           rut_reportante: form.rut_reportante || null,
           contacto_reportante: form.contacto_reportante || null,
+          acepta_privacidad: tieneDatosOpcionales ? aceptaPrivacidad : false,
         }),
       });
 
@@ -49,7 +63,8 @@ export default function ReportarRiesgoPage() {
         setFormState('success');
       } else {
         const data = await res.json();
-        setErrorMsg(data.error || 'Ocurrió un error al enviar el reporte.');
+        const msgConsent = Array.isArray(data.acepta_privacidad) ? data.acepta_privacidad[0] : data.acepta_privacidad;
+        setErrorMsg(msgConsent || data.error || 'Ocurrió un error al enviar el reporte.');
         setFormState('error');
       }
     } catch {
@@ -179,12 +194,49 @@ export default function ReportarRiesgoPage() {
             </div>
           </div>
 
+          {tieneDatosOpcionales && (
+            <label
+              htmlFor="acepta_privacidad"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                color: '#e2e8f0',
+                background: 'rgba(245, 158, 11, 0.08)',
+                padding: '12px 14px',
+                borderRadius: '10px',
+                border: '1px solid rgba(245, 158, 11, 0.35)',
+                lineHeight: 1.5,
+              }}
+            >
+              <input
+                id="acepta_privacidad"
+                type="checkbox"
+                checked={aceptaPrivacidad}
+                onChange={(e) => setAceptaPrivacidad(e.target.checked)}
+                required={tieneDatosOpcionales}
+                style={{ marginTop: '3px', width: '16px', height: '16px', flexShrink: 0, accentColor: '#f59e0b' }}
+              />
+              <span>
+                Autorizo el tratamiento voluntario de mis datos identificatorios opcionales (nombre, RUT o contacto) por el prevencionista de mi empresa y HD Prevención (Encargado) para dar seguimiento a este reporte, conforme a la{' '}
+                <a href="/privacidad" target="_blank" style={{ color: '#fb923c', textDecoration: 'underline', fontWeight: 600 }}>
+                  Política de Privacidad
+                </a>. <span style={styles.required}>*</span>
+              </span>
+            </label>
+          )}
+
           {formState === 'error' && (
             <div style={styles.errorBox}>⚠️ {errorMsg}</div>
           )}
 
-          <div style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(15, 23, 42, 0.6)', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
-            🔒 <strong>Aviso de Privacidad (Ley N° 21.719):</strong> Los datos entregados se utilizarán únicamente para evaluar y corregir la condición de riesgo en faena. Conoce tus derechos y plazos en nuestra{' '}
+          <div style={{ fontSize: '11px', color: '#94a3b8', background: 'rgba(15, 23, 42, 0.6)', padding: '10px 14px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', lineHeight: 1.5 }}>
+            🔒 <strong>Aviso de Privacidad (Art. 14 ter Ley N° 21.719):</strong> Los datos entregados se utilizan únicamente para evaluar y corregir la condición de riesgo en faena (Responsable: tu empresa empleadora; Encargado tecnológico: HD Prevención). Conoce tus derechos ARCO-POL en{' '}
+            <a href="/derechos-arco" target="_blank" style={{ color: '#fb923c', textDecoration: 'underline' }}>
+              /derechos-arco
+            </a>{' '}y nuestra{' '}
             <a href="/privacidad" target="_blank" style={{ color: '#fb923c', textDecoration: 'underline' }}>
               Política de Privacidad
             </a>.

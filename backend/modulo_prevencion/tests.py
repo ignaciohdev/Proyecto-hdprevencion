@@ -99,7 +99,8 @@ class CapacitacionIntegrationTestCase(APITestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['tema_titulo'], "Charla de Inducción ODI")
-        self.assertEqual(response.data['relator'], "prevencionista_test")
+        self.assertEqual(response.data['relator'], "Ingeniero en Prevención de Riesgos (Registro SEREMI)")
+        self.assertNotIn("prevencionista_test", response.data['relator'])
         self.assertEqual(response.data['estado'], RegistroCapacitacion.ESTADO_PROGRAMADA)
 
     def test_rechazo_enumeracion_id_secuencial_publico(self):
@@ -2322,7 +2323,15 @@ class ClimaUvTestCase(APITestCase):
         mock_response.__enter__.return_value = mock_response
         mock_urlopen.return_value = mock_response
 
-        # Consultar por centro_trabajo_id
+        # Consulta anónima por centro_trabajo_id: protege razón social y faena (Ley 21.719)
+        res_anon = self.client.get(f"/api/clima/radiacion-uv/?centro_trabajo_id={self.centro.id}")
+        self.assertEqual(res_anon.status_code, status.HTTP_200_OK)
+        self.assertIsNone(res_anon.data['faena_nombre'])
+        self.assertIsNone(res_anon.data['empresa_nombre'])
+        self.assertEqual(res_anon.data['ciudad'], "Antofagasta")
+
+        # Consulta autenticada por el dueño del tenant: devuelve faena y razón social
+        self.client.force_authenticate(user=self.user)
         res = self.client.get(f"/api/clima/radiacion-uv/?centro_trabajo_id={self.centro.id}")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         data = res.data
@@ -3740,6 +3749,946 @@ class Ley21719P2ObservabilityTestCase(APITestCase):
         self.assertFalse(admin_cls.has_add_permission(fake_req))
         self.assertFalse(admin_cls.has_change_permission(fake_req))
         self.assertFalse(admin_cls.has_delete_permission(fake_req))
+
+
+class Bloque1AdminMfaSessionYQrTenantTestCase(APITestCase):
+    """
+    Pruebas integrales del Bloque 1:
+    1. Django Admin (/sst-control-panel/) protegido con TOTP y códigos de respaldo de mfa.py.
+    2. Registro inyecta cookie HttpOnly refresh_token y /api/auth/session/ valida cookie sin localStorage.
+    3. Endpoints públicos QR validan pertenencia de centro_trabajo y unifican get_usuarios_grupo.
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_django_admin_exige_totp_y_codigos_respaldo(self):
+        from .mfa import generar_secreto_totp, generar_codigos_respaldo
+
+        admin_no_mfa = Usuario.objects.create_superuser(
+            username="admin_sin_mfa",
+            email="admin_nomfa@hdprevencion.cl",
+            password="AdminStrongPassword#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        # 1. Superusuario sin MFA habilitado no puede entrar a /sst-control-panel/
+        res_no_mfa = self.client.post(
+            "/sst-control-panel/login/",
+            {"username": "admin_sin_mfa", "password": "AdminStrongPassword#2026!"},
+        )
+        self.assertEqual(res_no_mfa.status_code, 200)
+        self.assertContains(res_no_mfa, "activar MFA TOTP")
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 302)
+
+        # 2. client.login directo sin pasar por verificación MFA Admin tampoco da acceso
+        self.client.force_login(admin_no_mfa)
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 302)
+        self.client.logout()
+
+        # 3. Superusuario con MFA habilitado requiere TOTP o código de respaldo
+        secret = generar_secreto_totp()
+        plain_codes, hashed_codes = generar_codigos_respaldo(4)
+        admin_mfa = Usuario.objects.create_superuser(
+            username="admin_con_mfa",
+            email="admin_mfa@hdprevencion.cl",
+            password="AdminStrongPassword#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+            mfa_enabled=True,
+            mfa_secret=secret,
+            mfa_backup_codes_hashes=hashed_codes,
+        )
+
+        # Sin código -> rechazado
+        res_missing = self.client.post(
+            "/sst-control-panel/login/",
+            {"username": "admin_con_mfa", "password": "AdminStrongPassword#2026!"},
+        )
+        self.assertEqual(res_missing.status_code, 200)
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 302)
+
+        # Código inválido -> rechazado y registra MFA_FAIL
+        res_bad = self.client.post(
+            "/sst-control-panel/login/",
+            {"username": "admin_con_mfa", "password": "AdminStrongPassword#2026!", "otp_code": "000000"},
+        )
+        self.assertEqual(res_bad.status_code, 200)
+        self.assertTrue(
+            AuditLogEventoSeguridad.objects.filter(
+                usuario=admin_mfa, accion="MFA_FAIL", exito=False
+            ).exists()
+        )
+
+        # Código TOTP válido -> 302 hacia /sst-control-panel/ y acceso 200 OK
+        step = int(time.time() // TOTP_PERIOD_SECONDS)
+        totp_code = calcular_totp(secret, step)
+        res_ok = self.client.post(
+            "/sst-control-panel/login/",
+            {
+                "username": "admin_con_mfa",
+                "password": "AdminStrongPassword#2026!",
+                "otp_code": totp_code,
+                "next": "/sst-control-panel/",
+            },
+        )
+        self.assertEqual(res_ok.status_code, 302)
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 200)
+
+        # Anti-replay en Django Admin: reusar mismo código TOTP tras logout falla
+        self.client.logout()
+        res_replay = self.client.post(
+            "/sst-control-panel/login/",
+            {"username": "admin_con_mfa", "password": "AdminStrongPassword#2026!", "otp_code": totp_code},
+        )
+        self.assertEqual(res_replay.status_code, 200)
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 302)
+
+        # Código de respaldo de un solo uso funciona una vez y luego falla
+        backup_code = plain_codes[0]
+        res_backup = self.client.post(
+            "/sst-control-panel/login/",
+            {
+                "username": "admin_con_mfa",
+                "password": "AdminStrongPassword#2026!",
+                "otp_code": backup_code,
+                "next": "/sst-control-panel/",
+            },
+        )
+        self.assertEqual(res_backup.status_code, 302)
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 200)
+
+        self.client.logout()
+        res_backup_reuse = self.client.post(
+            "/sst-control-panel/login/",
+            {"username": "admin_con_mfa", "password": "AdminStrongPassword#2026!", "otp_code": backup_code},
+        )
+        self.assertEqual(res_backup_reuse.status_code, 200)
+        self.assertEqual(self.client.get("/sst-control-panel/").status_code, 302)
+
+    def test_registro_cookie_httponly_y_session_status(self):
+        res_anon = self.client.get("/api/auth/session/")
+        self.assertEqual(res_anon.status_code, 200)
+        self.assertFalse(res_anon.json()["authenticated"])
+
+        res_reg = self.client.post(
+            "/api/auth/register/",
+            {
+                "username": "cookie_reg_user",
+                "email": "cookiereg@hdprevencion.cl",
+                "password": "ClaveSuperSegura#2026!",
+                "password_confirm": "ClaveSuperSegura#2026!",
+                "acepta_privacidad": True,
+            },
+            format="json",
+        )
+        self.assertEqual(res_reg.status_code, 201)
+        self.assertIn("refresh_token", res_reg.cookies)
+        self.assertTrue(res_reg.cookies["refresh_token"]["httponly"])
+
+        res_sess = self.client.get("/api/auth/session/")
+        self.assertEqual(res_sess.status_code, 200)
+        self.assertTrue(res_sess.json()["authenticated"])
+        self.assertEqual(res_sess.json()["user"]["username"], "cookie_reg_user")
+
+        res_logout = self.client.post("/api/auth/logout/", {}, format="json")
+        self.assertEqual(res_logout.status_code, 200)
+
+        res_after = self.client.get("/api/auth/session/")
+        self.assertEqual(res_after.status_code, 200)
+        self.assertFalse(res_after.json()["authenticated"])
+
+    def test_qr_publicos_validan_centro_trabajo_y_usuarios_grupo(self):
+        from .serializers import DenunciaLeyKarinPublicaCreateSerializer
+
+        owner = Usuario.objects.create_user(
+            username="qr_owner",
+            email="qrowner@hdprevencion.cl",
+            password="ClaveSuperSegura#2026!",
+            tipo_usuario=Usuario.TIPO_CORPORATIVO,
+        )
+        hija = Usuario.objects.create_user(
+            username="qr_hija",
+            email="qrhija@hdprevencion.cl",
+            password="ClaveSuperSegura#2026!",
+            tipo_usuario=Usuario.TIPO_CORPORATIVO,
+            cuenta_padre=owner,
+        )
+        otro = Usuario.objects.create_user(
+            username="qr_otro",
+            email="qrotro@hdprevencion.cl",
+            password="ClaveSuperSegura#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+
+        emp_hija = Empresa.objects.create(prevencionista=hija, razon_social="Empresa Hija SpA", rut="76.333.444-5")
+        emp_owner_2 = Empresa.objects.create(prevencionista=owner, razon_social="Empresa Owner 2 SpA", rut="76.555.666-2")
+        centro_hija = CentroTrabajo.objects.create(empresa=emp_hija, nombre="Faena Hija", direccion="Calle 1", comuna="Santiago")
+
+        emp_ajena = Empresa.objects.create(prevencionista=otro, razon_social="Empresa Ajena SpA", rut="76.777.888-1")
+        centro_ajeno = CentroTrabajo.objects.create(empresa=emp_ajena, nombre="Faena Ajena", direccion="Calle 2", comuna="Maipú")
+
+        # 1. ReporteRiesgoPublicoCreateView: centro_trabajo ajeno (con o sin empresa) rechazado
+        res_rep_ajeno = self.client.post(
+            f"/api/publico/{owner.uuid}/reportar-riesgo/",
+            {"descripcion": "Cable suelto", "lugar": "Bodega", "centro_trabajo": centro_ajeno.id},
+            format="json",
+        )
+        self.assertEqual(res_rep_ajeno.status_code, 400)
+
+        # Empresa de grupo + centro de otra empresa del mismo grupo -> mismatch rechazado
+        res_rep_mismatch = self.client.post(
+            f"/api/publico/{owner.uuid}/reportar-riesgo/",
+            {
+                "descripcion": "Cable suelto",
+                "lugar": "Bodega",
+                "empresa": emp_owner_2.id,
+                "centro_trabajo": centro_hija.id,
+            },
+            format="json",
+        )
+        self.assertEqual(res_rep_mismatch.status_code, 400)
+
+        # Centro válido del grupo sin especificar empresa -> aceptado y asigna empresa consistente
+        res_rep_ok = self.client.post(
+            f"/api/publico/{owner.uuid}/reportar-riesgo/",
+            {"descripcion": "Baranda floja", "lugar": "Acceso", "centro_trabajo": centro_hija.id},
+            format="json",
+        )
+        self.assertEqual(res_rep_ok.status_code, 201)
+
+        # 2. DenunciaLeyKarinPublicaCreateSerializer: rechaza centro_trabajo de otra empresa
+        ser_bad = DenunciaLeyKarinPublicaCreateSerializer(
+            data={
+                "empresa": emp_hija.id,
+                "centro_trabajo": centro_ajeno.id,
+                "tipo_afectacion": DenunciaLeyKarin.TIPO_ACOSO_LABORAL,
+                "rut_denunciante": "12.345.678-5",
+                "nombre_denunciante": "Trabajador Uno",
+                "correo_denunciante": "uno@empresa.cl",
+                "nombre_denunciado": "Jefe",
+                "descripcion_circunstanciada": "Hecho de prueba",
+            },
+            context={"empresa": emp_hija, "usuarios_grupo": [owner, hija]},
+        )
+        self.assertFalse(ser_bad.is_valid())
+        self.assertIn("centro_trabajo", ser_bad.errors)
+
+        # 3. SugerenciaConsultaPublicaCreateView (Karin + Sugerencia) usa get_usuarios_grupo y valida centro_trabajo
+        res_karin_bad_centro = self.client.post(
+            f"/api/publico/{owner.uuid}/buzon/",
+            {
+                "tipo_canal": "DENUNCIA_KARIN",
+                "empresa": emp_hija.id,
+                "centro_trabajo": centro_ajeno.id,
+                "tipo_afectacion": DenunciaLeyKarin.TIPO_ACOSO_LABORAL,
+                "rut_denunciante": "12.345.678-5",
+                "nombre_denunciante": "Trabajador Uno",
+                "correo_denunciante": "uno@empresa.cl",
+                "nombre_denunciado": "Jefe",
+                "descripcion_circunstanciada": "Hecho de prueba",
+            },
+            format="json",
+        )
+        self.assertEqual(res_karin_bad_centro.status_code, 400)
+
+        res_karin_grupo_ok = self.client.post(
+            f"/api/publico/{owner.uuid}/buzon/",
+            {
+                "tipo_canal": "DENUNCIA_KARIN",
+                "empresa": emp_hija.id,
+                "centro_trabajo": centro_hija.id,
+                "tipo_afectacion": DenunciaLeyKarin.TIPO_ACOSO_LABORAL,
+                "rut_denunciante": "12.345.678-5",
+                "nombre_denunciante": "Trabajador Uno",
+                "correo_denunciante": "uno@empresa.cl",
+                "nombre_denunciado": "Jefe",
+                "descripcion_circunstanciada": "Hecho válido en grupo",
+            },
+            format="json",
+        )
+        self.assertEqual(res_karin_grupo_ok.status_code, 201)
+
+        # Sugerencia con empresa ajena explícita -> 400 (sin fallback silencioso)
+        res_sug_ajena = self.client.post(
+            f"/api/publico/{owner.uuid}/buzon/",
+            {"empresa": emp_ajena.id, "mensaje": "Intento cruzado", "es_anonimo": True},
+            format="json",
+        )
+        self.assertEqual(res_sug_ajena.status_code, 400)
+        # Sugerencia con empresa hija vía QR de owner -> 201
+        res_sug_ok = self.client.post(
+            f"/api/publico/{owner.uuid}/buzon/",
+            {"empresa": emp_hija.id, "mensaje": "Mejora iluminación", "es_anonimo": True},
+            format="json",
+        )
+        self.assertEqual(res_sug_ok.status_code, 201)
+
+
+class Bloque2ConsentimientoInmutabilidadYReadLogsTestCase(APITestCase):
+    """
+    Pruebas integrales del Bloque 2:
+    4. Opt-in opcional + RegistroConsentimiento en ReporteRiesgoPublicoCreateView.
+    5. Bloqueo de update/delete ORM en AuditLogAccesoDenuncia, AuditLogEventoSeguridad y RegistroConsentimiento.
+    6. Auditoría de lecturas retrieve() en InvestigacionAccidenteViewSet, TrabajadorViewSet y EntregaEPPViewSet.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = Usuario.objects.create_user(
+            username="bloque2_prev",
+            email="b2@hdprevencion.cl",
+            password="ClaveFuerteB2#2026!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        self.empresa = Empresa.objects.create(
+            prevencionista=self.user,
+            razon_social="Empresa Bloque 2 SpA",
+            rut="76.111.222-3",
+        )
+        self.centro = CentroTrabajo.objects.create(
+            empresa=self.empresa,
+            nombre="Faena B2",
+            direccion="Av. Prueba 200",
+            comuna="Providencia",
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_reporte_riesgo_qr_opt_in_datos_opcionales(self):
+        from .models import RegistroConsentimiento
+
+        url = f"/api/publico/{self.user.uuid}/reportar-riesgo/"
+
+        # 1. Reporte anónimo sin datos opcionales -> 201 sin exigir checkbox
+        res_anon = self.client.post(url, {
+            "empresa": self.empresa.id,
+            "centro_trabajo": self.centro.id,
+            "descripcion": "Escalera sin pasamanos",
+            "lugar": "Sector Norte",
+        }, format="json")
+        self.assertEqual(res_anon.status_code, 201)
+        self.assertEqual(
+            RegistroConsentimiento.objects.filter(
+                flujo=RegistroConsentimiento.FLUJO_REPORTE_RIESGO_IDENTIFICADO
+            ).count(),
+            0,
+        )
+
+        # 2. Reporte con datos opcionales pero acepta_privacidad=False / omitido -> 400
+        res_fail = self.client.post(url, {
+            "empresa": self.empresa.id,
+            "descripcion": "Fuga menor",
+            "lugar": "Bodega",
+            "nombre_reportante": "Carlos Test",
+            "contacto_reportante": "carlos@empresa.cl",
+            "acepta_privacidad": "false",
+        }, format="json")
+        self.assertEqual(res_fail.status_code, 400)
+        self.assertIn("acepta_privacidad", res_fail.json())
+
+        # 3. Reporte con datos opcionales + acepta_privacidad=True -> 201 + RegistroConsentimiento
+        res_ok = self.client.post(url, {
+            "empresa": self.empresa.id,
+            "descripcion": "Fuga menor",
+            "lugar": "Bodega",
+            "nombre_reportante": "Carlos Test",
+            "rut_reportante": "12.345.678-5",
+            "contacto_reportante": "carlos@empresa.cl",
+            "acepta_privacidad": True,
+        }, format="json")
+        self.assertEqual(res_ok.status_code, 201)
+        reg = RegistroConsentimiento.objects.filter(
+            flujo=RegistroConsentimiento.FLUJO_REPORTE_RIESGO_IDENTIFICADO,
+            identificador_titular="carlos@empresa.cl",
+            otorgado=True,
+        ).first()
+        self.assertIsNotNone(reg)
+        self.assertEqual(len(reg.hash_politica), 64)
+
+    def test_inmutabilidad_orm_audit_logs_y_consentimiento(self):
+        from .models import RegistroConsentimiento
+
+        denuncia = DenunciaLeyKarin.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tipo_afectacion=DenunciaLeyKarin.TIPO_ACOSO_LABORAL,
+            rut_denunciante="12.345.678-5",
+            nombre_denunciante="Denunciante B2",
+            correo_denunciante="den@empresa.cl",
+            nombre_denunciado="Denunciado B2",
+            descripcion_circunstanciada="Relato de prueba",
+        )
+        log_den = AuditLogAccesoDenuncia.objects.create(
+            denuncia=denuncia,
+            usuario=self.user,
+            ip_origen="127.0.0.1",
+            accion=AuditLogAccesoDenuncia.ACCION_APERTURA,
+        )
+        log_sec = AuditLogEventoSeguridad.objects.create(
+            usuario=self.user,
+            actor_identificador=self.user.username,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_SEGURIDAD,
+            accion="TEST_EVENT",
+            exito=True,
+        )
+        reg_cons = RegistroConsentimiento.objects.create(
+            usuario=self.user,
+            identificador_titular="b2@hdprevencion.cl",
+            flujo=RegistroConsentimiento.FLUJO_CONTACTO,
+            version_politica="1.0",
+            hash_politica="a" * 64,
+            otorgado=True,
+        )
+
+        for modelo_cls, inst in (
+            (AuditLogAccesoDenuncia, log_den),
+            (AuditLogEventoSeguridad, log_sec),
+            (RegistroConsentimiento, reg_cons),
+        ):
+            with self.assertRaises(DjangoValidationError):
+                inst.save()
+            with self.assertRaises(DjangoValidationError):
+                modelo_cls(pk=inst.pk).save()
+            with self.assertRaises(DjangoValidationError):
+                inst.delete()
+            with self.assertRaises(DjangoValidationError):
+                modelo_cls.objects.filter(pk=inst.pk).update(id=inst.pk)
+            with self.assertRaises(DjangoValidationError):
+                modelo_cls.objects.filter(pk=inst.pk).delete()
+
+    def test_auditoria_retrieve_accidentes_trabajadores_y_epp(self):
+        trabajador = Trabajador.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            rut="15.333.444-2",
+            nombres="Ana",
+            apellidos="Lectura",
+            cargo="Operaria",
+        )
+        accidente = InvestigacionAccidente.objects.create(
+            usuario=self.user,
+            empresa=self.empresa,
+            trabajador=trabajador,
+            nombre_afectado="Ana Lectura",
+            rut_afectado="15.333.444-2",
+            cargo_afectado="Operaria",
+            edad_afectado=30,
+            antiguedad_afectado="1 año",
+            tipo_evento=InvestigacionAccidente.TIPO_INCIDENTE,
+            fecha_hora_evento=timezone.now(),
+            lugar_evento="Patio",
+            descripcion_evento="Tropezón leve",
+            tipo_lesion="Contusión",
+            parte_cuerpo_afectada="Rodilla",
+        )
+        entrega = EntregaEPP.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            trabajador=trabajador,
+            responsable_entrega=self.user,
+            items_epp=[{"tipo": "Casco", "cantidad": 1}],
+            entrega_riohs=False,
+            declaracion_capacitacion=True,
+            firma_digital="data:image/png;base64,AAA",
+        )
+
+        login_res = self.client.post("/api/auth/login/", {
+            "username": "bloque2_prev",
+            "password": "ClaveFuerteB2#2026!",
+        })
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {login_res.json()['access']}")
+
+        self.assertEqual(self.client.get(reverse("investigacionaccidente-detail", args=[accidente.id])).status_code, 200)
+        self.assertEqual(self.client.get(reverse("trabajador-detail", args=[trabajador.id])).status_code, 200)
+        self.assertEqual(self.client.get(reverse("entregaepp-detail", args=[entrega.id])).status_code, 200)
+
+        self.assertTrue(
+            AuditLogEventoSeguridad.objects.filter(
+                usuario=self.user, accion="ACCIDENTE_READ", modelo_afectado="InvestigacionAccidente", recurso_id=str(accidente.id), exito=True
+            ).exists()
+        )
+        self.assertTrue(
+            AuditLogEventoSeguridad.objects.filter(
+                usuario=self.user, accion="TRABAJADOR_READ", modelo_afectado="Trabajador", recurso_id=str(trabajador.id), exito=True
+            ).exists()
+        )
+        self.assertTrue(
+            AuditLogEventoSeguridad.objects.filter(
+                usuario=self.user, accion="EPP_READ", modelo_afectado="EntregaEPP", recurso_id=str(entrega.id), exito=True
+            ).exists()
+        )
+
+
+class Bloque3ArcoHmacCifradoYPurgaTestCase(APITestCase):
+    """
+    Pruebas integrales del Bloque 3 (Ley N° 21.719):
+    - Mapa declarativo 100% de tablas y columnas + causales verificadas.
+    - Bloqueo provisional transversal (423 Locked) + rechazo informado a APDP (Art. 11).
+    - Endpoints reales ARCO-POL: rectificación, supresión/anonimización bajo demanda,
+      oposición y portabilidad extendida JSON/CSV.
+    - Blind index HMAC-SHA256 (`rut_hmac`), JSON cifrado en reposo (`causas_*`, `asistentes`),
+      exigencia estricta de `FIELD_ENCRYPTION_KEY` cuando `not DEBUG`.
+    - Campos Art. 15 bis / 14 sexies en brechas y purga SST > 5 años en accidentes/Karin/capacitaciones.
+    """
+
+    def setUp(self):
+        from .models import AuditLogEventoSeguridad, Empresa, CentroTrabajo, Usuario
+
+        self.AuditLogEventoSeguridad = AuditLogEventoSeguridad
+        self.admin = Usuario.objects.create_superuser(
+            username="bloque3_admin",
+            email="admin_b3@hdprevencion.cl",
+            password="AdminB3Password#2026!",
+        )
+        self.owner = Usuario.objects.create_user(
+            username="bloque3_owner",
+            email="owner_b3@hdprevencion.cl",
+            password="OwnerB3Password#2026!",
+            first_name="Owner",
+            last_name="Prevencion",
+        )
+        self.other_owner = Usuario.objects.create_user(
+            username="bloque3_other",
+            email="other_b3@hdprevencion.cl",
+            password="OtherB3Password#2026!",
+        )
+        self.empresa = Empresa.objects.create(
+            prevencionista=self.owner,
+            razon_social="Empresa Bloque 3 SpA",
+            rut="76.333.444-5",
+            giro="Construcción",
+        )
+        self.centro = CentroTrabajo.objects.create(
+            empresa=self.empresa,
+            nombre="Faena B3",
+            direccion="Av. Prueba 300",
+            comuna="Santiago",
+            region="Metropolitana",
+        )
+        self.other_empresa = Empresa.objects.create(
+            prevencionista=self.other_owner,
+            razon_social="Empresa Ajena SpA",
+            rut="76.999.888-7",
+            giro="Minería",
+        )
+
+    def test_mapa_datos_personales_cobertura_100_y_sin_placeholders(self):
+        from .arco import CATALOGO_SIN_PII, MAPA_DATOS_PERSONALES, validar_cobertura_mapa_datos
+
+        resultado = validar_cobertura_mapa_datos()
+        self.assertTrue(resultado['ok'], f"Cobertura incompleta del esquema: {resultado}")
+        self.assertEqual(resultado['modelos_faltantes'], [])
+        self.assertEqual(resultado['columnas_faltantes'], {})
+        self.assertEqual(resultado['columnas_sobrantes'], {})
+
+        for nombre, meta in {**MAPA_DATOS_PERSONALES, **CATALOGO_SIN_PII}.items():
+            texto = " ".join(str(v) for v in meta.values()).lower()
+            self.assertNotIn('[verificar]', texto, f"Causal no verificada en {nombre}")
+
+    def test_bloqueo_provisional_transversal_423_y_aviso_apdp(self):
+        from datetime import timedelta
+        from .models import SolicitudDerechoARCO, Trabajador
+
+        trabajador = Trabajador.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            rut="15.111.222-3",
+            nombres="Ana",
+            apellidos="Bloqueada",
+            cargo="Operadora",
+            correo="ana.bloqueada@empresa.cl",
+            telefono="+56911112222",
+        )
+        solicitud = SolicitudDerechoARCO.objects.create(
+            tipo_derecho=SolicitudDerechoARCO.TIPO_OPOSICION,
+            rut_titular="15.111.222-3",
+            nombre_titular="Ana Bloqueada",
+            email_titular="ana.bloqueada@empresa.cl",
+            detalle_solicitud="Oposición de prueba con bloqueo 2 días hábiles",
+            estado=SolicitudDerechoARCO.ESTADO_EN_TRAMITE,
+            bloqueo_provisional_activo=True,
+        )
+        self.assertIsNotNone(solicitud.fecha_limite_bloqueo_2d)
+        self.assertGreaterEqual(
+            solicitud.fecha_limite_bloqueo_2d,
+            timezone.localdate() + timedelta(days=2),
+        )
+
+        # Operador intenta mutar ficha del trabajador bloqueado vía JWT -> 423 Locked
+        self.client.force_authenticate(user=self.owner)
+        res_patch = self.client.patch(
+            reverse('trabajador-detail', args=[trabajador.id]),
+            {"cargo": "Supervisora"},
+            format='json',
+        )
+        self.assertEqual(res_patch.status_code, 423)
+        self.assertEqual(res_patch.json()['codigo'], 'ARCO_BLOQUEO_PROVISIONAL')
+
+        # Lectura GET sigue operando sin deadlock
+        self.assertEqual(self.client.get(reverse('trabajador-detail', args=[trabajador.id])).status_code, 200)
+
+        # Se audita el impedimento ARCO
+        self.assertTrue(
+            self.AuditLogEventoSeguridad.objects.filter(
+                categoria=self.AuditLogEventoSeguridad.CATEGORIA_ARCO,
+                accion='ARCO_BLOQUEO_IMPEDIMENTO',
+                exito=False,
+            ).exists()
+        )
+
+        # Admin rechaza bloqueo y registra aviso obligatorio a la APDP
+        self.client.force_authenticate(user=self.admin)
+        res_apdp = self.client.post(
+            reverse('privacidad_ejecutar_solicitud', args=[solicitud.uuid]),
+            {"accion": "rechazar_bloqueo_apdp", "motivo": "Obligación legal SST vigente Art. 13 c)."},
+            format='json',
+        )
+        self.assertEqual(res_apdp.status_code, 200)
+        solicitud.refresh_from_db()
+        self.assertFalse(solicitud.bloqueo_provisional_activo)
+        self.assertTrue(solicitud.aviso_apdp_rechazo_bloqueo)
+        self.assertIsNotNone(solicitud.fecha_aviso_apdp_bloqueo)
+        self.assertTrue(
+            self.AuditLogEventoSeguridad.objects.filter(
+                categoria=self.AuditLogEventoSeguridad.CATEGORIA_ARCO,
+                accion='ARCO_RECHAZO_BLOQUEO_APDP',
+                recurso_id=str(solicitud.uuid),
+                exito=True,
+            ).exists()
+        )
+
+        # Tras levantar el bloqueo, la edición del trabajador vuelve a funcionar
+        self.client.force_authenticate(user=self.owner)
+        res_ok = self.client.patch(
+            reverse('trabajador-detail', args=[trabajador.id]),
+            {"cargo": "Supervisora"},
+            format='json',
+        )
+        self.assertEqual(res_ok.status_code, 200)
+
+    def test_endpoints_rectificacion_supresion_oposicion_y_portabilidad_csv(self):
+        from .models import (
+            Inspeccion,
+            MensajeContacto,
+            PlantillaInspeccion,
+            RegistroConsentimiento,
+            ReporteRiesgo,
+            SugerenciaLaboral,
+            Trabajador,
+        )
+
+        trabajador = Trabajador.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            rut="16.222.333-4",
+            nombres="Carlos",
+            apellidos="Titular",
+            cargo="Técnico",
+            correo="carlos.titular@empresa.cl",
+            telefono="+56922223333",
+        )
+        reporte = ReporteRiesgo.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tipo=ReporteRiesgo.TIPO_CONDICION,
+            descripcion="Baranda suelta en nivel 2",
+            lugar="Nivel 2",
+            nombre_reportante="=Carlos+Riesgo",
+            rut_reportante="16.222.333-4",
+            contacto_reportante="carlos.titular@empresa.cl",
+        )
+        plantilla = PlantillaInspeccion.objects.create(nombre="Check Altura", preguntas=[])
+        inspeccion = Inspeccion.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            plantilla=plantilla,
+            respuestas={},
+            porcentaje_cumplimiento=95,
+            firma_nombre="Carlos Titular",
+            firma_rut="16.222.333-4",
+        )
+        SugerenciaLaboral.objects.create(
+            empresa=self.empresa,
+            mensaje="Mejorar iluminación en patio",
+            tipo=SugerenciaLaboral.TIPO_SEGURIDAD_GENERAL,
+            es_anonimo=False,
+            nombre_remitente="Carlos Titular",
+            contacto_remitente="carlos.titular@empresa.cl",
+        )
+        MensajeContacto.objects.create(
+            usuario=self.owner,
+            nombre="Owner Prevencion",
+            email="owner_b3@hdprevencion.cl",
+            asunto="Consulta soporte",
+            mensaje="Mensaje de prueba",
+        )
+        RegistroConsentimiento.objects.create(
+            usuario=self.owner,
+            identificador_titular="16.222.333-4",
+            flujo=RegistroConsentimiento.FLUJO_REPORTE_RIESGO_IDENTIFICADO,
+            version_politica="1.0",
+            otorgado=True,
+            categorias=["identificacion_reportante"],
+        )
+
+        # 1. Portabilidad JSON completa (incluyendo tablas antes faltantes) + CSV sanitizado
+        self.client.force_authenticate(user=self.owner)
+        res_json = self.client.get(reverse('privacidad_portabilidad') + "?rut=16.222.333-4")
+        self.assertEqual(res_json.status_code, 200)
+        body_json = res_json.json()
+        self.assertEqual(len(body_json['reportes_riesgo']), 1)
+        self.assertEqual(len(body_json['inspecciones']), 1)
+        self.assertEqual(len(body_json['sugerencias_laborales']), 1)
+        self.assertGreaterEqual(len(body_json['consentimientos']), 1)
+        self.assertIn('resumen_mapa_legal', body_json)
+
+        res_csv = self.client.get(reverse('privacidad_portabilidad') + "?rut=16.222.333-4&formato=csv")
+        self.assertEqual(res_csv.status_code, 200)
+        self.assertIn('text/csv', res_csv['Content-Type'])
+        csv_text = res_csv.content.decode('utf-8')
+        self.assertIn("'=Carlos+Riesgo", csv_text)
+        self.assertIn('reportes_riesgo', csv_text)
+
+        # 2. Rectificación real + verificación de aislamiento de campo no editable
+        res_rect = self.client.post(
+            reverse('privacidad_rectificar'),
+            {
+                "rut": "16.222.333-4",
+                "cambios": {
+                    "trabajador": {"cargo": "Especialista SST Senior", "rut": "99.999.999-K"},
+                },
+            },
+            format='json',
+        )
+        self.assertEqual(res_rect.status_code, 200)
+        trabajador.refresh_from_db()
+        self.assertEqual(trabajador.cargo, "Especialista SST Senior")
+        self.assertEqual(trabajador.rut, "16.222.333-4")
+
+        # 3. Oposición al tratamiento revoca consentimientos y activa bloqueo provisional
+        res_opo = self.client.post(
+            reverse('privacidad_oponer'),
+            {"rut": "16.222.333-4", "motivo": "No deseo comunicaciones opcionales", "activar_bloqueo_provisional": False},
+            format='json',
+        )
+        self.assertEqual(res_opo.status_code, 200)
+        self.assertEqual(res_opo.json()['consentimientos_revocados'], 2)
+        reporte.refresh_from_db()
+        self.assertEqual(reporte.nombre_reportante, '')
+        self.assertTrue(
+            RegistroConsentimiento.objects.filter(
+                flujo=RegistroConsentimiento.FLUJO_MARKETING_NOVEDADES,
+                otorgado=False,
+            ).exists()
+        )
+
+        # 4. Supresión bajo demanda: usuario normal no puede forzar borrado SST (< 5 años), se retiene con causal
+        res_forbid = self.client.post(
+            reverse('privacidad_suprimir'),
+            {"rut": "16.222.333-4", "forzar_anonimizacion_sst": True},
+            format='json',
+        )
+        self.assertEqual(res_forbid.status_code, 403)
+
+        res_sup = self.client.post(
+            reverse('privacidad_suprimir'),
+            {"rut": "16.222.333-4"},
+            format='json',
+        )
+        self.assertEqual(res_sup.status_code, 200)
+        data_sup = res_sup.json()
+        self.assertGreaterEqual(data_sup['suprimidos'].get('Inspeccion', 0), 1)
+        self.assertTrue(any(r['modelo'] == 'Trabajador' for r in data_sup['retenidos_por_ley']))
+        inspeccion.refresh_from_db()
+        self.assertEqual(inspeccion.firma_rut, '')
+
+    def test_blind_index_hmac_json_cifrado_y_encryption_key_obligatoria(self):
+        from django.core.exceptions import ImproperlyConfigured
+        from .crypto import _get_cipher, calcular_rut_hmac
+        from .models import DenunciaLeyKarin, InvestigacionAccidente, RegistroCapacitacion, TemaCapacitacion
+
+        acc = InvestigacionAccidente.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            nombre_afectado="Pedro Accidentado",
+            rut_afectado="17.444.555-6",
+            cargo_afectado="Soldador",
+            edad_afectado=34,
+            antiguedad_afectado="3 años",
+            tipo_evento=InvestigacionAccidente.TIPO_TRABAJO,
+            fecha_hora_evento=timezone.now(),
+            lugar_evento="Taller",
+            descripcion_evento="Corte superficial en mano izquierda",
+            tipo_lesion="Herida cortante",
+            parte_cuerpo_afectada="Mano",
+            causas_inmediatas={"actos": ["Sin guantes anticorte"]},
+            causas_basicas={"factores": ["Falta de stock en bodega"]},
+            analisis_5_porques=["Por qué 1", "Por qué 2"],
+            arbol_de_causas={"raiz": "Reposición tardía EPP"},
+        )
+        denuncia = DenunciaLeyKarin.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tipo_afectacion=DenunciaLeyKarin.TIPO_ACOSO_LABORAL,
+            rut_denunciante="17.444.555-6",
+            nombre_denunciante="Pedro Denunciante",
+            correo_denunciante="pedro.k@empresa.cl",
+            nombre_denunciado="Jefatura X",
+            cargo_area_denunciado="Área Operaciones",
+            descripcion_circunstanciada="Hostigamiento reiterado en faena.",
+        )
+        tema = TemaCapacitacion.objects.create(
+            usuario=self.owner,
+            titulo="Curso EPP",
+            descripcion="Uso de EPP",
+            categoria=TemaCapacitacion.CATEGORIA_CURSO_1H_EPP,
+        )
+        cap = RegistroCapacitacion.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tema=tema,
+            estado=RegistroCapacitacion.ESTADO_REALIZADA,
+            fecha_programada=timezone.localdate(),
+            fecha_realizacion=timezone.now(),
+            asistentes=[{"nombre": "Pedro Accidentado", "rut": "17.444.555-6", "cargo": "Soldador"}],
+        )
+
+        # Cifrado en reposo en SQL crudo y rut_hmac sin texto claro
+        expected_hmac = calcular_rut_hmac("174445556")
+        self.assertEqual(len(expected_hmac), 64)
+        self.assertEqual(acc.rut_hmac, expected_hmac)
+        self.assertEqual(denuncia.rut_hmac, expected_hmac)
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT rut_hmac, causas_inmediatas, causas_basicas, analisis_5_porques, arbol_de_causas "
+                "FROM modulo_prevencion_investigacionaccidente WHERE id = %s",
+                [acc.id],
+            )
+            row_acc = cursor.fetchone()
+            self.assertEqual(row_acc[0], expected_hmac)
+            self.assertNotIn("17.444.555-6", row_acc[0])
+            for json_col in row_acc[1:]:
+                self.assertTrue(str(json_col).startswith('enc:v1:'))
+                self.assertNotIn("guantes", str(json_col))
+
+            cursor.execute(
+                "SELECT asistentes FROM modulo_prevencion_registrocapacitacion WHERE id = %s",
+                [cap.id],
+            )
+            raw_asist = str(cursor.fetchone()[0])
+            self.assertTrue(raw_asist.startswith('enc:v1:'))
+            self.assertNotIn("Pedro Accidentado", raw_asist)
+
+        # Portabilidad usa rut_hmac incluso normalizado (sin puntos ni guión) y entrega resumen Ley Karin
+        self.client.force_authenticate(user=self.owner)
+        res_p = self.client.get(reverse('privacidad_portabilidad') + "?rut=17444555-6")
+        self.assertEqual(res_p.status_code, 200)
+        self.assertEqual(len(res_p.json()['investigaciones_accidentes']), 1)
+        self.assertEqual(len(res_p.json()['denuncias_ley_karin_resumen']), 1)
+        self.assertEqual(len(res_p.json()['capacitaciones']), 1)
+
+        # BLIND_INDEX_KEY separada genera HMAC distinto independiente de FIELD_ENCRYPTION_KEY
+        with self.settings(BLIND_INDEX_KEY='otra-clave-blind-index-distinta'):
+            self.assertNotEqual(calcular_rut_hmac("17.444.555-6"), expected_hmac)
+
+        # FIELD_ENCRYPTION_KEY obligatoria cuando DEBUG=False
+        with self.settings(DEBUG=False, FIELD_ENCRYPTION_KEY=''):
+            with self.assertRaises(ImproperlyConfigured):
+                _get_cipher()
+
+    def test_brecha_responsable_y_purga_sst_5_anos(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from .models import DenunciaLeyKarin, InvestigacionAccidente, RegistroBrechaSeguridad, RegistroCapacitacion, TemaCapacitacion
+
+        brecha = RegistroBrechaSeguridad.objects.create(
+            codigo_incidente="INC-B3-001",
+            tipo_brecha=RegistroBrechaSeguridad.TIPO_CONFIDENCIALIDAD,
+            severidad=RegistroBrechaSeguridad.SEVERIDAD_ALTA,
+            datos_sensibles_afectados=True,
+            datos_economicos_financieros=True,
+            empresa_responsable=self.empresa,
+            notificado_responsable=True,
+            fecha_notificacion_responsable=timezone.now(),
+            contacto_responsable_notificado="gerencia@empresab3.cl",
+            descripcion_incidente="Brecha simulada para verificar campos Art. 15 bis y 14 sexies.",
+        )
+        self.assertTrue(brecha.datos_economicos_financieros)
+        self.assertTrue(brecha.notificado_responsable)
+
+        hace_6_anos = timezone.now() - timedelta(days=2200)
+        acc_viejo = InvestigacionAccidente.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            nombre_afectado="Trabajador Antiguo",
+            rut_afectado="11.222.333-4",
+            cargo_afectado="Operador",
+            edad_afectado=45,
+            antiguedad_afectado="10 años",
+            tipo_evento=InvestigacionAccidente.TIPO_TRABAJO,
+            fecha_hora_evento=hace_6_anos,
+            lugar_evento="Faena",
+            descripcion_evento="Evento histórico > 5 años",
+            tipo_lesion="Leve",
+            parte_cuerpo_afectada="Pie",
+        )
+        dk_vieja = DenunciaLeyKarin.objects.create(
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tipo_afectacion=DenunciaLeyKarin.TIPO_ACOSO_SEXUAL,
+            rut_denunciante="11.222.333-4",
+            nombre_denunciante="Denunciante Antiguo",
+            correo_denunciante="antiguo@test.cl",
+            nombre_denunciado="Denunciado Y",
+            cargo_area_denunciado="Área Z",
+            descripcion_circunstanciada="Hecho cerrado > 5 años.",
+            estado_tramite=DenunciaLeyKarin.ESTADO_FINALIZADA,
+        )
+        DenunciaLeyKarin.objects.filter(pk=dk_vieja.pk).update(fecha_hora_ingreso=hace_6_anos)
+
+        tema = TemaCapacitacion.objects.create(
+            usuario=self.owner,
+            titulo="Inducción Histórica",
+            descripcion="Charla antigua",
+            categoria=TemaCapacitacion.CATEGORIA_ODI,
+        )
+        cap_vieja = RegistroCapacitacion.objects.create(
+            usuario=self.owner,
+            empresa=self.empresa,
+            centro_trabajo=self.centro,
+            tema=tema,
+            estado=RegistroCapacitacion.ESTADO_REALIZADA,
+            fecha_programada=(timezone.now() - timedelta(days=2200)).date(),
+            fecha_realizacion=timezone.now() - timedelta(days=2200),
+            asistentes=[{"nombre": "Asistente Antiguo", "rut": "11.222.333-4", "cargo": "Bodega"}],
+        )
+
+        call_command('purgar_datos_vencidos', '--incluir-sst')
+
+        acc_viejo.refresh_from_db()
+        dk_vieja.refresh_from_db()
+        cap_vieja.refresh_from_db()
+
+        self.assertEqual(acc_viejo.nombre_afectado, "Titular Anonimizado")
+        self.assertTrue(acc_viejo.rut_afectado.startswith("ANON-"))
+        self.assertEqual(acc_viejo.rut_hmac, "")
+
+        self.assertEqual(dk_vieja.nombre_denunciante, "Denunciante Anonimizado")
+        self.assertTrue(dk_vieja.rut_denunciante.startswith("ANON-"))
+        self.assertEqual(dk_vieja.rut_hmac, "")
+
+        self.assertEqual(cap_vieja.asistentes[0]['nombre'], "Asistente Anonimizado")
+        self.assertTrue(cap_vieja.asistentes[0]['rut'].startswith("ANON-"))
+
+
+
 
 
 

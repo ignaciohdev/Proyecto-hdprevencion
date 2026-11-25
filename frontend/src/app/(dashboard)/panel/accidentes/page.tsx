@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, getApiUrl } from "../../../utils/api";
 
 interface ActionItem {
   medida: string;
@@ -99,22 +99,16 @@ export default function AccidentesPage() {
   const fetchData = async () => {
     setLoading(true);
     setError(null);
-    const token = localStorage.getItem("access_token");
-    if (!token) return;
 
     try {
       // 1. Obtener listado de investigaciones
-      const resRecords = await fetch(getApiUrl("/api/accidentes/"), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resRecords = await authFetch(getApiUrl("/api/accidentes/"));
       if (!resRecords.ok) throw new Error("Error al obtener el historial de investigaciones.");
       const dataRecords = await resRecords.json();
       setRecords(dataRecords);
 
       // 2. Obtener estadísticas de siniestralidad (IF, IG, días perdidos)
-      const resStats = await fetch(getApiUrl("/api/accidentes/estadisticas/"), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resStats = await authFetch(getApiUrl("/api/accidentes/estadisticas/"));
       if (resStats.ok) {
         const dataStats = await resStats.json();
         setStats(dataStats);
@@ -132,12 +126,10 @@ export default function AccidentesPage() {
 
   const handleDelete = async (id: number) => {
     if (!confirm("¿Estás seguro de que deseas eliminar esta investigación? Esta acción no se puede deshacer.")) return;
-    const token = localStorage.getItem("access_token");
 
     try {
-      const res = await fetch(getApiUrl(`/api/accidentes/${id}/`), {
+      const res = await authFetch(getApiUrl(`/api/accidentes/${id}/`), {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!res.ok) throw new Error("Error al eliminar la investigación.");
@@ -165,12 +157,10 @@ export default function AccidentesPage() {
     }
 
     setSavingDiat(true);
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl(`/api/accidentes/${diatModalAccident.id}/registrar-diat/`), {
+      const res = await authFetch(getApiUrl(`/api/accidentes/${diatModalAccident.id}/registrar-diat/`), {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -211,12 +201,10 @@ export default function AccidentesPage() {
     if (!protocoloModalAccident) return;
 
     setSavingProtocolo(true);
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl(`/api/accidentes/${protocoloModalAccident.id}/protocolo-grave-fatal/`), {
+      const res = await authFetch(getApiUrl(`/api/accidentes/${protocoloModalAccident.id}/protocolo-grave-fatal/`), {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

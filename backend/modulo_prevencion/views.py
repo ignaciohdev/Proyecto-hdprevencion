@@ -64,6 +64,7 @@ from .mfa import (
     verificar_codigo_totp,
     generar_codigos_respaldo,
     consumir_codigo_respaldo,
+    verificar_segundo_factor_usuario,
     crear_challenge_mfa,
     verificar_challenge_mfa,
 )
@@ -71,6 +72,46 @@ from .consentimiento import registrar_consentimiento
 from .auditoria import registrar_evento_seguridad
 
 Usuario: Any = get_user_model()
+
+def _parse_bool(val: Any, default: bool = False) -> bool:
+    """Convierte valores booleanos o strings ('true'/'false'/'1'/'0') de forma segura."""
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    if isinstance(val, str):
+        norm = val.strip().lower()
+        if norm in ('true', '1', 'yes', 'si', 'sí', 'on'):
+            return True
+        if norm in ('false', '0', 'no', 'off', ''):
+            return False
+    return bool(val)
+
+
+class AuditedRetrieveMixin:
+    """Registra en AuditLogEventoSeguridad las lecturas individuales (retrieve) de fichas SST sensibles."""
+
+    audit_read_action: str = ""
+    audit_read_model: str = ""
+
+    def retrieve(self: Any, request, *args, **kwargs):
+        instance = self.get_object()
+        if self.audit_read_action:
+            registrar_evento_seguridad(
+                request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_SST,
+                accion=self.audit_read_action,
+                usuario=request.user,
+                modelo_afectado=self.audit_read_model or instance.__class__.__name__,
+                recurso_id=instance.pk,
+                exito=True,
+                metadata={'empresa_id': getattr(instance, 'empresa_id', None)},
+            )
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """
@@ -94,6 +135,19 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
+def _fijar_cookie_refresh(response: Response, refresh_value: str) -> None:
+    """Inyecta la cookie HttpOnly rotativa de sesión cross-domain."""
+    response.set_cookie(
+        key='refresh_token',
+        value=refresh_value,
+        max_age=7 * 24 * 60 * 60,
+        httponly=True,
+        secure=True,
+        samesite='None',
+        path='/'
+    )
+
+
 def _emitir_respuesta_login_jwt(user: Any) -> Response:
     """Emite access/refresh JWT y fija la cookie HttpOnly de sesión."""
     refresh = CustomTokenObtainPairSerializer.get_token(user)
@@ -105,31 +159,13 @@ def _emitir_respuesta_login_jwt(user: Any) -> Response:
         'mfa_setup_required': bool(getattr(user, 'mfa_obligatorio', False) and not getattr(user, 'mfa_enabled', False)),
     }
     response = Response(payload, status=status.HTTP_200_OK)
-    response.set_cookie(
-        key='refresh_token',
-        value=payload['refresh'],
-        max_age=7 * 24 * 60 * 60,
-        httponly=True,
-        secure=True,
-        samesite='None',
-        path='/'
-    )
+    _fijar_cookie_refresh(response, payload['refresh'])
     return response
 
 
 def _verificar_segundo_factor(usuario: Any, raw_code: str) -> bool:
     """Valida código TOTP (anti-replay) o consume código de respaldo de un solo uso."""
-    code = (raw_code or '').strip()
-    if not code or not getattr(usuario, 'mfa_enabled', False):
-        return False
-    secret = getattr(usuario, 'mfa_secret', '')
-    if secret:
-        step = verificar_codigo_totp(secret, code, last_used_step=usuario.mfa_last_used_step)
-        if step is not None:
-            usuario.mfa_last_used_step = step
-            usuario.save(update_fields=['mfa_last_used_step'])
-            return True
-    return consumir_codigo_respaldo(usuario, code)
+    return verificar_segundo_factor_usuario(usuario, raw_code)
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -317,16 +353,43 @@ class CustomTokenRefreshView(TokenRefreshView):
         response = Response(serializer.validated_data, status=status.HTTP_200_OK)
         new_refresh = serializer.validated_data.get('refresh')
         if new_refresh:
-            response.set_cookie(
-                key='refresh_token',
-                value=new_refresh,
-                max_age=7 * 24 * 60 * 60,
-                httponly=True,
-                secure=True,
-                samesite='None',
-                path='/'
-            )
+            _fijar_cookie_refresh(response, new_refresh)
         return response
+
+
+class SessionStatusView(APIView):
+    """
+    Consulta silenciosa del estado de sesión basada exclusivamente en la cookie HttpOnly
+    'refresh_token', sin exponer JWT ni requerir almacenamiento en localStorage.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        cookie_refresh = request.COOKIES.get('refresh_token')
+        if not cookie_refresh:
+            return Response({'authenticated': False, 'user': None}, status=status.HTTP_200_OK)
+        try:
+            token = RefreshToken(cookie_refresh)
+            user_id = token.get('user_id')
+            user = Usuario.objects.filter(pk=user_id, is_active=True).first()
+            if not user:
+                return Response({'authenticated': False, 'user': None}, status=status.HTTP_200_OK)
+            return Response({
+                'authenticated': True,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'tipo_usuario': user.tipo_usuario,
+                    'cuenta_padre_id': user.cuenta_padre_id,
+                    'is_superuser': user.is_superuser,
+                    'is_staff': user.is_staff,
+                    'mfa_enabled': bool(getattr(user, 'mfa_enabled', False)),
+                    'mfa_obligatorio': bool(getattr(user, 'mfa_obligatorio', False)),
+                },
+            }, status=status.HTTP_200_OK)
+        except Exception:
+            return Response({'authenticated': False, 'user': None}, status=status.HTTP_200_OK)
 
 
 class LogoutView(APIView):
@@ -413,12 +476,12 @@ class RegisterView(generics.CreateAPIView):
                 texto_aceptado="Suscripcion opt-in actualizaciones normativas SST y novedades v1.0",
             )
         
-        # Generar tokens JWT para iniciar sesión automáticamente
-        refresh = RefreshToken.for_user(user)
-        
+        # Generar tokens JWT para iniciar sesión automáticamente e inyectar cookie HttpOnly
+        refresh = CustomTokenObtainPairSerializer.get_token(user)
+
         user_data = UsuarioSerializer(user).data
-        
-        return Response({
+
+        response = Response({
             'message': 'Usuario registrado exitosamente.',
             'user': user_data,
             'tokens': {
@@ -426,6 +489,8 @@ class RegisterView(generics.CreateAPIView):
                 'access': str(refresh.access_token),
             }
         }, status=status.HTTP_201_CREATED)
+        _fijar_cookie_refresh(response, str(refresh))
+        return response
 
 
 # Permisos Personalizados
@@ -1425,10 +1490,12 @@ class InspeccionViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
-class InvestigacionAccidenteViewSet(viewsets.ModelViewSet):
+class InvestigacionAccidenteViewSet(AuditedRetrieveMixin, viewsets.ModelViewSet):
     queryset = InvestigacionAccidente.objects.all()
     serializer_class = InvestigacionAccidenteSerializer
     permission_classes = [permissions.IsAuthenticated]
+    audit_read_action = 'ACCIDENTE_READ'
+    audit_read_model = 'InvestigacionAccidente'
 
     def get_queryset(self):
         user: Any = self.request.user
@@ -2210,23 +2277,71 @@ class ReporteRiesgoPublicoCreateView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Validación Tenancy Ley 21.719 (A-3): Verificar que la empresa pertenezca al prevencionista del QR
+        # Validación Tenancy Ley 21.719 (A-3 / sec-tenant): Verificar que empresa y centro_trabajo pertenezcan al grupo del prevencionista QR
+        usuarios_grupo = get_usuarios_grupo(prevencionista)
         empresa = serializer.validated_data.get('empresa')
-        if empresa:
-            usuarios_grupo = get_usuarios_grupo(prevencionista)
-            if getattr(empresa, 'prevencionista', None) not in usuarios_grupo:
+        centro_trabajo = serializer.validated_data.get('centro_trabajo')
+
+        if empresa and getattr(empresa, 'prevencionista', None) not in usuarios_grupo:
+            return Response(
+                {"error": "La empresa seleccionada no es válida para este prevencionista."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if centro_trabajo:
+            centro_empresa = getattr(centro_trabajo, 'empresa', None)
+            if not centro_empresa or getattr(centro_empresa, 'prevencionista', None) not in usuarios_grupo:
                 return Response(
-                    {"error": "La empresa seleccionada no es válida para este prevencionista."},
+                    {"error": "El centro de trabajo seleccionado no es válido para este prevencionista."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            if empresa and centro_trabajo.empresa_id != empresa.id:
+                return Response(
+                    {"error": "El centro de trabajo no pertenece a la empresa seleccionada."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if not empresa:
+                empresa = centro_empresa
 
-        reporte = serializer.save(
-            usuario=prevencionista,
-            tipo=ReporteRiesgo.TIPO_CONDICION,
-            reportado_por_externo=True,
-            estado=ReporteRiesgo.ESTADO_ABIERTO,
-            gravedad=ReporteRiesgo.GRAVEDAD_MEDIA  # El prevencionista la clasifica luego
-        )
+        nombre_opt = (serializer.validated_data.get('nombre_reportante') or '').strip()
+        rut_opt = (serializer.validated_data.get('rut_reportante') or '').strip()
+        contacto_opt = (serializer.validated_data.get('contacto_reportante') or '').strip()
+        tiene_datos_opcionales = bool(nombre_opt or rut_opt or contacto_opt)
+        acepta_privacidad = _parse_bool(request.data.get('acepta_privacidad'), default=False)
+
+        if tiene_datos_opcionales and not acepta_privacidad:
+            return Response(
+                {
+                    "acepta_privacidad": [
+                        "Debes autorizar el tratamiento de tus datos identificatorios opcionales o dejarlos en blanco para enviar el reporte de forma anónima."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        save_kwargs = {
+            'usuario': prevencionista,
+            'tipo': ReporteRiesgo.TIPO_CONDICION,
+            'reportado_por_externo': True,
+            'estado': ReporteRiesgo.ESTADO_ABIERTO,
+            'gravedad': ReporteRiesgo.GRAVEDAD_MEDIA,  # El prevencionista la clasifica luego
+        }
+        if empresa:
+            save_kwargs['empresa'] = empresa
+
+        reporte = serializer.save(**save_kwargs)
+
+        if tiene_datos_opcionales and acepta_privacidad:
+            identificador = (contacto_opt or rut_opt or nombre_opt or 'reportante-identificado').strip()
+            registrar_consentimiento(
+                request,
+                identificador_titular=identificador,
+                flujo=RegistroConsentimiento.FLUJO_REPORTE_RIESGO_IDENTIFICADO,
+                otorgado=True,
+                categorias=['reporte_riesgo_identificado'],
+                texto_aceptado="Consentimiento voluntario identificacion opcional en reporte de riesgos QR v1.0",
+            )
+
         return Response(
             {
                 "mensaje": "¡Reporte enviado con éxito! El prevencionista de tu empresa lo revisará pronto.",
@@ -2319,6 +2434,7 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
 
         data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
         tipo_canal = data.get('tipo_canal') or data.get('canal')
+        usuarios_grupo = get_usuarios_grupo(prevencionista)
 
         # Flujo B: Denuncia Formal Ley Karin
         if tipo_canal == 'DENUNCIA_KARIN' or 'rut_denunciante' in data:
@@ -2329,7 +2445,7 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             try:
-                empresa = Empresa.objects.filter(id=empresa_id, prevencionista=prevencionista).first()
+                empresa = Empresa.objects.filter(id=empresa_id, prevencionista__in=usuarios_grupo).first()
             except (ValueError, TypeError):
                 empresa = None
 
@@ -2339,7 +2455,10 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            serializer = DenunciaLeyKarinPublicaCreateSerializer(data=data)
+            serializer = DenunciaLeyKarinPublicaCreateSerializer(
+                data=data,
+                context={'empresa': empresa, 'usuarios_grupo': usuarios_grupo},
+            )
             serializer.is_valid(raise_exception=True)
             denuncia = serializer.save(empresa=empresa)
 
@@ -2377,11 +2496,16 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
         empresa = None
         if empresa_id:
             try:
-                empresa = Empresa.objects.filter(id=empresa_id, prevencionista=prevencionista).first()
+                empresa = Empresa.objects.filter(id=empresa_id, prevencionista__in=usuarios_grupo).first()
             except (ValueError, TypeError):
                 empresa = None
+            if not empresa:
+                return Response(
+                    {"error": "La empresa seleccionada no es válida para este prevencionista."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         if not empresa:
-            empresa = Empresa.objects.filter(prevencionista=prevencionista, activo=True).first()
+            empresa = Empresa.objects.filter(prevencionista__in=usuarios_grupo, activo=True).first()
         if empresa:
             tipo_sug = data.get('tipo', SugerenciaLaboral.TIPO_MEJORA_PROCESO)
             if tipo_sug == 'SUGERENCIA':
@@ -2799,7 +2923,7 @@ class CentroTrabajoViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
-class TrabajadorViewSet(viewsets.ModelViewSet):
+class TrabajadorViewSet(AuditedRetrieveMixin, viewsets.ModelViewSet):
     """
     ViewSet para Fichas y Registro de Trabajadores.
     Aislamiento Multi-Tenant: solo trabajadores vinculados a las empresas del prevencionista.
@@ -2807,6 +2931,8 @@ class TrabajadorViewSet(viewsets.ModelViewSet):
     queryset = Trabajador.objects.all()
     serializer_class = TrabajadorSerializer
     permission_classes = [permissions.IsAuthenticated]
+    audit_read_action = 'TRABAJADOR_READ'
+    audit_read_model = 'Trabajador'
 
     def get_queryset(self):
         user = self.request.user
@@ -3386,7 +3512,7 @@ class ActaSesionCPHSViewSet(viewsets.ModelViewSet):
         return Response(ActaSesionCPHSSerializer(acta).data, status=status.HTTP_200_OK)
 
 
-class EntregaEPPViewSet(viewsets.ModelViewSet):
+class EntregaEPPViewSet(AuditedRetrieveMixin, viewsets.ModelViewSet):
     """
     ViewSet para la Gestión y Registro de Entrega de EPP y RIOHS con Firma Digital.
     Cumple con el Art. 68 de la Ley 16.744 y Art. 53 del D.S. 594.
@@ -3395,6 +3521,8 @@ class EntregaEPPViewSet(viewsets.ModelViewSet):
     queryset = EntregaEPP.objects.all()
     serializer_class = EntregaEPPSerializer
     permission_classes = [permissions.IsAuthenticated]
+    audit_read_action = 'EPP_READ'
+    audit_read_model = 'EntregaEPP'
 
     def get_queryset(self):
         user = self.request.user
@@ -4168,218 +4296,32 @@ class PortabilidadDatosView(APIView):
     Endpoint autenticado y aislado por tenant para el Derecho a la Portabilidad (Art. 9 Ley N° 21.719).
     - Sin `?rut=`: exporta todos los datos personales propios de la cuenta autenticada (Responsable).
     - Con `?rut=`: exporta los registros del trabajador pertenecientes únicamente al grupo/tenant
-      del usuario autenticado (Encargado Art. 15 bis), impidiendo acceso anónimo o cross-tenant.
+      del usuario autenticado (Encargado Art. 15 bis), utilizando blind index HMAC-SHA256.
+    - Soporta `?formato=csv` además de JSON interoperable.
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def _exportar_cuenta_propia(self, user: Any) -> dict[str, Any]:
-        suscripciones = list(
-            Suscripcion.objects.filter(usuario=user).select_related('plan').values(
-                'plan__nombre', 'plan__codigo', 'estado', 'fecha_inicio', 'fecha_vencimiento'
-            )
-        )
-        documentos = [
-            {
-                "plantilla": d.plantilla_maestra.titulo if d.plantilla_maestra else None,
-                "fecha_ultimo_guardado": d.fecha_ultimo_guardado.isoformat() if d.fecha_ultimo_guardado else None,
-                "datos_guardados": d.datos_guardados,
-            }
-            for d in DocumentoUsuario.objects.filter(usuario=user).select_related('plantilla_maestra')
-        ]
-        email = (user.email or '').strip()
-        contactos = (
-            list(MensajeContacto.objects.filter(email__iexact=email).values('asunto', 'mensaje', 'fecha_creacion'))
-            if email else []
-        )
-        solicitudes_cap = (
-            list(SolicitudCapacitacion.objects.filter(contacto_email__iexact=email).values(
-                'empresa', 'rut_empresa', 'contacto_cargo', 'contacto_telefono', 'fecha_creacion'
-            ))
-            if email else []
-        )
-        solicitudes_arco = (
-            list(SolicitudDerechoARCO.objects.filter(email_titular__iexact=email).values(
-                'uuid', 'tipo_derecho', 'estado', 'fecha_solicitud', 'fecha_limite_30d'
-            ))
-            if email else []
-        )
-        return {
-            "perfil": {
-                "uuid": str(user.uuid),
-                "username": user.username,
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "tipo_usuario": user.tipo_usuario,
-                "date_joined": user.date_joined.isoformat() if user.date_joined else None,
-            },
-            "suscripciones": [
-                {
-                    **s,
-                    "fecha_inicio": s["fecha_inicio"].isoformat() if s["fecha_inicio"] else None,
-                    "fecha_vencimiento": s["fecha_vencimiento"].isoformat() if s["fecha_vencimiento"] else None,
-                }
-                for s in suscripciones
-            ],
-            "documentos_guardados": documentos,
-            "consultas_contacto": [
-                {**c, "fecha_creacion": c["fecha_creacion"].isoformat() if c["fecha_creacion"] else None}
-                for c in contactos
-            ],
-            "solicitudes_capacitacion": [
-                {**sc, "fecha_creacion": sc["fecha_creacion"].isoformat() if sc["fecha_creacion"] else None}
-                for sc in solicitudes_cap
-            ],
-            "solicitudes_arco": [
-                {
-                    **sa,
-                    "uuid": str(sa["uuid"]),
-                    "fecha_solicitud": sa["fecha_solicitud"].isoformat() if sa["fecha_solicitud"] else None,
-                    "fecha_limite_30d": sa["fecha_limite_30d"].isoformat() if sa["fecha_limite_30d"] else None,
-                }
-                for sa in solicitudes_arco
-            ],
-        }
-
-    def _exportar_trabajador_tenant(self, usuarios_grupo: list[Any], rut: str) -> dict[str, Any]:
-        rut_norm = rut.strip()
-        rut_lower = rut_norm.lower()
-
-        trabajadores = Trabajador.objects.filter(
-            empresa__prevencionista__in=usuarios_grupo, rut__iexact=rut_norm
-        ).select_related('empresa', 'centro_trabajo')
-        datos_trabajador = [
-            {
-                "empresa": t.empresa.razon_social,
-                "centro_trabajo": t.centro_trabajo.nombre if t.centro_trabajo else None,
-                "nombres": t.nombres,
-                "apellidos": t.apellidos,
-                "rut": t.rut,
-                "cargo": t.cargo,
-                "correo": t.correo,
-                "telefono": t.telefono,
-                "fecha_ingreso": t.fecha_ingreso.isoformat() if t.fecha_ingreso else None,
-                "estado": t.estado,
-            }
-            for t in trabajadores
-        ]
-
-        entregas = EntregaEPP.objects.filter(
-            Q(empresa__prevencionista__in=usuarios_grupo) | Q(trabajador__empresa__prevencionista__in=usuarios_grupo),
-            trabajador__rut__iexact=rut_norm
-        ).select_related('empresa', 'trabajador__empresa')
-        datos_epp = [
-            {
-                "empresa": e.empresa.razon_social if e.empresa else None,
-                "fecha_hora_entrega": e.fecha_hora_entrega.isoformat() if e.fecha_hora_entrega else None,
-                "items_epp": e.items_epp,
-                "entrega_riohs": e.entrega_riohs,
-            }
-            for e in entregas
-        ]
-
-        accidentes_qs = InvestigacionAccidente.objects.filter(
-            empresa__prevencionista__in=usuarios_grupo
-        ).select_related('empresa', 'trabajador')
-        accidentes = [
-            a for a in accidentes_qs
-            if (a.rut_afectado or '').strip().lower() == rut_lower
-            or (a.trabajador and (a.trabajador.rut or '').strip().lower() == rut_lower)
-        ]
-        datos_accidentes = [
-            {
-                "empresa": a.empresa.razon_social if a.empresa else None,
-                "fecha_hora_evento": a.fecha_hora_evento.isoformat() if a.fecha_hora_evento else None,
-                "tipo_evento": a.tipo_evento,
-                "lugar_evento": a.lugar_evento,
-                "descripcion_evento": a.descripcion_evento,
-                "tipo_lesion": a.tipo_lesion,
-                "parte_cuerpo_afectada": a.parte_cuerpo_afectada,
-                "dias_perdidos": a.dias_perdidos,
-                "alta_medica": a.alta_medica,
-                "diat_presentada": a.diat_presentada,
-                "diat_folio": a.diat_folio,
-            }
-            for a in accidentes
-        ]
-
-        capacitaciones_qs = RegistroCapacitacion.objects.filter(
-            empresa__prevencionista__in=usuarios_grupo
-        ).select_related('empresa', 'tema')
-        datos_capacitaciones = []
-        for cap in capacitaciones_qs:
-            if not isinstance(cap.asistentes, list):
-                continue
-            for item in cap.asistentes:
-                if isinstance(item, dict) and str(item.get('rut', '')).strip().lower() == rut_lower:
-                    datos_capacitaciones.append({
-                        "empresa": cap.empresa.razon_social if cap.empresa else None,
-                        "tema": cap.tema.titulo if cap.tema else None,
-                        "estado": cap.estado,
-                        "fecha_realizacion": cap.fecha_realizacion.isoformat() if cap.fecha_realizacion else None,
-                        "nombre": item.get('nombre'),
-                        "rut": item.get('rut'),
-                        "cargo": item.get('cargo'),
-                    })
-
-        cphs_qs = MiembroCPHS.objects.filter(
-            comite__empresa__prevencionista__in=usuarios_grupo, rut__iexact=rut_norm
-        ).select_related('comite__empresa')
-        datos_cphs = [
-            {
-                "empresa": m.comite.empresa.razon_social,
-                "cargo": m.cargo,
-                "estamento": m.estamento,
-                "tipo_representacion": m.tipo_representacion,
-                "activo": m.activo,
-                "fecha_designacion": m.fecha_designacion.isoformat() if m.fecha_designacion else None,
-            }
-            for m in cphs_qs
-        ]
-
-        sub_qs = TrabajadorSubcontratado.objects.filter(
-            contratista__usuario__in=usuarios_grupo, rut__iexact=rut_norm
-        ).select_related('contratista')
-        datos_subcontratacion = [
-            {
-                "contratista": s.contratista.razon_social,
-                "nombre_completo": s.nombre_completo,
-                "rut": s.rut,
-                "cargo": s.cargo,
-                "fecha_ingreso_obra": s.fecha_ingreso_obra.isoformat() if s.fecha_ingreso_obra else None,
-                "fecha_egreso_obra": s.fecha_egreso_obra.isoformat() if s.fecha_egreso_obra else None,
-                "activo": s.activo,
-            }
-            for s in sub_qs
-        ]
-
-        return {
-            "rut_titular": rut_norm,
-            "fichas_laborales": datos_trabajador,
-            "registros_epp": datos_epp,
-            "investigaciones_accidentes": datos_accidentes,
-            "capacitaciones": datos_capacitaciones,
-            "comites_paritarios": datos_cphs,
-            "subcontratacion": datos_subcontratacion,
-            "nota_reserva_legal": (
-                "Eventuales denuncias bajo Ley N° 21.643 (Ley Karin) están sujetas a reserva legal "
-                "(Art. 211-B Código del Trabajo) y requieren verificación directa con el Responsable."
-            ),
-        }
-
     def get(self, request):
+        from .arco import exportar_datos_titular, serializar_portabilidad_csv
+
         rut = (request.query_params.get('rut') or '').strip()
-        payload: dict[str, Any] = {
-            "estandar_interoperabilidad": "Ley N° 21.719 Art. 9 (Portabilidad)",
-            "fecha_exportacion": timezone.now().isoformat(),
-        }
-        if rut:
+        formato = (request.query_params.get('formato') or 'json').strip().lower()
+        if formato not in ('json', 'csv'):
+            return Response(
+                {"detail": "Formato no soportado. Use 'json' o 'csv'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        usuarios_grupo = None
+        if rut and not request.user.is_superuser:
             usuarios_grupo = get_usuarios_grupo(request.user)
-            payload["ambito"] = "trabajador_tenant"
-            payload.update(self._exportar_trabajador_tenant(usuarios_grupo, rut))
-        else:
-            payload["ambito"] = "cuenta_usuario"
-            payload.update(self._exportar_cuenta_propia(request.user))
+
+        payload = exportar_datos_titular(
+            usuario=None if rut else request.user,
+            rut=rut,
+            email=request.user.email or '',
+            usuarios_grupo=usuarios_grupo,
+        )
 
         registrar_evento_seguridad(
             request,
@@ -4389,10 +4331,241 @@ class PortabilidadDatosView(APIView):
             modelo_afectado='PortabilidadDatos',
             recurso_id=request.user.pk,
             exito=True,
-            metadata={'ambito': payload['ambito'], 'consulta_trabajador': bool(rut)},
+            metadata={
+                'ambito': payload['ambito'],
+                'consulta_trabajador': bool(rut),
+                'formato': formato,
+            },
         )
 
+        if formato == 'csv':
+            csv_body = serializar_portabilidad_csv(payload)
+            response = HttpResponse(csv_body, content_type='text/csv; charset=utf-8')
+            response['Content-Disposition'] = 'attachment; filename="portabilidad_datos_hdprevencion.csv"'
+            return response
+
         return Response(payload, status=status.HTTP_200_OK)
+
+
+def _resolver_alcance_arco_request(request):
+    """Determina usuario_objetivo y usuarios_grupo aislados por tenant/privilegios."""
+    from django.contrib.auth import get_user_model
+    UserModel = get_user_model()
+
+    data = request.data if isinstance(request.data, dict) else {}
+    rut = str(data.get('rut') or '').strip()
+    email = str(data.get('email') or '').strip().lower()
+    solicitud = None
+
+    solicitud_uuid = data.get('solicitud_uuid')
+    if solicitud_uuid:
+        solicitud = SolicitudDerechoARCO.objects.filter(uuid=solicitud_uuid).first()
+
+    if request.user.is_staff or request.user.is_superuser:
+        usuario_objetivo = None
+        if email:
+            usuario_objetivo = UserModel.objects.filter(email__iexact=email).first()
+        elif not rut:
+            usuario_objetivo = request.user
+        usuarios_grupo = None
+    else:
+        if email and email != (request.user.email or '').strip().lower() and not rut:
+            raise PermissionError("No puede operar derechos ARCO sobre la cuenta de otro usuario.")
+        usuario_objetivo = request.user if not rut else None
+        usuarios_grupo = get_usuarios_grupo(request.user)
+        if not email:
+            email = (request.user.email or '').strip().lower()
+
+    return usuario_objetivo, rut, email, usuarios_grupo, solicitud
+
+
+class RectificacionDatosView(APIView):
+    """Ejecuta rectificación efectiva de datos personales (Art. 6 Ley N° 21.719)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from .arco import ejecutar_rectificacion_titular
+
+        cambios = request.data.get('cambios')
+        if not isinstance(cambios, dict) or not cambios:
+            return Response(
+                {"detail": "Debe indicar un objeto 'cambios' con los campos a rectificar."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            usuario_objetivo, rut, email, usuarios_grupo, solicitud = _resolver_alcance_arco_request(request)
+        except PermissionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
+        resultado = ejecutar_rectificacion_titular(
+            usuario_actor=request.user,
+            request=request,
+            usuario_objetivo=usuario_objetivo,
+            rut=rut,
+            email=email,
+            usuarios_grupo=usuarios_grupo,
+            cambios=cambios,
+            solicitud=solicitud,
+        )
+        return Response({"detail": "Rectificación procesada.", **resultado}, status=status.HTTP_200_OK)
+
+
+class SupresionAnonimizacionView(APIView):
+    """
+    Ejecuta supresión o anonimización bajo demanda (Art. 7 y Art. 16 ter Ley N° 21.719),
+    respetando retenciones legales obligatorias SST (5 años), Ley Karin y Código Tributario (6 años).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from .arco import ejecutar_supresion_titular
+
+        try:
+            usuario_objetivo, rut, email, usuarios_grupo, solicitud = _resolver_alcance_arco_request(request)
+        except PermissionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
+        forzar_sst = bool(_parse_bool(request.data.get('forzar_anonimizacion_sst')))
+        if forzar_sst and not (request.user.is_staff or request.user.is_superuser):
+            return Response(
+                {"detail": "Solo administradores autorizados pueden forzar anonimización de registros con retención SST vigente."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        resultado = ejecutar_supresion_titular(
+            usuario_actor=request.user,
+            request=request,
+            usuario_objetivo=usuario_objetivo,
+            rut=rut,
+            email=email,
+            usuarios_grupo=usuarios_grupo,
+            forzar_anonimizacion_sst=forzar_sst,
+            solicitud=solicitud,
+        )
+        return Response({"detail": "Supresión/anonimización procesada.", **resultado}, status=status.HTTP_200_OK)
+
+
+class OposicionTratamientoView(APIView):
+    """Ejecuta oposición real al tratamiento no obligatorio y revoca consentimientos (Art. 8 Ley N° 21.719)."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from .arco import ejecutar_oposicion_titular
+
+        try:
+            usuario_objetivo, rut, email, usuarios_grupo, solicitud = _resolver_alcance_arco_request(request)
+        except PermissionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
+        motivo = str(request.data.get('motivo') or '').strip()
+        activar_bloqueo = request.data.get('activar_bloqueo_provisional', True)
+        if not isinstance(activar_bloqueo, bool):
+            activar_bloqueo = _parse_bool(activar_bloqueo)
+
+        resultado = ejecutar_oposicion_titular(
+            usuario_actor=request.user,
+            request=request,
+            usuario_objetivo=usuario_objetivo,
+            rut=rut,
+            email=email,
+            usuarios_grupo=usuarios_grupo,
+            motivo=motivo,
+            activar_bloqueo_provisional=bool(activar_bloqueo),
+            solicitud=solicitud,
+        )
+        return Response({"detail": "Oposición registrada y aplicada.", **resultado}, status=status.HTTP_200_OK)
+
+
+class EjecutarSolicitudARCOView(APIView):
+    """Endpoint administrativo (staff/DPO) para ejecutar una SolicitudDerechoARCO por UUID."""
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request, uuid):
+        from django.contrib.auth import get_user_model
+        from .arco import (
+            ejecutar_oposicion_titular,
+            ejecutar_rectificacion_titular,
+            ejecutar_supresion_titular,
+            registrar_rechazo_bloqueo_apdp,
+        )
+
+        solicitud = get_object_or_404(SolicitudDerechoARCO, uuid=uuid)
+        accion = str(request.data.get('accion') or solicitud.tipo_derecho).strip().lower()
+        UserModel = get_user_model()
+        usuario_objetivo = (
+            UserModel.objects.filter(email__iexact=solicitud.email_titular).first()
+            if solicitud.email_titular else None
+        )
+
+        if accion in ('rectificar', 'rectificacion'):
+            res = ejecutar_rectificacion_titular(
+                usuario_actor=request.user,
+                request=request,
+                usuario_objetivo=usuario_objetivo,
+                rut=solicitud.rut_titular,
+                email=solicitud.email_titular,
+                cambios=request.data.get('cambios') or {},
+                solicitud=solicitud,
+            )
+            return Response({"detail": "Solicitud rectificada.", **res}, status=status.HTTP_200_OK)
+
+        if accion in ('suprimir', 'supresion'):
+            res = ejecutar_supresion_titular(
+                usuario_actor=request.user,
+                request=request,
+                usuario_objetivo=usuario_objetivo,
+                rut=solicitud.rut_titular,
+                email=solicitud.email_titular,
+                forzar_anonimizacion_sst=bool(_parse_bool(request.data.get('forzar_anonimizacion_sst'))),
+                solicitud=solicitud,
+            )
+            return Response({"detail": "Solicitud de supresión ejecutada.", **res}, status=status.HTTP_200_OK)
+
+        if accion in ('oponer', 'oposicion'):
+            res = ejecutar_oposicion_titular(
+                usuario_actor=request.user,
+                request=request,
+                usuario_objetivo=usuario_objetivo,
+                rut=solicitud.rut_titular,
+                email=solicitud.email_titular,
+                motivo=str(request.data.get('motivo') or solicitud.detalle_solicitud),
+                activar_bloqueo_provisional=bool(_parse_bool(request.data.get('activar_bloqueo_provisional', False))),
+                solicitud=solicitud,
+            )
+            return Response({"detail": "Solicitud de oposición ejecutada.", **res}, status=status.HTTP_200_OK)
+
+        if accion == 'rechazar_bloqueo_apdp':
+            motivo = str(request.data.get('motivo') or '').strip()
+            registrar_rechazo_bloqueo_apdp(
+                solicitud,
+                usuario_actor=request.user,
+                request=request,
+                motivo=motivo,
+            )
+            return Response(
+                {
+                    "detail": "Bloqueo rechazado y aviso APDP registrado.",
+                    "solicitud_uuid": str(solicitud.uuid),
+                    "aviso_apdp_rechazo_bloqueo": solicitud.aviso_apdp_rechazo_bloqueo,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if accion == 'activar_bloqueo':
+            solicitud.bloqueo_provisional_activo = True
+            solicitud.estado = SolicitudDerechoARCO.ESTADO_EN_TRAMITE
+            solicitud.save(update_fields=['bloqueo_provisional_activo', 'estado'])
+            return Response(
+                {
+                    "detail": "Bloqueo provisional activado.",
+                    "solicitud_uuid": str(solicitud.uuid),
+                    "bloqueo_provisional_activo": True,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        return Response({"detail": f"Acción ARCO no reconocida: {accion}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 

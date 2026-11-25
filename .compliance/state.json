@@ -1,7 +1,16 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-25T03:57:09Z",
-  "git_commit": "f5278d2",
+  "generated_at": "2026-11-25T06:58:00Z",
+  "git_commit": "58e523d+bloques-1-4",
+  "previous_snapshot": {
+    "generated_at": "2026-11-25T06:05:03Z",
+    "git_commit": "58e523d",
+    "score": 0.54,
+    "pass": 3,
+    "partial": 21,
+    "fail": 1,
+    "unknown": 0
+  },
   "company": {
     "razon_social": "[COMPLETAR: Razón Social definitiva en trámite con abogada]",
     "nombre_plataforma": "HD Prevención",
@@ -43,137 +52,137 @@
   "controls": {
     "gov-responsable": {
       "status": "partial",
-      "evidence": "Fase 0: co-fundador en formación designado bajo criterio Art. 50 (microempresa). En código, frontend/src/app/(public)/privacidad/page.tsx:36-41 y terminos/page.tsx:62 publican 'HD Prevención SpA' y 'privacidad@hdprevencion.cl' sin escritura definitiva, RUT, domicilio postal ni representante legal.",
-      "remediation": "Completar escritura societaria, definir casilla oficial operativa de privacidad y actualizar /privacidad, /terminos y /derechos-arco con razón social, RUT, domicilio y representante legal (Art. 14 ter letras b y c)."
+      "evidence": "Fase 0 confirma co-fundador bajo criterio Art. 50 inc. 3° (microempresa). frontend/src/app/(public)/privacidad/page.tsx:38-46 ya indica régimen Microempresa y contacto privacidad@hdprevencion.cl, pero mantiene sociedad en proceso de formalización sin razón social definitiva, RUT, domicilio postal ni representante legal.",
+      "remediation": "Trámite legal (sin brecha de código): cerrar escritura societaria con abogada, definir casilla oficial de privacidad y reemplazar placeholders en .compliance/ y /privacidad, /terminos y /derechos-arco (Art. 14 ter b y c)."
     },
     "gov-registro": {
       "status": "partial",
-      "evidence": "No existía RAT en el repositorio previo a esta auditoría (solo citado como entregable comercial en PLAN_DE_ACCION_SERVICIO_LEY_21719.md:177). Generado en .compliance/docs/21719-rat.md cubriendo flujos de Responsable y Encargado (Art. 15 bis).",
-      "remediation": "Completar placeholders societarios [COMPLETAR], validar inventario tras migración a planes de pago y revisar anualmente."
+      "evidence": "RAT en .compliance/docs/21719-rat.md actualizado; además backend/modulo_prevencion/arco.py implementa mapa declarativo MAPA_DATOS_PERSONALES + CATALOGO_SIN_PII con cobertura verificada 100% (39/39 modelos, 507/507 columnas concretas) y causales legales verificadas sin placeholders [verificar] (probado en Bloque3ArcoHmacCifradoYPurgaTestCase).",
+      "remediation": "Trámite legal e infraestructura: completar placeholders societarios [COMPLETAR] tras escritura y validar inventario tras migración a BD pagada, Object Storage S3/R2 y proveedor SMTP."
     },
     "gov-politicas": {
       "status": "partial",
-      "evidence": "Publicada en frontend/src/app/(public)/privacidad/page.tsx:1-159 y enlazada en footer (frontend/src/app/(public)/page.tsx:680). Faltan menciones exigidas por Art. 14 ter: versión/fecha exacta, RUT/domicilio/representante, derecho de oposición (Art. 8), revocación de consentimiento (k), reclamo ante APDP (g), decisiones automatizadas (l), origen de datos (j), transferencias internacionales a EE.UU. y garantía (h), y rol de Encargado (Art. 15 bis). Borrador completo generado en .compliance/docs/21719-politica-privacidad.md.",
-      "remediation": "Actualizar frontend/src/app/(public)/privacidad/page.tsx con el texto completo de .compliance/docs/21719-politica-privacidad.md una vez completados los datos societarios."
+      "evidence": "frontend/src/app/(public)/privacidad/page.tsx:1-240 publica versión 1.0 (25-11-2026) con todas las menciones Art. 14 ter. .compliance/docs/21719-politica-privacidad.md actualizado tras el cierre de Bloques 1-4. Pendiente únicamente identificar razón social, RUT, domicilio y representante definitivos (letras b y c).",
+      "remediation": "Trámite legal: actualizar líneas 38-46 de privacidad/page.tsx con la razón social, RUT, domicilio legal y representante definitivos al finalizar la escritura."
     },
     "gov-denuncias": {
       "status": "partial",
-      "evidence": "Existe canal ARCO en frontend/src/app/(public)/derechos-arco/page.tsx y Buzón Ley Karin en frontend/src/app/(public)/participacion/[uid]/buzon/page.tsx. Sin embargo, ContactoPermission en backend/modulo_prevencion/views.py:215-225 exige autenticación para POST /api/contacto/, bloqueando mensajes anónimos desde /contacto; además falta correo oficial operativo y flujo de respuesta por email.",
-      "remediation": "Habilitar casilla oficial operativa de privacidad, permitir POST público con throttling en /api/contacto/ (o alinear UI) y habilitar notificaciones salientes en producción."
+      "evidence": "ContactoPermission corregido (views.py) permitiendo POST público con AnonRateThrottle y restringiendo lectura GET a staff/superuser; Buzón Ley Karin operativo en participacion/[uid]/buzon; canal ARCO en /derechos-arco. Sigue pendiente casilla oficial definitiva y SMTP saliente en runtime (contacto/page.tsx).",
+      "remediation": "Infraestructura externa y trámite legal: habilitar casilla oficial operativa + proveedor SMTP transaccional con DPA al migrar a pago, y actualizar datos reales de contacto en contacto/page.tsx."
     },
     "data-rights-channel": {
       "status": "partial",
-      "evidence": "Formulario público operativo en frontend/src/app/(public)/derechos-arco/page.tsx:1-251 conectado a POST /api/privacidad/solicitar-derecho/ (backend/modulo_prevencion/views.py:3418-3434) y endpoint de consulta GET /api/privacidad/consultar-derecho/<uuid>/ (views.py:3436-3444). No existe vista frontend para consultar seguimiento por UUID, no hay interfaz ni endpoints autenticados de gestión para que el responsable resuelva solicitudes, SolicitudDerechoARCO no está en backend/modulo_prevencion/admin.py, y /derechos-arco no está enlazado en el footer de (public)/page.tsx:679-685.",
-      "remediation": "Registrar SolicitudDerechoARCO en admin.py, construir pantalla/API interna para tramitar y responder solicitudes en plazo (30 días corridos / 2 días hábiles bloqueo), agregar consulta por UUID en UI y enlazar /derechos-arco en footer."
+      "evidence": "frontend/src/app/(public)/derechos-arco/page.tsx publica formulario + pestaña Consultar Estado por UUID; endpoints /api/privacidad/{portabilidad,rectificar,suprimir,oponer,ejecutar-solicitud}/ operativos; SolicitudDerechoARCOAdmin en admin.py:477-538. Pendiente únicamente acuses/respuestas automáticas por correo al activar SMTP + casilla oficial definitiva.",
+      "remediation": "Infraestructura externa y trámite legal: integrar proveedor SMTP con DPA para acuses de recibo y respuestas escritas Art. 11, y definir casilla oficial de privacidad."
     },
     "data-licitud": {
       "status": "partial",
-      "evidence": "Flujos SST obligatorios (InvestigacionAccidente, DenunciaLeyKarin, EntregaEPP, RegistroCapacitacion) se fundan en obligación legal laboral/seguridad social (Art. 13 b, Art. 16 e/f) por cuenta del cliente (Art. 15 bis). Cuentas de usuarios tienen base contractual (Art. 13 c). Sin embargo, formularios públicos comerciales ((auth)/registro/page.tsx, (public)/capacitaciones/page.tsx, (public)/contacto/page.tsx) y reportes opcionales no diferencian base contractual vs consentimiento ni capturan consentimiento válido cuando corresponde.",
-      "remediation": "Implementar captura de aceptación contractual/Términos y consentimiento opt-in separado donde aplique (registro, cotizaciones, contacto, reportes opcionales) y suscribir DPAs (Art. 15 bis) con clientes."
+      "evidence": "Brecha técnica de código cerrada: frontend/src/app/(public)/participacion/[uid]/reportar/page.tsx y ReporteRiesgoPublicoCreateView exigen opt-in no premarcado (acepta_privacidad) y graban RegistroConsentimiento cuando se ingresan datos opcionales (validado en Bloque2ConsentimientoInmutabilidadYReadLogsTestCase), sumándose a Registro, Contacto, Capacitaciones y Buzón. Único pendiente externo: aceptación electrónica del DPA Art. 15 bis en onboarding comercial B2B.",
+      "remediation": "Legal/Comercial: incorporar firma/aceptación electrónica del DPA (21719-dpa.md) en onboarding de clientes B2B."
     },
     "data-consent-text": {
-      "status": "fail",
-      "evidence": "Formularios en frontend/src/app/(auth)/registro/page.tsx:122-192, (public)/capacitaciones/page.tsx:401-609 y (public)/contacto/page.tsx:116-186 carecen de checkboxes de consentimiento no premarcados y avisos cortos. No existe modelo de consentimientos en backend/modulo_prevencion/models.py para registrar versión de política, hash, timestamp, IP ni revocación (carga de la prueba Art. 12).",
-      "remediation": "Crear modelo append-only RegistroConsentimiento (version_politica, hash, categorias, ip, user_agent, fecha_otorgamiento, fecha_revocacion), agregar checkboxes no premarcados en formularios aplicables y botón de revocación gratuita en /panel/perfil."
+      "status": "pass",
+      "evidence": "Sube a PASS: Opt-in no premarcado, aviso Art. 14 ter y RegistroConsentimiento implementado en todos los flujos aplicables incluyendo reportar/page.tsx y ReporteRiesgoPublicoCreateView; RegistroConsentimiento hereda ImmutableAppendOnlyMixin (models.py:1949-1975, 3644) bloqueando .save() existente, .delete(), QuerySet.update() y QuerySet.delete() a nivel ORM; revocación gratuita 1-clic en /panel/perfil y OposicionTratamientoView (sin email marketing saliente activo en runtime).",
+      "remediation": "Operativo futuro al habilitar SMTP: incluir enlace directo de desuscripción en correos comerciales."
     },
     "data-derechos": {
-      "status": "fail",
-      "evidence": "BRECHA CRÍTICA en PortabilidadDatosView (backend/modulo_prevencion/views.py:3446-3498): permission_classes = [permissions.AllowAny] entrega datos laborales de Trabajador y EntregaEPP a cualquier anónimo que envíe ?rut=... sin verificar identidad. Además, falta exportación integral (solo cubre Trabajador y EntregaEPP, omitiendo Usuario, DenunciaLeyKarin, InvestigacionAccidente, RegistroCapacitacion, etc.), no existen operaciones de rectificación/supresión/anonimización/oposición sobre las tablas, y SolicitudDerechoARCO.bloqueo_provisional_activo (models.py:3358) no bloquea el tratamiento en ningún endpoint ni notifica rechazo a la Agencia en 2 días hábiles (Art. 11).",
-      "remediation": "1) Cerrar inmediatamente PortabilidadDatosView exigiendo autenticación/ownership o verificación de identidad (OTP/token firmado) y mapa completo de tablas. 2) Implementar mapa declarativo de datos personales y pipeline transaccional de acceso, portabilidad (JSON/CSV), rectificación, supresión/anonimización respetando retención legal (Art. 7 ii), oposición y bloqueo transversal real."
+      "status": "partial",
+      "evidence": "Avance mayor en código: 1) ARCOBloqueoProvisionalMiddleware (middleware.py + settings.py) bloquea con HTTP 423 Locked mutaciones operativas cuando SolicitudDerechoARCO.bloqueo_provisional_activo=True y audita ARCO_BLOQUEO_IMPEDIMENTO; SolicitudDerechoARCO incorpora fecha_limite_bloqueo_2d (2 días hábiles Art. 11) y registrar_rechazo_bloqueo_apdp; 2) backend/modulo_prevencion/arco.py implementa mapa declarativo 100% (39/39 modelos, 507 columnas) y ejecuciones transaccionales reales en RectificacionDatosView, SupresionAnonimizacionView, OposicionTratamientoView y EjecutarSolicitudARCOView; 3) PortabilidadDatosView exporta JSON y ?formato=csv (con escape contra formula injection), incorpora ReporteRiesgo, Inspeccion, SugerenciaLaboral, RegistroConsentimiento y DenunciaLeyKarin resumen mediante blind index rut_hmac. Pendiente únicamente verificación OTP por correo para titulares trabajadores externos sin cuenta cuando se habilite SMTP.",
+      "remediation": "Infraestructura externa (sin brecha técnica de código): integrar verificación OTP vía proveedor SMTP para titulares externos sin cuenta autenticada al pasar a capa de pago."
     },
     "data-info": {
       "status": "partial",
-      "evidence": "Existen avisos cortos en frontend/src/app/(public)/participacion/[uid]/buzon/page.tsx:545-556, reportar/page.tsx:186-191 y capacitaciones/firmar/[uid]/page.tsx:360-371. Faltan avisos cortos en (auth)/registro/page.tsx, (public)/capacitaciones/page.tsx, (public)/contacto/page.tsx y ModalNuevaEntrega.tsx; los avisos existentes remiten a /privacidad aún incompleta respecto al Art. 14 ter.",
-      "remediation": "Incorporar avisos cortos Art. 14 ter en todos los puntos de captura y actualizar /privacidad."
+      "evidence": "Brecha técnica de código cerrada: ModalQRFirmaMovilEPP.tsx:224-236 muestra aviso informativo Art. 14 ter (Encargado/Responsable, SST 5 años, enlaces a /privacidad y /derechos-arco) junto con registro, contacto, capacitaciones, reportar, buzon, ModalNuevaEntrega y firma capacitación. Sigue partial únicamente porque la Política enlazada en /privacidad aguarda razón social, RUT y domicilio definitivos.",
+      "remediation": "Trámite legal: completar datos societarios en /privacidad tras cierre de escritura."
     },
     "data-minimizacion": {
       "status": "partial",
-      "evidence": "DocumentoUsuarioViewSet.perform_create (views.py:422-430) rota a máximo 5 copias; EmpresaViewSet.destroy (views.py:2080-2092), TrabajadorViewSet.destroy (views.py:2166-2177), InvestigacionAccidenteViewSet.destroy (views.py:948-952), DenunciaLeyKarinViewSet.destroy (views.py:2195-2203) y EntregaEPPViewSet.destroy (views.py:2747-2751) protegen registros SST de borrado prematuro. Brechas: no existe verificación de vencimiento del plazo de 5 años ni job/cron de purga o anonimización al expirar plazos (retención perpetua de facto); PublicoEmpresasListView (views.py:1852-1873) lista todas las empresas del prevencionista sin filtrar cuando falta ?empresa=.",
-      "remediation": "Implementar política de retención ejecutable (cron/management command) que verifique fecha de corte (5 años SST, 3-6 años tributario, 12 meses leads, 90 días cuentas cerradas) y anonimice/suprima datos vencidos; restringir PublicoEmpresasListView para no exponer cartera completa de clientes."
+      "evidence": "Brecha técnica de código cerrada: purgar_datos_vencidos.py (--incluir-sst) extendido para anonimizar >5 años (1.825 días) InvestigacionAccidente (y limpiar rut_hmac), DenunciaLeyKarin finalizadas/derivadas y RegistroCapacitacion.asistentes JSON cifrados respetando bloqueos ARCO (probado en test_brecha_responsable_y_purga_sst_5_anos); PublicoEmpresasListView restringida. Pendiente únicamente programación cron en entorno pagado y limpieza automática de adjuntos al migrar a S3/R2.",
+      "remediation": "Infraestructura de pago: programar ejecución cron periódica de purgar_datos_vencidos en producción y extender purga a objetos S3/R2 vencidos >5 años."
     },
     "data-dpa": {
       "status": "partial",
-      "evidence": "No existía contrato de encargado (Art. 15 bis) para clientes ni registro de DPAs con Render/Vercel. Se genera borrador de DPA en .compliance/docs/21719-dpa.md.",
-      "remediation": "Integrar aceptación contractual del DPA (Art. 15 bis) en el onboarding/Términos para clientes B2B y suscribir DPAs de sub-encargo con Render y Vercel al migrar a planes de pago."
+      "evidence": "Borrador de DPA cliente B2B redactado en .compliance/docs/21719-dpa.md (Art. 15 bis). Sigue pendiente aceptación electrónica/contractual integrada en onboarding B2B y DPAs comerciales con Render y Vercel.",
+      "remediation": "Legal/Comercial + Infraestructura pago: completar datos societarios en 21719-dpa.md, integrar aceptación DPA en onboarding B2B y suscribir DPAs de sub-encargo con Render/Vercel al pasar a pago."
     },
     "data-transfer": {
-      "status": "fail",
-      "evidence": "Backend y PostgreSQL alojados en Render (render.yaml) y frontend en Vercel (frontend/vercel.json), ambos en EE.UU. (país sin decisión de adecuación vigente de la APDP). Open-Meteo (views.py:3308-3348) solo recibe coordenadas sin PII. La política publicada en /privacidad/page.tsx:102 no informa países de destino ni mecanismo de garantía (Art. 14 ter h) y no existen anexos firmados con las Cláusulas Contractuales Modelo (RAEX202503748). Se genera .compliance/docs/21719-anexo-transferencias.md.",
-      "remediation": "Ejecutar e incorporar DPAs + Cláusulas Contractuales Modelo (RAEX202503748) o garantías equivalentes con Render y Vercel antes de producción real, y declarar transferencias y mecanismos en /privacidad."
+      "status": "partial",
+      "evidence": "privacidad/page.tsx:140-158 declara sub-encargados en EE.UU. (Render y Vercel), Open-Meteo sin PII y Cláusulas Modelo RAEX202503748, complementado con FIELD_ENCRYPTION_KEY obligatoria en prod (crypto.py:50-53). Pendiente exclusivo de infra pago/legal: suscribir DPAs comerciales + Cláusulas Modelo RAEX202503748.",
+      "remediation": "Infraestructura de pago y trámite legal: suscribir DPAs + Cláusulas Contractuales Modelo RAEX202503748 con Render, Vercel y futuros servicios (S3/R2, SMTP)."
     },
     "data-eipd": {
       "status": "partial",
-      "evidence": "Evaluación Art. 15 ter resuelta como OBLIGATORIA (datos sensibles de salud laboral y denuncias Ley Karin bajo excepción legal, Art. 15 ter d). No existía EIPD en el repo; se genera .compliance/docs/21719-eipd.md.",
-      "remediation": "Cerrar las medidas de mitigación técnicas identificadas en la EIPD (cerrar PortabilidadDatosView, separar FIELD_ENCRYPTION_KEY, corregir sw.js, migrar a BD/almacenamiento persistente) antes de salir a producción real."
+      "evidence": "EIPD (21719-eipd.md) actualizada tras el cierre de Bloques 1-4: riesgos de aplicación R1, R2 (JSON/HMAC/key obligatoria), R3 (MFA Admin + read audit), R5 (HttpOnly + memoria + IndexedDB TTL) y R6 (QR tenant) mitigados en código y validados por tests (87/87 OK). Abiertos R4 (infraestructura gratuita sin PITR/S3) y R7 (DPAs/Cláusulas Modelo sin firmar).",
+      "remediation": "Infraestructura y trámite legal: migrar a BD/Storage de pago con backups PITR, firmar DPAs/Cláusulas Modelo y aprobar versión final pre-producción."
     },
     "data-privacy-by-design": {
-      "status": "partial",
-      "evidence": "Positivo: DenunciaLeyKarinListSerializer (serializers.py:589-620) enmascara identidad en listado; RegistroCapacitacionViewSet.detalles_publicos (views.py:1241) usa UUID y no expone username; ClimaUvView (views.py:3261-3264) oculta razón social a anónimos; logoutAuth (api.ts:186-215) purga localStorage, sessionStorage, caches e IndexedDB. Brechas: frontend/public/sw.js:74-84 usa prefijos desactualizados (/api/epp, /api/denuncias, /api/capacitaciones/registro) que NO coinciden con las rutas reales (/api/entregas-epp, /api/denuncias-ley-karin, /api/registro-capacitacion, /api/sugerencias-laborales, /api/privacidad), y cachea /panel/* en DYNAMIC_CACHE; JWT access y refresh se duplican en localStorage (ingreso/page.tsx:51-52, registro/page.tsx:67-68, api.ts:83-85); PortabilidadDatosView permite acceso anónimo por RUT.",
-      "remediation": "Actualizar RUTAS_DATOS_PERSONALES en sw.js a las rutas reales y excluir /panel/* del cacheo; migrar tokens a cookies HttpOnly puras o memoria sin refresh_token en localStorage; cerrar PortabilidadDatosView."
+      "status": "pass",
+      "evidence": "Sube a PASS: 1) Retirados access_token, refresh_token y user_info de localStorage en frontend (api.ts, useAuth.ts, ingreso, registro y vistas dashboard/públicas), operando con cookie HttpOnly refresh_token + access_token solo en memoria + SessionStatusView (/api/auth/session/); 2) offlineStorage.ts aplica TTL automático (24h caché / 72h cola), purgarOfflineExpirados() y limpiarTodoOfflineStorage() en logout/fallo de refresh; 3) sw.js v1.2 excluye 29 rutas API y vistas privadas; 4) QR públicos validan pertenencia multi-tenant de centro_trabajo; verified grep 0 localStorage tokens + npm run build OK.",
+      "remediation": ""
     },
     "data-pseudonym": {
-      "status": "partial",
-      "evidence": "Uso de UUIDs públicos (Usuario, ReporteRiesgo, RegistroCapacitacion, DenunciaLeyKarin, SolicitudDerechoARCO) y codigo_seguimiento (KARIN-YYYY-XXXXXXXX en models.py:1834-1836). No existe blind index HMAC para búsquedas por RUT/email ni seudonimización en BD o caché offline.",
-      "remediation": "Implementar blind index HMAC-SHA256 para búsquedas por RUT cifrado en DenunciaLeyKarin, InvestigacionAccidente y Trabajador, y seudonimizar datos en almacenamiento offline."
+      "status": "pass",
+      "evidence": "Sube a PASS: Implementado blind index determinístico HMAC-SHA256 (rut_hmac, 64 chars hex) con clave dedicada separada BLIND_INDEX_KEY (settings.py, crypto.py:65-106, render.yaml, .env.example, security-compliance.yml) en InvestigacionAccidente (models.py:1262) y DenunciaLeyKarin (models.py:1886) + backfill en migración 0032 y cifrar_y_rotar_campos.py; arco.py reemplaza escaneo en memoria por consulta indexada rut_hmac; UUIDs públicos y DenunciaLeyKarinListSerializer enmascarado; validado en Bloque3ArcoHmacCifradoYPurgaTestCase.",
+      "remediation": ""
     },
     "sec-tls": {
-      "status": "partial",
-      "evidence": "next.config.ts:15-33 configura HSTS (max-age=63072000), X-Frame-Options, nosniff y Referrer-Policy. settings.py:189-192 activa SECURE_PROXY_SSL_HEADER y cookies Secure/HttpOnly cuando DEBUG=False, y ssl_require=True para DB remota en Render (settings.py:126-127). Brechas: falta SECURE_SSL_REDIRECT = not DEBUG y HSTS en Django settings.py; CORS_ALLOWED_ORIGIN_REGEXES (settings.py:261-263) permite wildcard ^https:\\/\\/.*\\.vercel\\.app$.",
-      "remediation": "Agregar SECURE_SSL_REDIRECT, SECURE_HSTS_SECONDS y SECURE_CONTENT_TYPE_NOSNIFF en backend/core/settings.py cuando DEBUG=False, y restringir CORS/CSRF al dominio productivo exacto de Vercel."
+      "status": "pass",
+      "evidence": "settings.py activa SECURE_SSL_REDIRECT, SECURE_HSTS_SECONDS=31536000 (subdomains + preload), SECURE_CONTENT_TYPE_NOSNIFF y cookies Secure/HttpOnly cuando IS_RENDER_PROD; BD remota exige SSL; CORS/CSRF sin wildcard *.vercel.app en prod; frontend/next.config.ts aplica HSTS, X-Frame-Options, nosniff y Referrer-Policy.",
+      "remediation": ""
     },
     "sec-rest": {
       "status": "partial",
-      "evidence": "Existe EncryptedTextField (Fernet AES-128-CBC + HMAC-SHA256, backend/modulo_prevencion/crypto.py:1-70) en 4 campos: DenunciaLeyKarin (descripcion_circunstanciada, testigos_o_evidencias, medidas_resguardo_detalle) e InvestigacionAccidente (descripcion_evento). Brechas: 1) FIELD_ENCRYPTION_KEY no está definida en settings.py, .env.example ni render.yaml, derivándose de SECRET_KEY (crypto.py:15-20) — rotar SECRET_KEY rompe el descifrado y descifrar_texto() retorna ciphertext silenciosamente (crypto.py:45-46). 2) Deja en texto plano identidad/RUT/contacto de denunciantes/denunciados, RUT/nombre/lesión/causas de accidentes, firmas digitales (Base64 PNG) y archivos FileField en disco efímero sin cifrado. 3) En capa gratuita Render PostgreSQL no ofrece KMS dedicado.",
-      "remediation": "Definir FIELD_ENCRYPTION_KEY independiente (idealmente en KMS/Secret Manager al migrar a pago) con soporte de rotación (MultiFernet), cifrar RUTs/identidad de denuncias y lesiones/causas de accidentes, y mover FileFields a Object Storage privado cifrado."
+      "evidence": "Todas las brechas de código cerradas: EncryptedJSONField (crypto.py:173-238, migración 0032 RunPython) cifra en reposo causas_inmediatas, causas_basicas, analisis_5_porques, arbol_de_causas en InvestigacionAccidente y RegistroCapacitacion.asistentes (nómina/RUT/firmas), sumándose a migración 0030; crypto.py:50-53 y settings.py exigen FIELD_ENCRYPTION_KEY obligatoria (ImproperlyConfigured cuando not DEBUG). Pendiente exclusivo de infraestructura pago: migrar FileField (anexo_67, DocumentoContratista.archivo, foto_evidencia) de FileSystemStorage efímero a Object Storage privado S3/R2 con SSE-KMS y usar Secret Manager/KMS.",
+      "remediation": "Infraestructura de pago: migrar FileFields a S3/R2 privado con SSE-KMS y alojar llaves en Secret Manager/KMS al pasar a producción."
     },
     "sec-passwords": {
-      "status": "partial",
-      "evidence": "Django AUTH_PASSWORD_VALIDATORS configurado en settings.py:160-173 y hasheo PBKDF2-SHA256 por defecto en AbstractUser. Brecha: RegisterSerializer (serializers.py:97-123) y UsuarioViewSet.perfil (views.py:811-814) NO ejecutan validate_password(), permitiendo contraseñas triviales (ej. '123') y cambio de clave sin verificar contraseña actual; tampoco se usa Argon2/Bcrypt.",
-      "remediation": "Invocar django.contrib.auth.password_validation.validate_password() en RegisterSerializer y perfil, exigir current_password al cambiar clave y evaluar Argon2PasswordHasher."
+      "status": "pass",
+      "evidence": "AUTH_PASSWORD_VALIDATORS incluye validadores estándar + HIBPPasswordValidator (validators.py:16-53); RegisterSerializer y UsuarioViewSet.perfil ejecutan validate_password(); cambio de clave exige current_password + password_confirm auditado con PASSWORD_CHANGE; hashing PBKDF2-SHA256; validado en suite completa.",
+      "remediation": ""
     },
     "sec-mfa": {
-      "status": "fail",
-      "evidence": "Sin implementación de MFA/2FA (TOTP, códigos de respaldo ni WebAuthn) en backend ni frontend (verificado en models.py, views.py, requirements.txt, package.json). Tampoco en panel superadmin/Django Admin (sst-control-panel/); además superadmin/page.tsx:36 y admin-moderador/page.tsx:82 aún apuntan a /admin/ que da 404.",
-      "remediation": "Implementar MFA TOTP (pyotp / django-otp o equivalente + códigos de respaldo hasheados + rate limiting) obligatorio para cuentas is_staff, is_superuser y roles corporativos con acceso a Ley Karin/Accidentes, y corregir enlaces al panel admin."
+      "status": "pass",
+      "evidence": "Sube a PASS: Además del MFA TOTP RFC 6238 en API/Next.js (mfa.py, MFAJWTAuthentication, 8 backup codes PBKDF2, anti-replay, UI QR), admin.py:679-725 + templates/admin/mfa_login.html + core/urls.py implementan MFAAdminSite y MFAAdminAuthenticationForm exigiendo mfa_enabled=True y verificación TOTP/backup code (verificar_segundo_factor_usuario + sesión mfa_admin_verified_uid) en /sst-control-panel/, auditando MFA_OK/MFA_FAIL/LOGIN_OK (probado en Bloque1AdminMfaSessionYQrTenantTestCase).",
+      "remediation": ""
     },
     "sec-logs": {
       "status": "partial",
-      "evidence": "Existe AuditLogAccesoDenuncia (models.py:1869-1910) con IP real vía get_client_ip(request) y NUM_PROXIES (views.py:1720-1733), registrando aperturas, medidas y derivaciones de DenunciaLeyKarin. Brechas: no existe audit log transversal para InvestigacionAccidente, Trabajador, EntregaEPP, PortabilidadDatosView, SolicitudDerechoARCO, Usuario (cambios de plan/clave) ni intentos fallidos de login; el modelo tampoco bloquea update/delete a nivel ORM/BD; logs de Render Free son efímeros.",
-      "remediation": "Crear modelo transversal AuditLogSeguridad (append-only, con actor, IP, user-agent, recurso, acción, timestamp BD) para todos los accesos/mutaciones a datos sensibles, exportaciones ARCO y eventos auth, con retención persistente al migrar a pago."
+      "evidence": "Todas las brechas de código cerradas: 1) AuditedRetrieveMixin (views.py:93+) registra lecturas ACCIDENTE_READ, TRABAJADOR_READ y EPP_READ en AuditLogEventoSeguridad en retrieve() (probado en Bloque2ConsentimientoInmutabilidadYReadLogsTestCase); 2) ImmutableAppendOnlyMixin + ImmutableAppendOnlyQuerySet (models.py:1949-1975) bloquea ORM save() existente, delete(), QuerySet.update() y QuerySet.delete() en AuditLogAccesoDenuncia, AuditLogEventoSeguridad y RegistroConsentimiento. Pendiente exclusivo de infraestructura: agregador externo persistente (BetterStack/Sentry) para stdout en producción.",
+      "remediation": "Infraestructura de pago: conectar stdout estructurado hdprevencion.security a BetterStack/Sentry para retención persistente de logs."
     },
     "sec-tenant": {
-      "status": "partial",
-      "evidence": "Aislamiento multi-tenant por usuarios_grupo en ViewSets principales (Empresa, CentroTrabajo, Trabajador, DenunciaLeyKarin, InvestigacionAccidente, EntregaEPP, CPHS, MIPER, MatrizLegal) y sanitización de cuenta_padre en RegisterSerializer. Brechas: 1) PortabilidadDatosView (views.py:3446-3498) rompe totalmente el aislamiento (AllowAny por RUT). 2) ContratistaViewSet.dashboard (views.py:1937,1954) y SugerenciaConsultaViewSet (views.py:1689) no usan usuarios_grupo. 3) perform_update en varios ViewSets (CentroTrabajo, Trabajador, Contratista hijos) no re-valida ownership de FKs reasignadas. 4) InvestigacionAccidenteViewSet.estadisticas (views.py:1090,1092) filtra Trabajador(activo=True) en lugar de estado='ACTIVO'.",
-      "remediation": "Cerrar PortabilidadDatosView, unificar filtros con get_usuarios_grupo en todos los ViewSets y dashboard, validar ownership de FKs en perform_update/serializers y corregir filtro estado=Trabajador.ESTADO_ACTIVO."
+      "status": "pass",
+      "evidence": "Sube a PASS: Cerrada la última brecha QR en código: ReporteRiesgoPublicoCreateView, SugerenciaConsultaPublicaCreateView y DenunciaLeyKarinPublicaCreateSerializer validan pertenencia estricta de centro_trabajo a empresa y usuarios_grupo (unificando get_usuarios_grupo y rechazando cross-tenant con HTTP 400), sumado a validar_integridad_tenant, PortabilidadDatosView, ContratistaViewSet y tests multi-tenant + auditar_ley21719 100%.",
+      "remediation": ""
     },
     "sec-secrets": {
       "status": "pass",
-      "evidence": ".gitignore:11-13 excluye .env y *.env; git grep no detecta secretos hardcodeados en el repo; settings.py:26-31 exige SECRET_KEY/DJANGO_SECRET_KEY de entorno y falla con ImproperlyConfigured si falta; render.yaml:14-15 usa generateValue: true.",
-      "remediation": "Preventivo al migrar a producción: separar FIELD_ENCRYPTION_KEY en gestor de secretos/variables seguras y limpiar variables heredadas no usadas en runtime (.env.example: GEMINI_API_KEY, ADMIN_NUMBER)."
+      "evidence": ".gitignore excluye .env; settings.py exige SECRET_KEY y FIELD_ENCRYPTION_KEY obligatoria cuando not DEBUG (crypto.py:50-53); BLIND_INDEX_KEY separada en settings.py, .env.example, render.yaml y security-compliance.yml; Gitleaks en CI.",
+      "remediation": "Operativo en producción: alojar llaves en Secret Manager/KMS al pasar a pago."
     },
     "sec-backups": {
       "status": "fail",
-      "evidence": "Despliegue actual en capa gratuita de Render (render.yaml:5 plan: free) con PostgreSQL gratuita (sin backups automáticos, sin PITR y con expiración periódica) y FileSystemStorage local efímero (settings.py:204) para MEDIA_ROOT (anexo 67, documentos contratistas, fotos). Sin procedimiento de respaldo cifrado ni pruebas de restauración.",
-      "remediation": "Bloqueante para salir a producción real: migrar PostgreSQL a plan de pago con backups automáticos cifrados y PITR, migrar FileFields a Object Storage privado persistente (S3/R2) y documentar/probar restauración y rotación de copias (30 días)."
+      "evidence": "Infraestructura sin cambios (etapa demo gratuita): render.yaml mantiene plan: free (PostgreSQL gratuita sin backups automáticos cifrados ni PITR) y settings.py mantiene FileSystemStorage local efímero para MEDIA_ROOT. En código ya existe purgar_datos_vencidos.py completo, pendiente de cron en producción.",
+      "remediation": "Infraestructura de pago (bloqueante antes de producción real): migrar a PostgreSQL de pago con backups diarios cifrados + PITR, migrar MEDIA_ROOT a S3/R2 privado persistente, programar cron purgar_datos_vencidos y probar restauración."
     },
     "inc-brechas": {
       "status": "partial",
-      "evidence": "Existe modelo RegistroBrechaSeguridad (models.py:3388-3480) y PROTOCOLO_BRECHAS_SEGURIDAD_LEY_21719.md. Brechas: 1) RegistroBrechaSeguridad no está registrado en admin.py ni expuesto en endpoints/panel (modelo huérfano). 2) El protocolo previo cita plazo de 72 horas (GDPR, no Art. 14 sexies que exige 'sin dilaciones indebidas'), omite aviso a titulares para datos económicos/financieros y notificación al cliente Responsable cuando se actúa como Encargado (Art. 15 bis). Generados .compliance/docs/21719-plan-respuesta-brechas.md y 21719-registro-vulneraciones.md.",
-      "remediation": "Registrar RegistroBrechaSeguridad en admin/panel interno, corregir campos (agregar notificación a cliente responsable y categoría económica/financiera) y adoptar el plan actualizado en .compliance/docs/21719-plan-respuesta-brechas.md."
+      "evidence": "Brecha técnica de código cerrada: RegistroBrechaSeguridad (models.py:3573+) y RegistroBrechaSeguridadAdmin (admin.py:542+) ahora incorporan datos_economicos_financieros (Art. 14 sexies inc. 3°) y empresa_responsable, notificado_responsable, fecha_notificacion_responsable y contacto_responsable_notificado (Art. 15 bis inc. 4°), migrado en 0032 y probado en Bloque3ArcoHmacCifradoYPurgaTestCase. Pendiente: formalización de razón social en docs y envío SMTP activo.",
+      "remediation": "Legal/Infraestructura: reemplazar razón social definitiva tras escritura y configurar correo de incidentes con SMTP al pasar a pago."
     },
     "sec-monitoring": {
-      "status": "fail",
-      "evidence": "Solo existe auditoría manual bajo demanda (auditar_sistema.py / auditar_ley21719.py, el cual incluso da por bueno el endpoint inseguro de portabilidad sin auth en auditar_ley21719.py:536). No existe .github/workflows/ (sin Gitleaks/secret scanning ni CI de tests), sin integración de logs/alertas (BetterStack/Sentry), sin chequeo HIBP ni alertas ante eventos sensibles o errores.",
-      "remediation": "Montar secret scanning (Gitleaks + GitHub push protection), CI de tests, agregador de logs con alertas sobre eventos críticos de seguridad (brechas, fallos auth masivos, exportaciones ARCO) y chequeo Pwned Passwords en registro/cambio de clave."
+      "status": "partial",
+      "evidence": "Brechas de código y tests cerradas: corregidos los 2 tests legados (CapacitacionIntegrationTestCase.test_detalles_publicos_anonimo y ClimaUvTestCase.test_radiacion_uv_ds594_y_estres_termico_json), alcanzando 87/87 tests Django aprobados (0 fallos), auditar_ley21719 100% (7/7 suites) y npm run build 0 errors; .github/workflows/security-compliance.yml ejecuta la suite completa + trigger semanal schedule ('0 6 * * 1'). Pendiente exclusivo de infraestructura: agregador externo con alertas activas (BetterStack/Sentry).",
+      "remediation": "Infraestructura de pago: conectar stdout a BetterStack/Sentry con alertas sobre LOGIN_FAIL masivo, MFA_FAIL, ARCO_BLOQUEO_IMPEDIMENTO y EXPORT_PORTABILIDAD."
     }
   },
   "frameworks": {
     "ley-21719": {
-      "score": 0.4,
+      "score": 0.64,
       "controls_required": 25,
-      "pass": 1,
-      "partial": 18,
-      "fail": 6,
+      "pass": 8,
+      "partial": 16,
+      "fail": 1,
       "unknown": 0
     }
   }

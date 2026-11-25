@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, getApiUrl } from "../../../utils/api";
 
 interface PlantillaInspeccion {
   id: number;
@@ -50,11 +50,8 @@ export default function InspeccionesPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const fetchInspecciones = async () => {
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl("/api/inspecciones/"), {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
-      });
+      const res = await authFetch(getApiUrl("/api/inspecciones/"));
       if (!res.ok) throw new Error("Error al obtener el historial de inspecciones.");
       const data = await res.json();
       setInspecciones(data);
@@ -64,11 +61,8 @@ export default function InspeccionesPage() {
   };
 
   const fetchPlantillas = async () => {
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl("/api/plantillas-inspeccion/"), {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
-      });
+      const res = await authFetch(getApiUrl("/api/plantillas-inspeccion/"));
       if (!res.ok) throw new Error("Error al cargar las listas de verificación.");
       const data = await res.json();
       setPlantillas(data);
@@ -135,14 +129,12 @@ export default function InspeccionesPage() {
 
     setSaving(true);
     setSaveError(null);
-    const token = localStorage.getItem("access_token");
 
     try {
-      const res = await fetch(getApiUrl("/api/inspecciones/"), {
+      const res = await authFetch(getApiUrl("/api/inspecciones/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify({
           plantilla: plantillaActiva?.id,

@@ -2,32 +2,25 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ensureAccessToken, getTokenPayload } from "../../utils/api";
 
 export default function PanelRouter() {
   const router = useRouter();
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
+    const resolvePanel = async () => {
+      const token = await ensureAccessToken();
+      if (!token) {
+        router.push("/ingreso");
+        return;
+      }
 
-    if (!token) {
-      router.push("/ingreso");
-      return;
-    }
+      const decoded = getTokenPayload();
+      if (!decoded) {
+        router.push("/ingreso");
+        return;
+      }
 
-    try {
-      // Decodificar el payload del token JWT
-      const base64Url = token.split(".")[1];
-      const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
-      const jsonPayload = decodeURIComponent(
-        window
-          .atob(base64)
-          .split("")
-          .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-          .join("")
-      );
-      const decoded = JSON.parse(jsonPayload);
-
-      // Redirección inteligente basada en rol / permisos
       if (decoded.is_superuser) {
         router.push("/panel/superadmin");
       } else if (decoded.is_staff) {
@@ -37,9 +30,9 @@ export default function PanelRouter() {
       } else {
         router.push("/panel/cliente");
       }
-    } catch (e) {
-      router.push("/ingreso");
-    }
+    };
+
+    void resolvePanel();
   }, [router]);
 
   return (

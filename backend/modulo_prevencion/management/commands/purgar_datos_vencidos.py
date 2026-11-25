@@ -7,10 +7,13 @@ from datetime import timedelta
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
+from modulo_prevencion.crypto import calcular_rut_hmac, normalizar_rut_blind_index
 from modulo_prevencion.models import (
     Contratista,
+    DenunciaLeyKarin,
     Empresa,
     EntregaEPP,
     InvestigacionAccidente,
@@ -27,7 +30,7 @@ MIN_RETENCION_SST_DIAS = 1825  # 5 años mínimos legales (Ley 16.744 / Circular
 
 
 def _normalizar_rut(rut: str) -> str:
-    return (rut or '').upper().replace('.', '').replace('-', '').strip()
+    return normalizar_rut_blind_index(rut)
 
 
 class Command(BaseCommand):
@@ -70,6 +73,8 @@ class Command(BaseCommand):
         )
         emails_bloqueados = {(b.email_titular or '').strip().lower() for b in bloqueos_activos if b.email_titular}
         ruts_bloqueados = {_normalizar_rut(b.rut_titular) for b in bloqueos_activos if b.rut_titular}
+        hmacs_bloqueados = {calcular_rut_hmac(r) for r in ruts_bloqueados if r}
+        hmacs_bloqueados.discard('')
 
         # 1. Mensajes de contacto > 12 meses
         contactos_candidatos = MensajeContacto.objects.filter(fecha_creacion__lt=corte_comercial)
@@ -119,8 +124,12 @@ class Command(BaseCommand):
             if not tiene_dependencias_sst:
                 cuentas_anonimizables.append(u)
 
-        # 4. Trabajadores desvinculados > 5 años sin siniestros ni EPP dentro de los últimos 5 años
+        # 4. Trabajadores, accidentes, denuncias Ley Karin finalizadas y nóminas de capacitación > 5 años SST
         trabajadores_anonimizables = []
+        accidentes_anonimizables = []
+        denuncias_karin_anonimizables = []
+        capacitaciones_anonimizables = []
+
         if incluir_sst:
             trab_candidatos = Trabajador.objects.filter(
                 estado=Trabajador.ESTADO_DESVINCULADO,
@@ -137,6 +146,54 @@ class Command(BaseCommand):
                 )
                 if not tiene_recientes:
                     trabajadores_anonimizables.append(t)
+
+            acc_candidatos = InvestigacionAccidente.objects.filter(
+                fecha_hora_evento__lt=corte_sst,
+            )
+            for acc in acc_candidatos:
+                rut_norm_acc = _normalizar_rut(acc.rut_afectado)
+                if not rut_norm_acc or rut_norm_acc.startswith('ANON'):
+                    continue
+                if rut_norm_acc in ruts_bloqueados or (acc.rut_hmac and acc.rut_hmac in hmacs_bloqueados):
+                    continue
+                accidentes_anonimizables.append(acc)
+
+            karin_candidatos = DenunciaLeyKarin.objects.filter(
+                fecha_hora_ingreso__lt=corte_sst,
+                estado_tramite__in=[
+                    DenunciaLeyKarin.ESTADO_DERIVADA_DT,
+                    DenunciaLeyKarin.ESTADO_FINALIZADA,
+                ],
+            )
+            for dk in karin_candidatos:
+                rut_norm_dk = _normalizar_rut(dk.rut_denunciante)
+                if not rut_norm_dk or rut_norm_dk.startswith('ANON'):
+                    continue
+                if (
+                    rut_norm_dk in ruts_bloqueados
+                    or (dk.rut_hmac and dk.rut_hmac in hmacs_bloqueados)
+                    or (dk.correo_denunciante or '').strip().lower() in emails_bloqueados
+                ):
+                    continue
+                denuncias_karin_anonimizables.append(dk)
+
+            cap_candidatos = RegistroCapacitacion.objects.filter(
+                Q(fecha_realizacion__lt=corte_sst)
+                | Q(fecha_realizacion__isnull=True, fecha_creacion__lt=corte_sst)
+            )
+            for cap in cap_candidatos:
+                if not isinstance(cap.asistentes, list) or not cap.asistentes:
+                    continue
+                requiere_cambio = False
+                for a in cap.asistentes:
+                    if not isinstance(a, dict):
+                        continue
+                    rut_a = _normalizar_rut(str(a.get('rut', '')))
+                    if rut_a and not rut_a.startswith('ANON') and rut_a not in ruts_bloqueados:
+                        requiere_cambio = True
+                        break
+                if requiere_cambio:
+                    capacitaciones_anonimizables.append(cap)
 
         if not dry_run:
             with transaction.atomic():
@@ -161,12 +218,46 @@ class Command(BaseCommand):
                     t.correo = ""
                     t.telefono = ""
                     t.save(update_fields=['rut', 'nombres', 'apellidos', 'correo', 'telefono'])
+                for acc in accidentes_anonimizables:
+                    acc.nombre_afectado = "Titular Anonimizado"
+                    acc.rut_afectado = f"ANON-{acc.id}"
+                    acc.rut_hmac = ""
+                    acc.save(update_fields=['nombre_afectado', 'rut_afectado', 'rut_hmac'])
+                for dk in denuncias_karin_anonimizables:
+                    dk.rut_denunciante = f"ANON-{dk.id}"
+                    dk.rut_hmac = ""
+                    dk.nombre_denunciante = "Denunciante Anonimizado"
+                    dk.correo_denunciante = f"anon-{dk.id}@suprimido.invalid"
+                    dk.telefono_denunciante = ""
+                    dk.save(update_fields=[
+                        'rut_denunciante', 'rut_hmac', 'nombre_denunciante',
+                        'correo_denunciante', 'telefono_denunciante',
+                    ])
+                for cap in capacitaciones_anonimizables:
+                    nuevos = []
+                    for idx, a in enumerate(cap.asistentes, start=1):
+                        if not isinstance(a, dict):
+                            nuevos.append(a)
+                            continue
+                        rut_a = _normalizar_rut(str(a.get('rut', '')))
+                        if rut_a and not rut_a.startswith('ANON') and rut_a not in ruts_bloqueados:
+                            copia = dict(a)
+                            copia['nombre'] = "Asistente Anonimizado"
+                            copia['rut'] = f"ANON-{cap.id}-{idx}"
+                            nuevos.append(copia)
+                        else:
+                            nuevos.append(a)
+                    cap.asistentes = nuevos
+                    cap.save(update_fields=['asistentes'])
 
         resumen = (
             f"{'[DRY-RUN] ' if dry_run else ''}"
             f"contactos={len(contactos_purgables)}, "
             f"cotizaciones={len(cotizaciones_purgables)}, "
             f"cuentas_anonimizadas={len(cuentas_anonimizables)}, "
-            f"trabajadores_anonimizados={len(trabajadores_anonimizables)}"
+            f"trabajadores_anonimizados={len(trabajadores_anonimizables)}, "
+            f"accidentes_anonimizados={len(accidentes_anonimizables)}, "
+            f"denuncias_karin_anonimizadas={len(denuncias_karin_anonimizables)}, "
+            f"capacitaciones_anonimizadas={len(capacitaciones_anonimizables)}"
         )
         self.stdout.write(self.style.SUCCESS(f"Purga de retención completada: {resumen}"))

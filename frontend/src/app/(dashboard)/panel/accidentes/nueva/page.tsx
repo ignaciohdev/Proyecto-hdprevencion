@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../../../utils/api";
+import { authFetch, ensureAccessToken, getApiUrl } from "../../../../utils/api";
 
 interface ActionItem {
   medida: string;
@@ -83,7 +83,7 @@ export default function NuevaInvestigacionPage() {
     e.preventDefault();
     setLoading(true);
 
-    const token = localStorage.getItem("access_token");
+    const token = await ensureAccessToken();
     if (!token) {
       alert("Sesión no activa.");
       setLoading(false);
@@ -107,11 +107,10 @@ export default function NuevaInvestigacionPage() {
     };
 
     try {
-      const res = await fetch(getApiUrl("/api/accidentes/"), {
+      const res = await authFetch(getApiUrl("/api/accidentes/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
       });

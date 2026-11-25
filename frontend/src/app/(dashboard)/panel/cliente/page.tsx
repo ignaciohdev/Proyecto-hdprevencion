@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, ensureAccessToken, getApiUrl, getTokenPayload } from "../../../utils/api";
 import { ClimaUvWidget } from "../../../components/ClimaUvWidget";
 
 interface RiskStats {
@@ -210,18 +210,19 @@ export default function ClientePanel() {
   const loadDashboardData = async () => {
     setLoading(true);
     setError(null);
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const token = await ensureAccessToken();
     if (!token) {
       setLoading(false);
       return;
     }
 
+    const payload = getTokenPayload();
+    if (payload?.username) {
+      setUsername(payload.username);
+    }
+
     try {
-      const res = await fetch(getApiUrl("/api/dashboard/stats/"), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const res = await authFetch(getApiUrl("/api/dashboard/stats/"));
       if (!res.ok) throw new Error("Error al obtener los indicadores de analítica SST.");
       const stats: DashboardData = await res.json();
       setData(stats);
@@ -233,16 +234,7 @@ export default function ClientePanel() {
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("access_token");
-      if (token) {
-        try {
-          const payload = JSON.parse(window.atob(token.split(".")[1]));
-          setUsername(payload.username || "");
-        } catch (e) {}
-      }
-    }
-    loadDashboardData();
+    void loadDashboardData();
   }, []);
 
   // --- CÁLCULO DEL SCORE GLOBAL DE BLINDAJE PREVENTIVO SST ---

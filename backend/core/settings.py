@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 from django.core.exceptions import ImproperlyConfigured
@@ -35,10 +36,18 @@ FIELD_ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', '').strip() or Non
 FIELD_ENCRYPTION_OLD_KEYS = [
     k.strip() for k in os.environ.get('FIELD_ENCRYPTION_OLD_KEYS', '').split(',') if k.strip()
 ]
+# Clave dedicada para blind index HMAC-SHA256 (data-pseudonym / sec-rest)
+BLIND_INDEX_KEY = os.environ.get('BLIND_INDEX_KEY', '').strip() or None
 
 # SECURITY WARNING: don't run with debug turned on in production!
 # Seguridad Ley 21.719 (M-4): Por defecto DEBUG es False salvo declaración explícita en desarrollo.
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('true', '1') and 'RENDER' not in os.environ
+
+if not DEBUG and not FIELD_ENCRYPTION_KEY:
+    raise ImproperlyConfigured(
+        "CRITICAL SECURITY ERROR: La variable de entorno FIELD_ENCRYPTION_KEY es obligatoria "
+        "cuando DEBUG=False para garantizar cifrado en reposo independiente de SECRET_KEY (Ley 21.719 Art. 16)."
+    )
 
 ALLOWED_HOSTS = [
     'localhost',
@@ -91,6 +100,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'modulo_prevencion.middleware.ARCOBloqueoProvisionalMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -220,12 +230,17 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Soporte de WhiteNoise para almacenamiento de estáticos optimizados y comprimidos
+IS_TESTING = 'test' in sys.argv
 STORAGES = {
     "default": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": (
+            "django.contrib.staticfiles.storage.StaticFilesStorage"
+            if IS_TESTING
+            else "whitenoise.storage.CompressedManifestStaticFilesStorage"
+        ),
     },
 }
 

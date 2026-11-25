@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../utils/api";
+import { authFetch, ensureAccessToken, getApiUrl, getTokenPayload } from "../../utils/api";
 
 export interface PlantillaMaestra {
   id: number;
@@ -229,7 +229,7 @@ export default function DocumentosPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const token = await ensureAccessToken();
     if (!token) {
       router.push("/ingreso");
       return;
@@ -237,9 +237,7 @@ export default function DocumentosPage() {
 
     try {
       // 1. Obtener plantillas
-      const resPlantillas = await fetch(getApiUrl("/api/plantillas-maestras/"), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resPlantillas = await authFetch(getApiUrl("/api/plantillas-maestras/"));
       let dataPlantillas: PlantillaMaestra[] = [];
       if (resPlantillas.ok) {
         dataPlantillas = await resPlantillas.json();
@@ -250,27 +248,19 @@ export default function DocumentosPage() {
       }
       setPlantillas(dataPlantillas);
 
-      // Decodificar permisos admin
-      try {
-        const payload = JSON.parse(window.atob(token.split(".")[1]));
-        setIsAdmin(Boolean(payload.is_superuser || payload.is_staff));
-      } catch {
-        setIsAdmin(false);
-      }
+      // Decodificar permisos admin desde token en memoria
+      const payload = getTokenPayload();
+      setIsAdmin(Boolean(payload?.is_superuser || payload?.is_staff));
 
       // 2. Obtener documentos guardados
-      const resDocs = await fetch(getApiUrl("/api/documentos-usuario/"), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resDocs = await authFetch(getApiUrl("/api/documentos-usuario/"));
       if (resDocs.ok) {
         const dataDocs = await resDocs.json();
         setDocumentos(dataDocs);
       }
 
       // 3. Obtener perfil del usuario
-      const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const resUser = await authFetch(getApiUrl("/api/usuarios/perfil/"));
       if (resUser.ok) {
         const dataUser = await resUser.json();
         setUser(dataUser);
@@ -413,8 +403,6 @@ export default function DocumentosPage() {
 
   // Creación y edición interactiva
   const handleCrearDocumento = async (plantilla: PlantillaMaestra) => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-
     if (user && user.suscripcion_activa && !user.suscripcion_activa.edicion_nube) {
       alert(
         "Tu plan actual (Básico) no permite la creación o edición de documentos en la nube. Por favor, adquiere un plan Profesional, Expert o Consultora."
@@ -432,11 +420,10 @@ export default function DocumentosPage() {
     }
 
     try {
-      const res = await fetch(getApiUrl("/api/documentos-usuario/"), {
+      const res = await authFetch(getApiUrl("/api/documentos-usuario/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           plantilla_maestra: plantilla.id,
@@ -462,18 +449,14 @@ export default function DocumentosPage() {
     }
 
     setUploading(true);
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     const formData = new FormData();
     formData.append("nombre", uploadForm.nombre);
     formData.append("tipo_archivo", uploadForm.tipo_archivo);
     formData.append("archivo_fuente", selectedFile);
 
     try {
-      const res = await fetch(getApiUrl("/api/plantillas-maestras/"), {
+      const res = await authFetch(getApiUrl("/api/plantillas-maestras/"), {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
         body: formData,
       });
 
@@ -495,11 +478,9 @@ export default function DocumentosPage() {
   // Eliminación de copias guardadas
   const handleEliminar = async (id: number) => {
     if (!confirm("¿Deseas eliminar esta copia guardada? Esta acción no se puede deshacer.")) return;
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     try {
-      const res = await fetch(getApiUrl(`/api/documentos-usuario/${id}/`), {
+      const res = await authFetch(getApiUrl(`/api/documentos-usuario/${id}/`), {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("Error al eliminar el documento.");
       fetchData();
@@ -511,16 +492,11 @@ export default function DocumentosPage() {
 
   // Descarga de archivo XLSX / DOCX
   const handleDescargarArchivo = async (id: number, type: "XLSX" | "DOCX", docName: string) => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     const endpoint = type === "XLSX" ? "descargar-excel" : "descargar-docx";
     const url = getApiUrl(`/api/documentos-usuario/${id}/${endpoint}/`);
 
     try {
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const res = await authFetch(url);
       if (!res.ok) throw new Error("Error al descargar el archivo");
 
       const blob = await res.blob();
@@ -547,11 +523,8 @@ export default function DocumentosPage() {
     setLoadingPreview(true);
     setPreviewError(null);
     setPreviewData(null);
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     try {
-      const res = await fetch(getApiUrl(`/api/plantillas-maestras/${plantilla.id}/preview/`), {
-        headers: { Authorization: token ? `Bearer ${token}` : "" },
-      });
+      const res = await authFetch(getApiUrl(`/api/plantillas-maestras/${plantilla.id}/preview/`));
       if (!res.ok) throw new Error("No se pudo obtener la vista previa del archivo.");
       const data: PreviewData = await res.json();
       setPreviewData(data);

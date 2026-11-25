@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -48,28 +51,20 @@ jobs:
           DJANGO_DEBUG: 'False'
           DJANGO_SECRET_KEY: 'ci-ephemeral-secret-key-not-for-prod'
           FIELD_ENCRYPTION_KEY: 'Y2ktZXBoZW1lcmFsLWZlcm5ldC1rZXktMzItYnl0ZXM='
+          BLIND_INDEX_KEY: 'ci-ephemeral-blind-index-hmac-key'
         run: |
           python manage.py check
           python manage.py makemigrations --check --dry-run
 
-      - name: Ejecutar suite de seguridad Ley 21.719
+      - name: Ejecutar suite completa de seguridad, cumplimiento y regresión (Ley 21.719 / SST)
         env:
           DJANGO_DEBUG: 'False'
           DJANGO_SECRET_KEY: 'ci-ephemeral-secret-key-not-for-prod'
           FIELD_ENCRYPTION_KEY: 'Y2ktZXBoZW1lcmFsLWZlcm5ldC1rZXktMzItYnl0ZXM='
+          BLIND_INDEX_KEY: 'ci-ephemeral-blind-index-hmac-key'
           HIBP_CHECK_ENABLED: 'False'
         run: |
-          python manage.py test \
-            modulo_prevencion.tests.Ley21719P0SecurityTestCase \
-            modulo_prevencion.tests.Ley21719P1SecurityTestCase \
-            modulo_prevencion.tests.Ley21719P1MFATestCase \
-            modulo_prevencion.tests.Ley21719P1ConsentTestCase \
-            modulo_prevencion.tests.Ley21719P1RetencionYOperacionTestCase \
-            modulo_prevencion.tests.Ley21719P2ObservabilityTestCase \
-            modulo_prevencion.tests.MultiTenantDomainTestCase \
-            modulo_prevencion.tests.AccidentesComplianceTestCase \
-            modulo_prevencion.tests.LeyKarinComplianceTestCase \
-            --verbosity=2
+          python manage.py test --verbosity=2
 
   frontend-build:
     name: Verificación TypeScript y Build Next.js

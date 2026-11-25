@@ -220,6 +220,18 @@ export function ModalQRFirmaMovilEPP({
               Conforme al Art. 68 de la Ley N° 16.744 y Art. 53 del D.S. N° 594, los EPP deben proporcionarse libres de costo y con constancia de recepción e instrucción de uso. La firma capturada en dispositivo móvil cumple plenamente con la Ley N° 19.799 de Firma Electrónica Simple.
             </p>
           </div>
+
+          {/* Aviso Informativo Breve Ley 21.719 (data-info) */}
+          <div className="bg-slate-50 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl p-3 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+            🔒 <strong>Aviso de Privacidad (Art. 14 ter Ley N° 21.719):</strong> Al capturar firma del trabajador vía enlace QR, HD Prevención actúa como Encargado por cuenta de la empresa empleadora (Responsable) para acreditar entrega de EPP/RIOHS (base legal SST, conservación mínima 5 años). Más info en{" "}
+            <a href="/privacidad" target="_blank" className="text-orange-600 dark:text-orange-400 underline font-semibold">
+              /privacidad
+            </a>{" "}
+            y derechos ARCO-POL en{" "}
+            <a href="/derechos-arco" target="_blank" className="text-orange-600 dark:text-orange-400 underline font-semibold">
+              /derechos-arco
+            </a>.
+          </div>
         </div>
 
         {/* Footer */}

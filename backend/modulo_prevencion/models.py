@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from datetime import date, timedelta
 from django.utils import timezone
-from .crypto import EncryptedTextField
+from .crypto import EncryptedJSONField, EncryptedTextField, calcular_rut_hmac
 
 
 class Plan(models.Model):
@@ -1073,6 +1073,13 @@ class InvestigacionAccidente(models.Model):
     # Datos del Afectado (Cifrados en reposo — Art. 16 bis Ley 21.719)
     nombre_afectado = EncryptedTextField(verbose_name="Nombre Completo del Afectado (Cifrado)")
     rut_afectado = EncryptedTextField(verbose_name="RUT del Afectado (Cifrado)")
+    rut_hmac = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name="Blind Index HMAC RUT Afectado"
+    )
     cargo_afectado = models.CharField(max_length=100, verbose_name="Cargo / Puesto de Trabajo")
     edad_afectado = models.PositiveIntegerField(verbose_name="Edad del Afectado")
     antiguedad_afectado = models.CharField(max_length=50, verbose_name="Antigüedad en la Empresa")
@@ -1092,24 +1099,24 @@ class InvestigacionAccidente(models.Model):
     tipo_lesion = EncryptedTextField(verbose_name="Tipo de Lesión (Cifrado)")
     parte_cuerpo_afectada = EncryptedTextField(verbose_name="Parte del Cuerpo Afectada (Cifrado)")
 
-    # Análisis de Causas
-    causas_inmediatas = models.JSONField(
+    # Análisis de Causas (Cifrado en reposo — Datos sensibles clínicos/investigación)
+    causas_inmediatas = EncryptedJSONField(
         default=dict,
         blank=True,
-        verbose_name="Causas Inmediatas (Actos y Condiciones)",
-        help_text="JSON conteniendo los actos y condiciones subestándar identificados."
+        verbose_name="Causas Inmediatas (Actos y Condiciones - Cifrado)",
+        help_text="JSON cifrado conteniendo los actos y condiciones subestándar identificados."
     )
-    causas_basicas = models.JSONField(
+    causas_basicas = EncryptedJSONField(
         default=dict,
         blank=True,
-        verbose_name="Causas Básicas (Factores Personales y del Trabajo)",
-        help_text="JSON conteniendo los factores personales y del trabajo identificados."
+        verbose_name="Causas Básicas (Factores Personales y del Trabajo - Cifrado)",
+        help_text="JSON cifrado conteniendo los factores personales y del trabajo identificados."
     )
-    analisis_5_porques = models.JSONField(
+    analisis_5_porques = EncryptedJSONField(
         default=list,
         blank=True,
-        verbose_name="Análisis de los 5 Porqués",
-        help_text="Lista de textos para la secuencia de los 5 porqués hasta la causa raíz."
+        verbose_name="Análisis de los 5 Porqués (Cifrado)",
+        help_text="Lista cifrada de textos para la secuencia de los 5 porqués hasta la causa raíz."
     )
 
     # Plan de Acción
@@ -1179,11 +1186,11 @@ class InvestigacionAccidente(models.Model):
     )
 
     # Metodología de Árbol de Causas y Flujo RALF / SUSESO (eDoc 143)
-    arbol_de_causas = models.JSONField(
+    arbol_de_causas = EncryptedJSONField(
         default=dict,
         blank=True,
-        verbose_name="Árbol de Causas",
-        help_text="Estructura de hechos y causas según metodología del Árbol de Causas exigida por SUSESO para eDoc 143"
+        verbose_name="Árbol de Causas (Cifrado)",
+        help_text="Estructura cifrada de hechos y causas según metodología del Árbol de Causas exigida por SUSESO para eDoc 143"
     )
     plazo_investigacion_suseso_30d = models.DateField(
         null=True,
@@ -1252,6 +1259,13 @@ class InvestigacionAccidente(models.Model):
     def save(self, *args, **kwargs):
         if self.fecha_hora_evento and not self.plazo_limite_diat_24h:
             self.plazo_limite_diat_24h = self.fecha_hora_evento + timedelta(hours=24)
+        self.rut_hmac = calcular_rut_hmac(self.rut_afectado)
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            uf = set(update_fields)
+            if 'rut_afectado' in uf and 'rut_hmac' not in uf:
+                uf.add('rut_hmac')
+                kwargs['update_fields'] = list(uf)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -1451,11 +1465,11 @@ class RegistroCapacitacion(models.Model):
         verbose_name="Fecha y Hora de Realización"
     )
     lugar = models.CharField(max_length=255, verbose_name="Ubicación Física / Lugar")
-    asistentes = models.JSONField(
+    asistentes = EncryptedJSONField(
         default=list,
         blank=True,
-        verbose_name="Listado de Asistentes y Firmas",
-        help_text="Lista de objetos: [{'nombre': '...', 'rut': '...', 'firma': '...'}]"
+        verbose_name="Listado de Asistentes y Firmas (Cifrado)",
+        help_text="Lista cifrada en reposo: [{'nombre': '...', 'rut': '...', 'firma': '...'}]"
     )
     observaciones = models.TextField(
         blank=True,
@@ -1728,6 +1742,13 @@ class DenunciaLeyKarin(models.Model):
         validators=[validar_rut_chileno],
         verbose_name="RUT del Denunciante (Cifrado)"
     )
+    rut_hmac = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name="Blind Index HMAC RUT Denunciante"
+    )
     nombre_denunciante = EncryptedTextField(
         verbose_name="Nombre Completo del Denunciante (Cifrado)"
     )
@@ -1862,6 +1883,13 @@ class DenunciaLeyKarin(models.Model):
                 if curr.weekday() < 5:  # Lunes a Viernes
                     dias_agregados += 1
             self.plazo_limite_informe_mutualidad_5d = curr
+        self.rut_hmac = calcular_rut_hmac(self.rut_denunciante)
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            uf = set(update_fields)
+            if 'rut_denunciante' in uf and 'rut_hmac' not in uf:
+                uf.add('rut_hmac')
+                kwargs['update_fields'] = list(uf)
         super().save(*args, **kwargs)
 
     @property
@@ -1900,7 +1928,51 @@ class DenunciaLeyKarin(models.Model):
         return f"Denuncia Karin #{self.id} - {self.get_tipo_afectacion_display()} ({self.empresa.razon_social})"
 
 
-class AuditLogAccesoDenuncia(models.Model):
+class ImmutableAppendOnlyQuerySet(models.QuerySet):
+    """QuerySet que prohíbe mutaciones o borrados masivos en bitácoras append-only."""
+
+    def update(self, *args, **kwargs):
+        raise ValidationError(
+            "Los registros de auditoría y consentimiento son append-only e inmutables (no se permite update)."
+        )
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            "Los registros de auditoría y consentimiento son append-only e inmutables (no se permite delete)."
+        )
+
+
+class ImmutableAppendOnlyManager(models.Manager.from_queryset(ImmutableAppendOnlyQuerySet)):
+    """Manager por defecto para modelos append-only inmutables a nivel ORM."""
+
+
+class ImmutableAppendOnlyMixin(models.Model):
+    """Bloquea modificaciones (save sobre fila existente) y eliminaciones (delete) a nivel ORM."""
+
+    objects: Any = ImmutableAppendOnlyManager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        is_existing = not self._state.adding or (
+            self.pk is not None
+            and not kwargs.get('force_insert', False)
+            and self.__class__._default_manager.filter(pk=self.pk).exists()
+        )
+        if is_existing:
+            raise ValidationError(
+                f"{self.__class__.__name__} es append-only e inmutable: no se permite modificar registros existentes."
+            )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(
+            f"{self.__class__.__name__} es append-only e inmutable: no se permite eliminar registros existentes."
+        )
+
+
+class AuditLogAccesoDenuncia(ImmutableAppendOnlyMixin):
     """
     Registro inmutable de confidencialidad y auditoría de accesos a una denuncia Ley Karin.
     """
@@ -3393,6 +3465,20 @@ class SolicitudDerechoARCO(models.Model):
         default=False,
         verbose_name="Bloqueo Temporal Activo (2 días hábiles Art. 11)"
     )
+    fecha_limite_bloqueo_2d = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Límite Pronunciamiento Bloqueo (2 días hábiles Art. 11)"
+    )
+    aviso_apdp_rechazo_bloqueo = models.BooleanField(
+        default=False,
+        verbose_name="Aviso a APDP por Rechazo de Bloqueo Provisional (Art. 11)"
+    )
+    fecha_aviso_apdp_bloqueo = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha Aviso APDP (Rechazo Bloqueo)"
+    )
     respuesta_formal = models.TextField(
         blank=True,
         null=True,
@@ -3416,6 +3502,20 @@ class SolicitudDerechoARCO(models.Model):
         if not self.fecha_limite_30d:
             from datetime import timedelta
             self.fecha_limite_30d = timezone.localdate() + timedelta(days=30)
+        if not self.fecha_limite_bloqueo_2d and self.tipo_derecho in {
+            self.TIPO_RECTIFICACION,
+            self.TIPO_SUPRESION,
+            self.TIPO_OPOSICION,
+            self.TIPO_BLOQUEO,
+        }:
+            from datetime import timedelta
+            dias_habiles = 0
+            curr = timezone.localdate()
+            while dias_habiles < 2:
+                curr += timedelta(days=1)
+                if curr.weekday() < 5:
+                    dias_habiles += 1
+            self.fecha_limite_bloqueo_2d = curr
         super().save(*args, **kwargs)
 
 
@@ -3470,6 +3570,33 @@ class RegistroBrechaSeguridad(models.Model):
         default=False,
         verbose_name="¿Afecta Datos Sensibles o Menores de 14 años?"
     )
+    datos_economicos_financieros = models.BooleanField(
+        default=False,
+        verbose_name="¿Afecta Datos Económicos, Financieros o Bancarios? (Art. 14 sexies inc. 3°)"
+    )
+    empresa_responsable = models.ForeignKey(
+        Empresa,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='brechas_seguridad',
+        verbose_name="Empresa Cliente Responsable (Art. 15 bis)"
+    )
+    notificado_responsable = models.BooleanField(
+        default=False,
+        verbose_name="¿Notificado al Cliente Responsable? (Art. 15 bis inc. 4°)"
+    )
+    fecha_notificacion_responsable = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha y Hora de Notificación al Cliente Responsable"
+    )
+    contacto_responsable_notificado = models.CharField(
+        max_length=200,
+        blank=True,
+        default='',
+        verbose_name="Contacto del Responsable Notificado"
+    )
     descripcion_incidente = models.TextField(
         verbose_name="Descripción Circunstanciada del Incidente"
     )
@@ -3514,7 +3641,7 @@ class RegistroBrechaSeguridad(models.Model):
         return f"{self.codigo_incidente} - {self.get_tipo_brecha_display()} ({self.severidad})"
 
 
-class RegistroConsentimiento(models.Model):
+class RegistroConsentimiento(ImmutableAppendOnlyMixin):
     """
     Registro probatorio append-only del otorgamiento y revocación de consentimiento
     y aceptación informada (Carga de la prueba — Art. 12 inciso final Ley N° 21.719).
@@ -3524,6 +3651,7 @@ class RegistroConsentimiento(models.Model):
     FLUJO_COTIZACION_CAPACITACION = 'cotizacion_capacitacion'
     FLUJO_CONTACTO = 'contacto'
     FLUJO_SUGERENCIA_IDENTIFICADA = 'sugerencia_identificada'
+    FLUJO_REPORTE_RIESGO_IDENTIFICADO = 'reporte_riesgo_identificado'
 
     FLUJOS_CHOICES = [
         (FLUJO_REGISTRO_CUENTA, 'Registro de Cuenta y Aceptación Contractual'),
@@ -3531,6 +3659,7 @@ class RegistroConsentimiento(models.Model):
         (FLUJO_COTIZACION_CAPACITACION, 'Solicitud de Cotización / Capacitación'),
         (FLUJO_CONTACTO, 'Formulario de Contacto Comercial/Soporte'),
         (FLUJO_SUGERENCIA_IDENTIFICADA, 'Sugerencia Voluntaria con Identificación Opcional'),
+        (FLUJO_REPORTE_RIESGO_IDENTIFICADO, 'Reporte de Riesgo QR con Identificación Opcional'),
     ]
 
     usuario = models.ForeignKey(
@@ -3600,7 +3729,7 @@ class RegistroConsentimiento(models.Model):
         return f"{self.identificador_titular} · {self.flujo} ({estado})"
 
 
-class AuditLogEventoSeguridad(models.Model):
+class AuditLogEventoSeguridad(ImmutableAppendOnlyMixin):
     """
     Registro transversal append-only de eventos de seguridad, autenticación, MFA,
     exportaciones ARCO y operaciones SST críticas (P2 / sec-logs, Art. 14 quinquies Ley 21.719).

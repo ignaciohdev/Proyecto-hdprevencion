@@ -6,7 +6,8 @@
 
 ---
 
-## 1. Avisos cortos en el punto de captura (para insertar en el frontend Next.js)
+## 1. Avisos cortos y opt-in en el punto de captura (`frontend/`)
+> *Estado de implementación (post-Bloques 1–4):* implementados en todos los puntos de captura aplicables: `(auth)/registro/page.tsx`, `(public)/contacto/page.tsx`, `(public)/capacitaciones/page.tsx`, `(public)/participacion/[uid]/buzon/page.tsx`, `(public)/participacion/[uid]/reportar/page.tsx` (opt-in condicional si aporta identificación opcional), `capacitaciones/firmar/[uid]/page.tsx`, `ModalNuevaEntrega.tsx` y `ModalQRFirmaMovilEPP.tsx`. Sin pendientes de código.
 
 ### 1.1. Registro de usuario / prevencionista (`frontend/src/app/(auth)/registro/page.tsx`)
 **Aviso corto bajo el formulario:**
@@ -50,19 +51,21 @@ En los módulos actuales de HD Prevención (`InvestigacionAccidente`, `DenunciaL
 ## 3. Revocación del consentimiento (Art. 12 inc. 3° y 4°)
 - Para tratamientos basados en consentimiento (comunicaciones opcionales, consultas/cotizaciones, identificación opcional):
   - Todo correo comercial o informativo deberá incluir un enlace operativo **"Dejar de recibir correos / Revocar consentimiento"**.
-  - En `/panel/perfil`, el usuario autenticado dispondrá de un interruptor para retirar su consentimiento de comunicaciones en un clic.
+  - En `/panel/perfil`, el usuario autenticado dispone de un interruptor operativo (`POST /api/usuarios/consentimiento-comunicaciones/`) para retirar gratuitamente su consentimiento de comunicaciones en un clic.
   - Titulares sin cuenta pueden solicitar la revocación de forma gratuita en `/derechos-arco` o escribiendo a **[COMPLETAR: Correo oficial de privacidad]**.
 
 ---
 
 ## 4. Registro probatorio del consentimiento (Carga de la prueba — Art. 12 inc. final)
-Actualmente el código **no persiste** evidencia de consentimiento. Antes de salir a producción real, el backend Django debe incorporar una tabla append-only `RegistroConsentimiento` que registre por cada otorgamiento o revocación (creando siempre una nueva fila en lugar de sobrescribir):
-- `usuario` (nullable si es titular externo) / `email` o identificador del titular
-- `flujo` (ej. `registro_cuenta`, `marketing_novedades`, `cotizacion_capacitacion`, `contacto`, `sugerencia_identificada`)
-- `version_politica` (ej. `"1.0"`) y `hash_politica` (SHA-256 del texto aceptado)
+El backend Django incorpora la tabla inmutable append-only **`RegistroConsentimiento`** (`backend/modulo_prevencion/models.py:3644`, heredando `ImmutableAppendOnlyMixin` que bloquea `save()` existente, `delete()`, `QuerySet.update()` y `QuerySet.delete()`, administrada en `admin.py` como solo lectura) y el helper `registrar_consentimiento` (`consentimiento.py:15-49`), que registra por cada otorgamiento o revocación (creando siempre una nueva fila en lugar de sobrescribir):
+- `usuario` (nullable si es titular externo) / `identificador_titular` (email o identificador del titular)
+- `flujo` (`registro_cuenta`, `marketing_novedades`, `cotizacion_capacitacion`, `contacto`, `sugerencia_identificada`, `reporte_riesgo_identificado`)
+- `version_politica` (`"1.0"`) y `hash_politica` (SHA-256 del texto informado/aceptado)
 - `otorgado` (`True`/`False`) y `categorias` (JSON)
 - `ip_origen` (extraída con `get_client_ip(request)` considerando `NUM_PROXIES`) y `user_agent`
 - `fecha_evento` (timestamp automático del servidor en `America/Santiago`)
+
+*(La inmutabilidad ORM queda garantizada en `RegistroConsentimiento`; al habilitar proveedor SMTP transaccional deberá añadirse enlace directo de desuscripción en los correos comerciales).*
 
 ---
 *Borrador generado con compliance-cl (pack ley-21719). No constituye asesoría legal; revisar con un abogado.*

@@ -31,13 +31,13 @@ Manual práctico para consulta rápida del responsable de datos (`[COMPLETAR: No
 **Plazo legal (Art. 14 sexies):** Notificar a la Agencia **sin dilaciones indebidas** cuando exista riesgo razonable para los derechos de los titulares (**la Ley 21.719 NO fija 72 horas**; 72h es estándar GDPR).  
 **Si afecta datos de clientes (Encargado, Art. 15 bis):** Avisa al **cliente Responsable** en **≤ 24 horas**.
 
-1. **Contén (0–4h):** revoca sesiones (`token_blacklist`), bloquea acceso comprometido, desactiva endpoint vulnerable, cambia credenciales de BD y preserva logs antes de rotar nada. *(Cuidado: no rotar `SECRET_KEY` mientras `crypto.py` derive la llave de cifrado desde ella sin recifrar primero.)*
+1. **Contén (0–4h):** revoca sesiones (`token_blacklist`), bloquea acceso comprometido, desactiva endpoint vulnerable, cambia credenciales de BD y preserva logs antes de rotar nada. *(Nota técnica: `FIELD_ENCRYPTION_KEY` ya está desacoplada de `SECRET_KEY` en `crypto.py` con `MultiFernet`; si rotas `FIELD_ENCRYPTION_KEY`, conserva la previa en `FIELD_ENCRYPTION_OLD_KEYS` y ejecuta `python manage.py cifrar_y_rotar_campos` antes de retirarla.)*
 2. **Evalúa (4–24h):** qué tablas/archivos, cuántos titulares aprox., si los campos estaban cifrados (`enc:v1:`) o en texto plano, y si hubo datos sensibles / económicos / <14 años. Si fue en Render/Vercel, solicita reporte técnico al proveedor.
 3. **Notifica (sin dilaciones indebidas):**
    - A la **Agencia de Protección de Datos Personales:** naturaleza, categorías, volumen aproximado, consecuencias probables, medidas tomadas y contacto.
    - Al **cliente Responsable** (si eres Encargado).
    - A los **titulares afectados** en lenguaje claro y sencillo cuando haya riesgo alto o afecte **datos sensibles** (salud laboral, Ley Karin), **datos económicos/financieros/bancarios** o **niños < 14 años** (Art. 14 sexies inc. 3°).
-4. **Registra:** anota el incidente en `.compliance/docs/21719-registro-vulneraciones.md` (y en `RegistroBrechaSeguridad`) **aunque decidas no notificar** por ausencia de riesgo razonable.
+4. **Registra:** anota el incidente en `.compliance/docs/21719-registro-vulneraciones.md` y en `RegistroBrechaSeguridad` (ya habilitada en Django Admin `/sst-control-panel/modulo_prevencion/registrobrechaseguridad/`) **aunque decidas no notificar** por ausencia de riesgo razonable.
 5. **Cierra:** documenta causa raíz, despliega parche definitivo y actualiza RAT, EIPD y Plan de Brechas. *(Omitir deliberadamente la notificación es infracción gravísima, Art. 34 quáter f.)*
 
 ---
@@ -62,7 +62,7 @@ Manual práctico para consulta rápida del responsable de datos (`[COMPLETAR: No
 ## E. Calendario de revisión (Ley 21.719)
 | Cuándo | Qué | Responsable |
 |---|---|---|
-| **Antes de salir a producción real** | Migrar de capa gratuita a BD/Storage de pago, completar `[COMPLETAR]` tras escritura, cerrar brechas técnicas críticas (`PortabilidadDatosView`, `FIELD_ENCRYPTION_KEY`, `sw.js`, MFA) y suscribir DPAs + Cláusulas Modelo con Render/Vercel | Co-fundadores (CTO + Responsable de datos) |
+| **Antes de salir a producción real** | Migrar de capa gratuita a BD/Storage de pago con PITR y cron `purgar_datos_vencidos`, completar `[COMPLETAR]` tras escritura, activar SMTP transaccional (acuses ARCO y OTP externos) y suscribir DPAs + Cláusulas Modelo RAEX202503748 con Render/Vercel *(brechas técnicas de código ya cerradas)* | Co-fundadores (CTO + Responsable de datos) |
 | **Al firmar con cada empresa cliente** | Incorporar/aceptar DPA (Art. 15 bis) y verificar deber de información en su portal QR | Responsable comercial / legal |
 | **Al sumar proveedor externo o feature con PII** | Actualizar RAT, Anexo de Transferencias (RAEX202503748 si es fuera de Chile) y EIPD si cambia el riesgo | CTO + Responsable de datos |
 | **Cada release relevante / mensual** | Re-correr auditoría `compliance-cl` (detectar *drift*) y watcher de secretos/alertas | CTO / Dev |

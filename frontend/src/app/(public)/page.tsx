@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { getSessionUser } from "../utils/api";
 
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeTab, setActiveTab] = useState<"prevencionistas" | "empresas">("prevencionistas");
 
   useEffect(() => {
-    setIsLoggedIn(!!localStorage.getItem("access_token"));
+    void getSessionUser().then((user) => {
+      setIsLoggedIn(Boolean(user));
+    });
   }, []);
 
   const industrias = [

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../utils/api";
+import { authFetch, ensureAccessToken, getApiUrl, getSessionUser } from "../utils/api";
 
 interface PlanInfo {
   id: number;
@@ -28,7 +28,6 @@ export default function PlanesView() {
 
   const fetchPlanesYUsuario = async () => {
     setLoading(true);
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     try {
       // 1. Cargar planes disponibles
       const resPlanes = await fetch(getApiUrl("/api/planes/"));
@@ -36,10 +35,11 @@ export default function PlanesView() {
       const dataPlanes = await resPlanes.json();
       setPlanes(dataPlanes);
 
-      // 2. Cargar perfil de usuario actual (si está autenticado)
-      if (token) {
-        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-          headers: { Authorization: `Bearer ${token}` }
+      // 2. Cargar perfil de usuario actual (si existe sesión HttpOnly activa)
+      const sessionUser = await getSessionUser();
+      if (sessionUser) {
+        const resUser = await authFetch(getApiUrl("/api/usuarios/perfil/"), {
+          ...({ redirectOnFail: false } as any),
         });
         if (resUser.ok) {
           const dataUser = await resUser.json();
@@ -62,8 +62,8 @@ export default function PlanesView() {
 
   const handleCambiarPlan = async (planCodigo: string) => {
     setMessage(null);
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    
+    const token = await ensureAccessToken();
+
     // Si no está autenticado, redirigir al login
     if (!token) {
       router.push(`/ingreso?next=/panel/planes`);
@@ -72,11 +72,10 @@ export default function PlanesView() {
 
     setActionLoading(planCodigo);
     try {
-      const res = await fetch(getApiUrl("/api/usuarios/cambiar-plan/"), {
+      const res = await authFetch(getApiUrl("/api/usuarios/cambiar-plan/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({ plan_codigo: planCodigo })
       });

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../../../utils/api";
+import { authFetch, getApiUrl } from "../../../../utils/api";
 
 interface Trabajador {
   id: number;
@@ -54,11 +54,6 @@ const TIPO_DOC_LABEL: Record<string, string> = {
   REGLAMENTO_INTERNO: "Reglamento Interno de Higiene y Seguridad",
   OTRO: "Otro Documento"
 };
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("access_token");
-  return { Authorization: token ? `Bearer ${token}` : "" };
-}
 
 function formatDate(dateStr: string) {
   if (!dateStr) return "—";
@@ -123,9 +118,7 @@ export default function ContratistaDetailPage({ params }: { params: Promise<{ id
   const fetchContratista = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(getApiUrl(`/api/contratistas/${contratistaId}/`), {
-        headers: getAuthHeaders()
-      });
+      const res = await authFetch(getApiUrl(`/api/contratistas/${contratistaId}/`));
       if (!res.ok) throw new Error("Error al obtener los detalles del contratista.");
       const data = await res.json();
       setContratista(data);
@@ -157,11 +150,10 @@ export default function ContratistaDetailPage({ params }: { params: Promise<{ id
     e.preventDefault();
     setSavingGeneral(true);
     try {
-      const res = await fetch(getApiUrl(`/api/contratistas/${contratistaId}/`), {
+      const res = await authFetch(getApiUrl(`/api/contratistas/${contratistaId}/`), {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          ...getAuthHeaders()
         },
         body: JSON.stringify(generalForm)
       });
@@ -197,9 +189,8 @@ export default function ContratistaDetailPage({ params }: { params: Promise<{ id
         formData.append("archivo", selectedFile);
       }
 
-      const res = await fetch(getApiUrl("/api/documentos-contratista/"), {
+      const res = await authFetch(getApiUrl("/api/documentos-contratista/"), {
         method: "POST",
-        headers: getAuthHeaders(), // NOT content-type: multipart/form-data browser handles boundary automatically
         body: formData
       });
 
@@ -228,9 +219,8 @@ export default function ContratistaDetailPage({ params }: { params: Promise<{ id
   const handleDocDelete = async (docId: number) => {
     if (!confirm("¿Estás seguro de que deseas eliminar este documento?")) return;
     try {
-      const res = await fetch(getApiUrl(`/api/documentos-contratista/${docId}/`), {
+      const res = await authFetch(getApiUrl(`/api/documentos-contratista/${docId}/`), {
         method: "DELETE",
-        headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error("No se pudo eliminar el documento.");
       fetchContratista();
@@ -254,11 +244,10 @@ export default function ContratistaDetailPage({ params }: { params: Promise<{ id
         : getApiUrl("/api/trabajadores-subcontratados/");
       const method = editingWorkerId ? "PUT" : "POST";
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
-          ...getAuthHeaders()
         },
         body: JSON.stringify(payload)
       });
@@ -299,9 +288,8 @@ export default function ContratistaDetailPage({ params }: { params: Promise<{ id
   const handleWorkerDelete = async (workerId: number) => {
     if (!confirm("¿Estás seguro de que deseas eliminar este trabajador de la nómina?")) return;
     try {
-      const res = await fetch(getApiUrl(`/api/trabajadores-subcontratados/${workerId}/`), {
+      const res = await authFetch(getApiUrl(`/api/trabajadores-subcontratados/${workerId}/`), {
         method: "DELETE",
-        headers: getAuthHeaders()
       });
       if (!res.ok) throw new Error("No se pudo eliminar al trabajador.");
       fetchContratista();

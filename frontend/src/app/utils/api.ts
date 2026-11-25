@@ -1,3 +1,23 @@
+import { limpiarTodoOfflineStorage } from "./offlineStorage";
+
+export interface SessionUserInfo {
+  id?: number;
+  username?: string;
+  email?: string;
+  tipo_usuario?: string;
+  cuenta_padre_id?: number | null;
+  is_superuser?: boolean;
+  is_staff?: boolean;
+  mfa_enabled?: boolean;
+  mfa_obligatorio?: boolean;
+  exp?: number;
+}
+
+// Almacenamiento exclusivo en memoria para Access Token (mitigación XSS - data-privacy-by-design)
+let inMemoryAccessToken: string | null = null;
+let cachedSessionUser: SessionUserInfo | null | undefined = undefined;
+let sessionCheckPromise: Promise<SessionUserInfo | null> | null = null;
+
 // Helper para resolver la URL base del backend de forma dinámica
 export const getApiUrl = (path: string): string => {
   const apiPath = path.startsWith('/') ? path : `/${path}`;
@@ -34,6 +54,62 @@ export const getAdminUrl = (subpath: string = ""): string => {
 };
 
 /**
+ * Elimina cualquier residuo heredado de tokens en localStorage.
+ */
+export const clearLegacyTokenStorage = (): void => {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    localStorage.removeItem("user_info");
+  } catch {
+    // Silencioso
+  }
+};
+
+function decodeJwtPayload(token: string | null): SessionUserInfo | null {
+  if (!token || typeof window === "undefined") return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const jsonPayload = decodeURIComponent(
+      window
+        .atob(padded)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload) as SessionUserInfo;
+  } catch {
+    return null;
+  }
+}
+
+export const setAccessToken = (token: string | null): void => {
+  inMemoryAccessToken = token;
+  cachedSessionUser = token ? decodeJwtPayload(token) : null;
+  clearLegacyTokenStorage();
+};
+
+export const getAccessToken = (): string | null => {
+  return inMemoryAccessToken;
+};
+
+export const getTokenPayload = (): SessionUserInfo | null => {
+  return decodeJwtPayload(inMemoryAccessToken);
+};
+
+function isTokenFresh(token: string | null): boolean {
+  if (!token) return false;
+  const payload = decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== "number") return true;
+  return payload.exp * 1000 > Date.now() + 10_000;
+}
+
+/**
  * Parser seguro de respuestas HTTP para evitar errores de sintaxis 'Unexpected token <'
  * cuando el servidor responde con HTML (404 de Vercel o 502/503/504 por spin-down de Render).
  */
@@ -61,46 +137,43 @@ export async function parseJsonResponse<T = any>(response: Response): Promise<T>
 let refreshPromise: Promise<string | null> | null = null;
 
 /**
- * Refresca el access token utilizando la Cookie HttpOnly rotativa
- * o el refresh_token guardado en localStorage como fallback (soporte dual).
+ * Refresca el access token en memoria utilizando exclusivamente la Cookie HttpOnly rotativa.
  */
-export const refreshAccessToken = async (): Promise<string | null> => {
+export const refreshAccessToken = async (
+  options: { redirectOnFail?: boolean } = {}
+): Promise<string | null> => {
   if (refreshPromise) return refreshPromise;
+  const { redirectOnFail = true } = options;
 
   refreshPromise = (async () => {
     try {
-      const storedRefresh = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
-
       const res = await fetch(getApiUrl("/api/auth/token/refresh/"), {
         method: "POST",
-        credentials: "include", // Envía la cookie HttpOnly entre Vercel y Render
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(storedRefresh ? { refresh: storedRefresh } : {}),
+        body: JSON.stringify({}),
       });
 
       if (!res.ok) {
-        throw new Error("No se pudo refrescar la sesión (token inválido o expirado).");
+        throw new Error("No se pudo refrescar la sesión (cookie inválida o expirada).");
       }
 
       const data = await res.json();
-      const newAccess = data.access;
-
-      if (newAccess && typeof window !== "undefined") {
-        localStorage.setItem("access_token", newAccess);
-        if (data.refresh) {
-          localStorage.setItem("refresh_token", data.refresh);
-        }
-      }
-      return newAccess || null;
+      const newAccess: string | null = data.access || null;
+      setAccessToken(newAccess);
+      return newAccess;
     } catch {
-      // Si el refresh de 7 días falla o está en la blacklist, limpiar credenciales y redirigir
+      setAccessToken(null);
       if (typeof window !== "undefined") {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        localStorage.removeItem("user_info");
-        if (window.location.pathname !== "/ingreso" && !window.location.pathname.startsWith("/participacion") && !window.location.pathname.startsWith("/capacitaciones/firmar")) {
+        void limpiarTodoOfflineStorage();
+        if (
+          redirectOnFail &&
+          window.location.pathname !== "/ingreso" &&
+          !window.location.pathname.startsWith("/participacion") &&
+          !window.location.pathname.startsWith("/capacitaciones/firmar")
+        ) {
           window.location.href = "/ingreso";
         }
       }
@@ -114,19 +187,67 @@ export const refreshAccessToken = async (): Promise<string | null> => {
 };
 
 /**
- * Helper para obtener headers de autenticación estándar
+ * Asegura un access token vigente en memoria mediante refresh silencioso con Cookie HttpOnly.
+ */
+export const ensureAccessToken = async (): Promise<string | null> => {
+  clearLegacyTokenStorage();
+  if (isTokenFresh(inMemoryAccessToken)) {
+    return inMemoryAccessToken;
+  }
+  return refreshAccessToken({ redirectOnFail: false });
+};
+
+/**
+ * Consulta silenciosa de sesión activa para vistas públicas/navegación sin escribir tokens en localStorage.
+ */
+export const getSessionUser = async (): Promise<SessionUserInfo | null> => {
+  clearLegacyTokenStorage();
+  if (isTokenFresh(inMemoryAccessToken)) {
+    return decodeJwtPayload(inMemoryAccessToken);
+  }
+  if (cachedSessionUser !== undefined) {
+    return cachedSessionUser;
+  }
+  if (sessionCheckPromise) return sessionCheckPromise;
+
+  sessionCheckPromise = (async () => {
+    try {
+      const res = await fetch(getApiUrl("/api/auth/session/"), {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        cachedSessionUser = null;
+        return null;
+      }
+      const data = await res.json();
+      if (data?.authenticated && data.user) {
+        cachedSessionUser = data.user as SessionUserInfo;
+        return cachedSessionUser;
+      }
+      cachedSessionUser = null;
+      return null;
+    } catch {
+      return null;
+    } finally {
+      sessionCheckPromise = null;
+    }
+  })();
+
+  return sessionCheckPromise;
+};
+
+/**
+ * Helper para obtener headers de autenticación estándar desde memoria.
  */
 export const getAuthHeaders = (): Record<string, string> => {
-  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  return inMemoryAccessToken ? { Authorization: `Bearer ${inMemoryAccessToken}` } : {};
 };
 
 /**
  * authFetch: Interceptor HTTP transparente para DRF + Next.js
- * - Inyecta credentials: 'include' para compatibilidad cross-domain con cookies.
- * - Inyecta Authorization: Bearer <token>.
- * - Si recibe 401 Unauthorized, refresca silenciosamente el token y reintenta la petición.
- * - Si el refresh de 7 días falla, redirige limpiamente a /ingreso.
+ * - Mantiene Access Token solo en memoria y Refresh Token exclusivamente en Cookie HttpOnly.
+ * - Realiza refresh silencioso automático tras recarga de página o expiración de access token (401).
  */
 export const authFetch = async (
   input: string | URL | Request,
@@ -136,8 +257,14 @@ export const authFetch = async (
     ? (input.startsWith("http://") || input.startsWith("https://") ? input : getApiUrl(input))
     : input;
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
   const headers = new Headers(init.headers || {});
+  let token = inMemoryAccessToken;
+
+  if (!headers.has("Authorization") && !(init as any)._skipAutoRefresh) {
+    if (!isTokenFresh(token)) {
+      token = await refreshAccessToken({ redirectOnFail: false });
+    }
+  }
 
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -151,9 +278,10 @@ export const authFetch = async (
 
   let response = await fetch(url, fetchOptions);
 
-  // Si la petición falla con 401 y no ha sido reintentada aún
   if (response.status === 401 && !(init as any)._isRetry) {
-    const newAccessToken = await refreshAccessToken();
+    const newAccessToken = await refreshAccessToken({
+      redirectOnFail: (init as any).redirectOnFail ?? true,
+    });
     if (newAccessToken) {
       const retryHeaders = new Headers(init.headers || {});
       retryHeaders.set("Authorization", `Bearer ${newAccessToken}`);
@@ -162,7 +290,6 @@ export const authFetch = async (
         ...init,
         credentials: "include",
         headers: retryHeaders,
-        // Marcador interno para prevenir bucles infinitos
         ...({ _isRetry: true } as any),
       };
 
@@ -175,30 +302,26 @@ export const authFetch = async (
 
 /**
  * Cierre de sesión seguro:
- * Invalida el refresh token en el backend (blacklist) y borra la cookie HttpOnly.
+ * Invalida el refresh token de la cookie HttpOnly en el backend y limpia memoria, caches SW e IndexedDB.
  */
 export const logoutAuth = async (): Promise<void> => {
   try {
-    const storedRefresh = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
     await fetch(getApiUrl("/api/auth/logout/"), {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(storedRefresh ? { refresh: storedRefresh } : {}),
+      body: JSON.stringify({}),
     });
   } catch {
     // Silencioso
   } finally {
+    setAccessToken(null);
     if (typeof window !== "undefined") {
-      // 1. Limpieza de tokens y datos en almacenamiento local
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("user_info");
+      clearLegacyTokenStorage();
       sessionStorage.clear();
 
-      // 2. Limpieza de caché del Service Worker para evitar fugas en dispositivos compartidos (Ley 21.719 A-4)
       if ("caches" in window) {
         try {
           const cacheKeys = await caches.keys();
@@ -212,15 +335,7 @@ export const logoutAuth = async (): Promise<void> => {
         }
       }
 
-      // 3. Purgar base de datos IndexedDB local
-      try {
-        if (window.indexedDB) {
-          window.indexedDB.deleteDatabase("HDPrevencion_Offline_DB");
-        }
-      } catch {
-        // Silencioso
-      }
-
+      await limpiarTodoOfflineStorage();
       window.location.href = "/ingreso";
     }
   }

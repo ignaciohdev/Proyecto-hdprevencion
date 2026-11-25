@@ -50,15 +50,8 @@ export default function PerfilPanel() {
 
   // Cargar perfil inicial
   const loadUserData = async () => {
-    const token = localStorage.getItem("access_token");
-    if (!token) return;
-
     try {
-      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const res = await authFetch(getApiUrl("/api/usuarios/perfil/"));
       if (res.ok) {
         const data = await res.json();
         setUsername(data.username);
@@ -164,13 +157,6 @@ export default function PerfilPanel() {
       }
     }
 
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      setError("No se detectó una sesión activa.");
-      setLoading(false);
-      return;
-    }
-
     // Usar FormData para soportar subida multipart (texto + archivos binarios)
     const formData = new FormData();
     formData.append("username", form.username);
@@ -190,12 +176,8 @@ export default function PerfilPanel() {
     }
 
     try {
-      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
+      const res = await authFetch(getApiUrl("/api/usuarios/perfil/"), {
         method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          // NOTA: No seteamos Content-Type para que el navegador configure automáticamente el multipart boundary.
-        },
         body: formData,
       });
 

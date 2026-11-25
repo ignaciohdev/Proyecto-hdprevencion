@@ -6,6 +6,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
+from .crypto import EncryptedJSONField
 from .models import (
     Plan, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
@@ -24,6 +25,7 @@ from .models import (
 )
 
 Usuario = get_user_model()
+serializers.ModelSerializer.serializer_field_mapping[EncryptedJSONField] = serializers.JSONField
 
 class PlanSerializer(serializers.ModelSerializer):
     class Meta:
@@ -740,6 +742,21 @@ class DenunciaLeyKarinSerializer(serializers.ModelSerializer):
         validar_rut_chileno(value)
         return value
 
+    def validate(self, attrs):
+        empresa = attrs.get('empresa') or self.context.get('empresa')
+        centro = attrs.get('centro_trabajo')
+        if centro is not None:
+            usuarios_grupo = self.context.get('usuarios_grupo')
+            if usuarios_grupo is not None and getattr(centro.empresa, 'prevencionista', None) not in usuarios_grupo:
+                raise serializers.ValidationError({
+                    'centro_trabajo': 'El centro de trabajo seleccionado no pertenece al grupo autorizado.'
+                })
+            if empresa is not None and centro.empresa_id != empresa.id:
+                raise serializers.ValidationError({
+                    'centro_trabajo': 'El centro de trabajo no pertenece a la empresa seleccionada.'
+                })
+        return attrs
+
 
 class DenunciaLeyKarinPublicaCreateSerializer(serializers.ModelSerializer):
     rut_denunciante = serializers.CharField(max_length=15)
@@ -762,6 +779,21 @@ class DenunciaLeyKarinPublicaCreateSerializer(serializers.ModelSerializer):
         from .models import validar_rut_chileno
         validar_rut_chileno(value)
         return value
+
+    def validate(self, attrs):
+        empresa = attrs.get('empresa') or self.context.get('empresa')
+        centro = attrs.get('centro_trabajo')
+        if centro is not None:
+            usuarios_grupo = self.context.get('usuarios_grupo')
+            if usuarios_grupo is not None and getattr(centro.empresa, 'prevencionista', None) not in usuarios_grupo:
+                raise serializers.ValidationError({
+                    'centro_trabajo': 'El centro de trabajo seleccionado no pertenece al grupo autorizado.'
+                })
+            if empresa is not None and centro.empresa_id != empresa.id:
+                raise serializers.ValidationError({
+                    'centro_trabajo': 'El centro de trabajo no pertenece a la empresa seleccionada.'
+                })
+        return attrs
 
 
 class MiembroCPHSSerializer(serializers.ModelSerializer):
@@ -1095,11 +1127,14 @@ class SolicitudDerechoARCOSerializer(serializers.ModelSerializer):
             'rut_titular', 'nombre_titular', 'email_titular', 'telefono_titular',
             'detalle_solicitud', 'estado', 'estado_display',
             'fecha_solicitud', 'fecha_limite_30d', 'bloqueo_provisional_activo',
-            'respuesta_formal', 'fecha_resolucion'
+            'fecha_limite_bloqueo_2d', 'aviso_apdp_rechazo_bloqueo',
+            'fecha_aviso_apdp_bloqueo', 'respuesta_formal', 'fecha_resolucion'
         )
         read_only_fields = (
             'uuid', 'estado', 'fecha_solicitud', 'fecha_limite_30d',
-            'bloqueo_provisional_activo', 'respuesta_formal', 'fecha_resolucion'
+            'bloqueo_provisional_activo', 'fecha_limite_bloqueo_2d',
+            'aviso_apdp_rechazo_bloqueo', 'fecha_aviso_apdp_bloqueo',
+            'respuesta_formal', 'fecha_resolucion'
         )
 
 
@@ -1116,7 +1151,8 @@ class SolicitudDerechoARCOStatusSerializer(serializers.ModelSerializer):
             'uuid', 'tipo_derecho', 'tipo_derecho_display',
             'estado', 'estado_display',
             'fecha_solicitud', 'fecha_limite_30d',
-            'bloqueo_provisional_activo', 'fecha_resolucion'
+            'bloqueo_provisional_activo', 'fecha_limite_bloqueo_2d',
+            'aviso_apdp_rechazo_bloqueo', 'fecha_resolucion'
         )
         read_only_fields = fields
 

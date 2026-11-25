@@ -12,7 +12,7 @@
   2. **Vercel Inc.** (Estados Unidos) — Alojamiento del frontend web y edge routing (`frontend/vercel.json`).
 
 ### Servicios externos verificados SIN transferencia internacional de datos personales
-- **Open-Meteo (`api.open-meteo.com`):** Invocado en `backend/modulo_prevencion/views.py:3308-3348` (`ClimaUvView`) enviando únicamente coordenadas geográficas (`latitude`, `longitude`) de faenas/comunas chilenas y `User-Agent`. **No se transfieren datos personales.**
+- **Open-Meteo (`api.open-meteo.com`):** Invocado en `backend/modulo_prevencion/views.py:3917-4132` (`ClimaUvView`) enviando únicamente coordenadas geográficas (`latitude`, `longitude`) de faenas/comunas chilenas y `User-Agent`. **No se transfieren datos personales.**
 - **APIs de correo electrónico / Inteligencia Artificial:** Actualmente **inactivas en runtime** (el módulo web no envía correos externos ni datos a Gemini/LLMs en ejecución; si en el futuro se activan servicios como Resend, SES, SendGrid o Gemini en runtime, deberá suscribirse un nuevo Anexo antes de habilitarlos).
 
 ---
@@ -31,7 +31,7 @@ Estados Unidos no cuenta actualmente con una resolución de nivel adecuado emiti
 - **Categorías de datos:**
   - Datos de cuentas de usuarios/prevencionistas (`Usuario`, `Suscripcion`, `DocumentoUsuario`).
   - Datos laborales y preventivos de empresas clientes (`Empresa`, `Trabajador`, `EntregaEPP`, `RegistroCapacitacion`, `ComiteParitario`, `Contratista`).
-  - Datos sensibles de salud laboral (`InvestigacionAccidente`) y denuncias confidenciales (`DenunciaLeyKarin`, con relatos cifrados en capa de aplicación `enc:v1:` antes de persistir en PostgreSQL).
+  - Datos sensibles de salud laboral (`InvestigacionAccidente`: nombre, RUT, lesión, parte del cuerpo y descripción cifrados con `FIELD_ENCRYPTION_KEY`) y denuncias confidenciales (`DenunciaLeyKarin`: identidad de denunciante/denunciado, relato, testigos y medidas cifrados en capa de aplicación `enc:v1:` antes de persistir en PostgreSQL), además de firma EPP cifrada (`EntregaEPP`).
 - **Finalidad:** Alojamiento de aplicación web, procesamiento API REST, persistencia relacional en base de datos PostgreSQL y despacho de contenido estático/SSR de la plataforma SaaS HD Prevención.
 
 ---
@@ -47,7 +47,7 @@ Cada importador queda sujeto a:
 ---
 
 ## 5. Declaración de transparencia (Art. 14 ter letra h)
-Esta transferencia internacional, los países de destino (**EE.UU.**), la ausencia de decisión de adecuación general y el mecanismo de garantías adoptado (**Cláusulas Contractuales Modelo RAEX202503748**) deben declararse expresamente en la sección *"Con quién compartimos los datos y transferencias internacionales"* de la Política de Privacidad pública (`/privacidad`), actualmente omitido en `frontend/src/app/(public)/privacidad/page.tsx`.
+Esta transferencia internacional, los países de destino (**EE.UU.**), la ausencia de decisión de adecuación general y el mecanismo de garantías adoptado (**Cláusulas Contractuales Modelo RAEX202503748**) ya se encuentran declarados en la sección *"Destinatarios y Transferencias Internacionales"* de `frontend/src/app/(public)/privacidad/page.tsx:140-158`, quedando pendiente únicamente completar los datos societarios definitivos y suscribir los DPAs + Cláusulas Modelo con Render y Vercel al pasar a planes de pago.
 
 ---
 *Borrador generado con compliance-cl (pack ley-21719). No constituye asesoría legal; revisar con un abogado.*

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { getSessionUser } from "../utils/api";
 
 export default function Header() {
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
@@ -23,7 +24,9 @@ export default function Header() {
       setTheme("light");
     }
 
-    setIsLoggedIn(!!localStorage.getItem("access_token"));
+    void getSessionUser().then((user) => {
+      setIsLoggedIn(Boolean(user));
+    });
   }, []);
 
   const toggleTheme = () => {

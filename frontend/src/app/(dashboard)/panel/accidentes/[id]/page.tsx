@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getApiUrl } from "../../../../utils/api";
+import { authFetch, getApiUrl } from "../../../../utils/api";
 
 interface ActionItem {
   medida: string;
@@ -70,22 +70,15 @@ export default function DetalleAccidentePage() {
     const fetchData = async () => {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem("access_token");
-      if (!token) return;
-
       try {
         // 1. Cargar el registro del accidente
-        const res = await fetch(getApiUrl(`/api/accidentes/${accId}/`), {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const res = await authFetch(getApiUrl(`/api/accidentes/${accId}/`));
         if (!res.ok) throw new Error("No se pudo obtener el expediente de investigación.");
         const data = await res.json();
         setRecord(data);
 
         // 2. Cargar perfil para ver marca de agua / marca blanca
-        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const resUser = await authFetch(getApiUrl("/api/usuarios/perfil/"));
         if (resUser.ok) {
           const userData = await resUser.json();
           setUserPlan(userData.suscripcion_activa);

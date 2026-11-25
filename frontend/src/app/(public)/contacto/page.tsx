@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { getApiUrl } from "../../utils/api";
+import { authFetch, getApiUrl, getSessionUser } from "../../utils/api";
 
 function ContactoPageInner() {
   const searchParams = useSearchParams();
@@ -20,25 +20,21 @@ function ContactoPageInner() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    let initialUser = { username: "", email: "" };
-    if (token) {
-      try {
-        const payload = JSON.parse(window.atob(token.split(".")[1]));
-        initialUser = {
-          username: payload.username || "",
-          email: payload.email || "",
-        };
-      } catch (e) {}
-    }
-
     const asuntoParam = searchParams.get("asunto") || "";
-
-    setFormData({
-      nombre: initialUser.username,
-      email: initialUser.email,
+    setFormData((prev) => ({
+      ...prev,
       asunto: asuntoParam,
       mensaje: "",
+    }));
+
+    void getSessionUser().then((user) => {
+      if (user) {
+        setFormData((prev) => ({
+          ...prev,
+          nombre: prev.nombre || user.username || "",
+          email: prev.email || user.email || "",
+        }));
+      }
     });
   }, [searchParams]);
 
@@ -60,18 +56,14 @@ function ContactoPageInner() {
     setError(null);
     setSuccess(false);
 
-    const token = localStorage.getItem("access_token");
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-
     try {
-      const res = await fetch(getApiUrl("/api/contacto/"), {
+      const sessionUser = await getSessionUser();
+      const fetcher = sessionUser ? authFetch : fetch;
+      const res = await fetcher(getApiUrl("/api/contacto/"), {
         method: "POST",
-        headers,
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           ...formData,
           acepta_privacidad: aceptaPrivacidad,

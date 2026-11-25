@@ -1,9 +1,14 @@
 from typing import Any
+from django import forms
 from django.contrib import admin
+from django.contrib.admin.forms import AdminAuthenticationForm
 from django.contrib.auth.admin import UserAdmin
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from .auditoria import registrar_evento_seguridad
+from .mfa import verificar_segundo_factor_usuario
 from .models import (
     Plan, Usuario, Suscripcion, ContadorDescargas, 
     PlantillaMaestra, DocumentoUsuario, 
@@ -473,13 +478,14 @@ class SolicitudDerechoARCOAdmin(admin.ModelAdmin):
     """Gestión operativa de derechos del titular ARCO-POL y bloqueo provisional (Arts. 4–11 Ley 21.719)."""
     list_display = (
         'uuid', 'tipo_derecho', 'rut_titular', 'nombre_titular',
-        'estado_badge', 'bloqueo_provisional_activo', 'fecha_solicitud', 'fecha_limite_30d'
+        'estado_badge', 'bloqueo_provisional_activo', 'aviso_apdp_rechazo_bloqueo',
+        'fecha_limite_bloqueo_2d', 'fecha_solicitud', 'fecha_limite_30d'
     )
-    list_filter = ('tipo_derecho', 'estado', 'bloqueo_provisional_activo')
+    list_filter = ('tipo_derecho', 'estado', 'bloqueo_provisional_activo', 'aviso_apdp_rechazo_bloqueo')
     search_fields = ('uuid', 'rut_titular', 'nombre_titular', 'email_titular')
     date_hierarchy = 'fecha_solicitud'
-    readonly_fields = ('uuid', 'fecha_solicitud', 'fecha_limite_30d')
-    actions = ('activar_bloqueo_provisional', 'marcar_resuelta')
+    readonly_fields = ('uuid', 'fecha_solicitud', 'fecha_limite_30d', 'fecha_limite_bloqueo_2d', 'fecha_aviso_apdp_bloqueo')
+    actions = ('activar_bloqueo_provisional', 'rechazar_bloqueo_y_notificar_apdp', 'marcar_resuelta')
 
     @admin.display(description="Estado")
     def estado_badge(self, obj):
@@ -498,6 +504,17 @@ class SolicitudDerechoARCOAdmin(admin.ModelAdmin):
     def activar_bloqueo_provisional(self, request, queryset):
         queryset.update(bloqueo_provisional_activo=True)
 
+    @admin.action(description="Rechazar bloqueo provisional y registrar aviso APDP (Art. 11)")
+    def rechazar_bloqueo_y_notificar_apdp(self, request, queryset):
+        from .arco import registrar_rechazo_bloqueo_apdp
+        for solicitud in queryset:
+            registrar_rechazo_bloqueo_apdp(
+                solicitud,
+                usuario_actor=request.user,
+                request=request,
+                motivo="Rechazo de bloqueo provisional informado a APDP desde panel administrativo.",
+            )
+
     @admin.action(description="Marcar solicitudes seleccionadas como Resueltas")
     def marcar_resuelta(self, request, queryset):
         queryset.update(
@@ -512,18 +529,28 @@ class SolicitudDerechoARCOAdmin(admin.ModelAdmin):
                 obj.fecha_resolucion = timezone.now()
             if 'bloqueo_provisional_activo' not in getattr(form, 'changed_data', []):
                 obj.bloqueo_provisional_activo = False
+        if obj.aviso_apdp_rechazo_bloqueo and not obj.fecha_aviso_apdp_bloqueo:
+            obj.fecha_aviso_apdp_bloqueo = timezone.now()
         super().save_model(request, obj, form, change)
 
 
 @admin.register(RegistroBrechaSeguridad)
 class RegistroBrechaSeguridadAdmin(admin.ModelAdmin):
-    """Registro operativo y trazabilidad de vulneraciones de seguridad (Art. 14 sexies Ley 21.719)."""
+    """Registro operativo y trazabilidad de vulneraciones de seguridad (Arts. 14 sexies y 15 bis Ley 21.719)."""
     list_display = (
         'codigo_incidente', 'tipo_brecha', 'severidad_badge',
-        'datos_sensibles_afectados', 'notificado_agencia', 'notificado_titulares', 'fecha_deteccion'
+        'datos_sensibles_afectados', 'datos_economicos_financieros',
+        'notificado_responsable', 'notificado_agencia', 'notificado_titulares', 'fecha_deteccion'
     )
-    list_filter = ('tipo_brecha', 'severidad', 'datos_sensibles_afectados', 'notificado_agencia', 'notificado_titulares')
-    search_fields = ('codigo_incidente', 'descripcion_incidente', 'responsable_analisis', 'folio_notificacion_agencia')
+    list_filter = (
+        'tipo_brecha', 'severidad', 'datos_sensibles_afectados',
+        'datos_economicos_financieros', 'notificado_responsable',
+        'notificado_agencia', 'notificado_titulares',
+    )
+    search_fields = (
+        'codigo_incidente', 'descripcion_incidente', 'responsable_analisis',
+        'folio_notificacion_agencia', 'contacto_responsable_notificado',
+    )
     date_hierarchy = 'fecha_deteccion'
     readonly_fields = ('fecha_deteccion',)
 
@@ -565,6 +592,141 @@ class AuditLogEventoSeguridadAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class MFAAdminAuthenticationForm(AdminAuthenticationForm):
+    """Formulario de acceso a Django Admin con segundo factor TOTP / códigos de respaldo (sec-mfa)."""
+
+    otp_code = forms.CharField(
+        label="Código MFA (TOTP o respaldo)",
+        required=False,
+        strip=True,
+        widget=forms.TextInput(attrs={
+            'autocomplete': 'one-time-code',
+            'placeholder': '123456 o XXXX-XXXX',
+        }),
+        help_text="Ingresa el código TOTP de 6 dígitos de tu app autenticadora o un código de respaldo.",
+    )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        user = self.get_user()
+        if user is None:
+            return cleaned_data
+
+        otp_code = (cleaned_data.get('otp_code') or '').strip()
+        if not getattr(user, 'mfa_enabled', False):
+            registrar_evento_seguridad(
+                self.request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                usuario=user,
+                modelo_afectado='Usuario',
+                recurso_id=user.pk,
+                exito=False,
+                metadata={'flow': 'django_admin_login', 'reason': 'mfa_not_enabled'},
+            )
+            raise DjangoValidationError(
+                "Tu cuenta administrativa debe activar MFA TOTP en Mi Perfil (/panel/perfil#seguridad-mfa) antes de ingresar al panel de administración.",
+                code='mfa_setup_required',
+            )
+
+        if not otp_code:
+            registrar_evento_seguridad(
+                self.request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                usuario=user,
+                modelo_afectado='Usuario',
+                recurso_id=user.pk,
+                exito=False,
+                metadata={'flow': 'django_admin_login', 'reason': 'missing_otp'},
+            )
+            raise DjangoValidationError(
+                "Ingresa tu código TOTP de 6 dígitos o un código de respaldo para ingresar al panel de administración.",
+                code='mfa_required',
+            )
+
+        if not verificar_segundo_factor_usuario(user, otp_code):
+            registrar_evento_seguridad(
+                self.request,
+                categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+                accion='MFA_FAIL',
+                usuario=user,
+                modelo_afectado='Usuario',
+                recurso_id=user.pk,
+                exito=False,
+                metadata={'flow': 'django_admin_login', 'reason': 'invalid_otp'},
+            )
+            raise DjangoValidationError(
+                "Código TOTP o de respaldo inválido o ya utilizado.",
+                code='invalid_mfa',
+            )
+
+        registrar_evento_seguridad(
+            self.request,
+            categoria=AuditLogEventoSeguridad.CATEGORIA_MFA,
+            accion='MFA_OK',
+            usuario=user,
+            modelo_afectado='Usuario',
+            recurso_id=user.pk,
+            exito=True,
+            metadata={'flow': 'django_admin_login'},
+        )
+        return cleaned_data
+
+
+class MFAAdminSite(admin.AdminSite):
+    """AdminSite protegido con verificación MFA TOTP obligatoria en sesión y login."""
+
+    login_form = MFAAdminAuthenticationForm
+    login_template = 'admin/mfa_login.html'
+    site_header = "HD Prevención — Panel de Control SST"
+    site_title = "HD Prevención Admin"
+
+    def has_permission(self, request):
+        if not super().has_permission(request):
+            return False
+        user = request.user
+        return bool(
+            getattr(user, 'mfa_enabled', False)
+            and request.session.get('mfa_admin_verified_uid') == user.pk
+        )
+
+    def login(self, request, extra_context=None):
+        context = dict(extra_context or {})
+        context.setdefault('mfa_admin_required', True)
+        response = super().login(request, extra_context=context)
+        if request.method == 'POST' and getattr(request.user, 'is_authenticated', False):
+            if getattr(request.user, 'mfa_enabled', False) and response.status_code == 302:
+                request.session['mfa_admin_verified_uid'] = request.user.pk
+                registrar_evento_seguridad(
+                    request,
+                    categoria=AuditLogEventoSeguridad.CATEGORIA_AUTH,
+                    accion='LOGIN_OK',
+                    usuario=request.user,
+                    modelo_afectado='Usuario',
+                    recurso_id=request.user.pk,
+                    exito=True,
+                    metadata={'flow': 'django_admin_login', 'mfa': True},
+                )
+        return response
+
+
+def configurar_admin_mfa() -> None:
+    """Aplica MFAAdminSite sobre django.contrib.admin.site preservando el registro existente."""
+    _ = admin.site._registry
+    site_obj = getattr(admin.site, '_wrapped', admin.site)
+    if not isinstance(site_obj, MFAAdminSite):
+        site_obj.__class__ = MFAAdminSite
+    site_obj.login_form = MFAAdminAuthenticationForm
+    site_obj.login_template = 'admin/mfa_login.html'
+    site_obj.site_header = MFAAdminSite.site_header
+    site_obj.site_title = MFAAdminSite.site_title
+
+
+configurar_admin_mfa()
+
 
 
 

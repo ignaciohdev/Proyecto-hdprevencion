@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    RegisterView, CustomTokenObtainPairView, MfaLoginVerifyView, CustomTokenRefreshView, LogoutView,
+    RegisterView, CustomTokenObtainPairView, MfaLoginVerifyView, CustomTokenRefreshView, LogoutView, SessionStatusView,
     PlantillaMaestraViewSet, DocumentoUsuarioViewSet,
     NoticiaViewSet, MensajeContactoViewSet, ServicioViewSet,
     UsuarioViewSet, PlanViewSet,
@@ -19,7 +19,9 @@ from .views import (
     RequisitoLegalBaseViewSet, MatrizLegalViewSet, ItemMatrizLegalViewSet,
     MatrizRiesgoMiperViewSet, ItemMatrizRiesgoViewSet,
     ClimaUvView,
-    SolicitudDerechoARCOCreateView, SolicitudDerechoARCOConsultaView, PortabilidadDatosView
+    SolicitudDerechoARCOCreateView, SolicitudDerechoARCOConsultaView, PortabilidadDatosView,
+    RectificacionDatosView, SupresionAnonimizacionView, OposicionTratamientoView,
+    EjecutarSolicitudARCOView,
 )
 
 router = DefaultRouter()
@@ -64,6 +66,7 @@ urlpatterns = [
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/mfa/verify/', MfaLoginVerifyView.as_view(), name='auth_mfa_verify'),
     path('auth/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
+    path('auth/session/', SessionStatusView.as_view(), name='auth_session'),
     path('auth/logout/', LogoutView.as_view(), name='auth_logout'),
     
     # Endpoint de estadísticas del dashboard
@@ -76,6 +79,10 @@ urlpatterns = [
     path('privacidad/solicitar-derecho/', SolicitudDerechoARCOCreateView.as_view(), name='privacidad_solicitar_derecho'),
     path('privacidad/consultar-derecho/<uuid:uuid>/', SolicitudDerechoARCOConsultaView.as_view(), name='privacidad_consultar_derecho'),
     path('privacidad/portabilidad/', PortabilidadDatosView.as_view(), name='privacidad_portabilidad'),
+    path('privacidad/rectificar/', RectificacionDatosView.as_view(), name='privacidad_rectificar'),
+    path('privacidad/suprimir/', SupresionAnonimizacionView.as_view(), name='privacidad_suprimir'),
+    path('privacidad/oponer/', OposicionTratamientoView.as_view(), name='privacidad_oponer'),
+    path('privacidad/ejecutar-solicitud/<uuid:uuid>/', EjecutarSolicitudARCOView.as_view(), name='privacidad_ejecutar_solicitud'),
 
     # Endpoints públicos del portal de participación (acceso via código QR, sin login)
     path(

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { getApiUrl } from "../../utils/api";
+import { authFetch, getApiUrl, getSessionUser } from "../../utils/api";
 
 export interface NoticiaItem {
   id: number;
@@ -266,13 +266,11 @@ export default function NoticiasPage() {
   // Carga de noticias desde backend y chequeo de permisos admin
   const fetchNoticias = async () => {
     setLoading(true);
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     try {
-      const res = await fetch(getApiUrl("/api/noticias/"), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const sessionUser = await getSessionUser();
+      const res = sessionUser
+        ? await authFetch(getApiUrl("/api/noticias/"), { ...({ redirectOnFail: false } as any) })
+        : await fetch(getApiUrl("/api/noticias/"));
       if (res.ok) {
         const data = await res.json();
         const lista: NoticiaItem[] = Array.isArray(data) ? data : data.results || [];
@@ -286,17 +284,9 @@ export default function NoticiasPage() {
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("access_token");
-      if (token) {
-        try {
-          const payload = JSON.parse(window.atob(token.split(".")[1]));
-          setIsAdmin(Boolean(payload.is_superuser || payload.is_staff));
-        } catch (e) {
-          console.error(e);
-        }
-      }
-    }
+    void getSessionUser().then((user) => {
+      setIsAdmin(Boolean(user?.is_superuser || user?.is_staff));
+    });
     fetchNoticias();
   }, []);
 
@@ -396,7 +386,6 @@ export default function NoticiasPage() {
 
   const handleSaveCrud = async (e: React.FormEvent) => {
     e.preventDefault();
-    const token = localStorage.getItem("access_token");
     setGuardandoCrud(true);
 
     const method = editingNoticia && editingNoticia.id > 0 ? "PUT" : "POST";
@@ -406,11 +395,10 @@ export default function NoticiasPage() {
         : getApiUrl("/api/noticias/");
 
     try {
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(formNoticia),
       });
@@ -435,13 +423,9 @@ export default function NoticiasPage() {
       return;
     }
     if (!confirm("¿Está seguro de eliminar este artículo normativo?")) return;
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl(`/api/noticias/${id}/`), {
+      const res = await authFetch(getApiUrl(`/api/noticias/${id}/`), {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
       });
       if (!res.ok) throw new Error("Error al eliminar el artículo.");
       fetchNoticias();

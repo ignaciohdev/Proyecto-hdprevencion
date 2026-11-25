@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { authFetch, logoutAuth } from "../utils/api";
+import { authFetch, clearLegacyTokenStorage, logoutAuth, setAccessToken } from "../utils/api";
 
 export interface UserProfile {
   id: number;
@@ -38,7 +38,9 @@ export function useAuth() {
 
   const fetchPerfil = useCallback(async () => {
     try {
-      const res = await authFetch("/api/usuarios/perfil/");
+      const res = await authFetch("/api/usuarios/perfil/", {
+        ...({ redirectOnFail: false } as any),
+      });
       if (!res.ok) {
         throw new Error("No fue posible cargar el perfil del usuario.");
       }
@@ -49,10 +51,9 @@ export function useAuth() {
     } catch {
       setIsAuthenticated(false);
       setUser(null);
+      setAccessToken(null);
       if (typeof window !== "undefined") {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        localStorage.removeItem("user_info");
+        clearLegacyTokenStorage();
         router.push("/ingreso");
       }
     } finally {
@@ -61,17 +62,7 @@ export function useAuth() {
   }, [router]);
 
   useEffect(() => {
-    // Si no hay token de acceso ni refresh en localStorage y estamos en el cliente,
-    // aún así intentamos fetchPerfil por si existe la cookie HttpOnly de sesión
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("refresh_token") : null;
-
-    if (!token && !refreshToken) {
-      // Intentar fetchPerfil igualmente para validar si hay cookie HttpOnly cross-domain activa
-      fetchPerfil();
-    } else {
-      fetchPerfil();
-    }
+    fetchPerfil();
 
     const handleUserChange = () => {
       fetchPerfil();

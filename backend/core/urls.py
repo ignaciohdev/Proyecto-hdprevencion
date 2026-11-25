@@ -21,6 +21,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 
+admin.autodiscover()
+from modulo_prevencion.admin import configurar_admin_mfa
+configurar_admin_mfa()
+
 # Ruta ofuscada o configurable para el panel de administración (Ley 21.719 B-2)
 admin_url_path = os.environ.get('DJANGO_ADMIN_PATH', 'sst-control-panel/').strip('/') + '/'
 

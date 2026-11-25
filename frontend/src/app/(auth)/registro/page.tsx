@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl, parseJsonResponse } from "../../utils/api";
+import { getApiUrl, parseJsonResponse, setAccessToken } from "../../utils/api";
 
 export default function Registro() {
   const router = useRouter();
@@ -57,6 +57,7 @@ export default function Registro() {
 
       const response = await fetch(getApiUrl("/api/auth/register/"), {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -73,10 +74,8 @@ export default function Registro() {
         throw new Error(errorMessages || "Error en el registro.");
       }
 
-      // Guardar tokens JWT en localStorage
-      localStorage.setItem("access_token", data.tokens.access);
-      localStorage.setItem("refresh_token", data.tokens.refresh);
-      localStorage.setItem("user_info", JSON.stringify(data.user));
+      // Mantener Access Token solo en memoria; el Refresh Token queda en Cookie HttpOnly
+      setAccessToken(data.tokens?.access || null);
 
       setSuccess(true);
       setTimeout(() => {

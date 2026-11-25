@@ -19,10 +19,10 @@
 ## 2. Fase 1 — Detección y contención inmediata (0–4 horas)
 1. **Registrar hora exacta de detección** (zona horaria `America/Santiago`), quién detecta y sistemas involucrados (`backend/Render`, `PostgreSQL`, `frontend/Vercel`, dispositivo en terreno).
 2. **Contener el vector:**
-   - Revocar sesiones activas: invalidar tokens en `token_blacklist` y rotar `SECRET_KEY` en Render (**PRECAUCIÓN CRÍTICA:** mientras `crypto.py` derive el cifrado desde `SECRET_KEY`, NO rotar `SECRET_KEY` sin haber migrado antes a una `FIELD_ENCRYPTION_KEY` independiente o recifrado los campos `enc:v1:`, ya que de otro modo se perdería acceso a los relatos Ley Karin y accidentes!).
-   - Si hubo compromiso de `FIELD_ENCRYPTION_KEY` o credenciales de BD: generar nuevas credenciales en PostgreSQL/Render y re-cifrar campos sensibles con nueva llave.
-   - Bloquear cuentas/IPs comprometidas, deshabilitar temporalmente endpoints afectados (ej. `PortabilidadDatosView`) y revocar llaves/tokens de despliegue en Render/Vercel/GitHub.
-3. **Preservar evidencia:** exportar logs de Render, Vercel y `AuditLogAccesoDenuncia` antes de que expiren (en capa gratuita los logs son volátiles). Abrir entrada preliminar en `21719-registro-vulneraciones.md` (y en el modelo `RegistroBrechaSeguridad` una vez habilitado en admin/panel).
+   - Revocar sesiones activas: invalidar tokens en `token_blacklist` y rotar `SECRET_KEY` en Render. *(Nota: `FIELD_ENCRYPTION_KEY` ya opera independiente de `SECRET_KEY` mediante `MultiFernet` en `crypto.py`, de modo que rotar `SECRET_KEY` no rompe el descifrado de denuncias ni accidentes siempre que `FIELD_ENCRYPTION_KEY` permanezca configurada.)*
+   - Si hubo compromiso de `FIELD_ENCRYPTION_KEY` o credenciales de BD: generar nuevas credenciales en PostgreSQL/Render, mover la clave comprometida temporalmente a `FIELD_ENCRYPTION_OLD_KEYS`, establecer la nueva `FIELD_ENCRYPTION_KEY` y ejecutar `python manage.py cifrar_y_rotar_campos` antes de retirar la antigua.
+   - Bloquear cuentas/IPs comprometidas, deshabilitar temporalmente endpoints afectados y revocar llaves/tokens de despliegue en Render/Vercel/GitHub.
+3. **Preservar evidencia:** exportar logs de Render, Vercel, `AuditLogAccesoDenuncia` y `AuditLogEventoSeguridad` antes de que expiren (en capa gratuita los logs de consola son volátiles). Abrir entrada preliminar en `21719-registro-vulneraciones.md` y en el modelo `RegistroBrechaSeguridad` (disponible en `/sst-control-panel/modulo_prevencion/registrobrechaseguridad/`).
 
 ---
 

@@ -2,7 +2,7 @@
 
 import { useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getApiUrl, parseJsonResponse } from "../../utils/api";
+import { getApiUrl, parseJsonResponse, setAccessToken } from "../../utils/api";
 
 function IngresoInner() {
   const router = useRouter();
@@ -32,8 +32,7 @@ function IngresoInner() {
   };
 
   const completarIngreso = (data: any) => {
-    localStorage.setItem("access_token", data.access);
-    localStorage.setItem("refresh_token", data.refresh);
+    setAccessToken(data.access || null);
     setSuccess(true);
     const destino = data.mfa_setup_required ? "/panel/perfil#seguridad-mfa" : nextPath;
     setTimeout(() => {

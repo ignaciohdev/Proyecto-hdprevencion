@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ensureAccessToken, getTokenPayload } from "../../../utils/api";
 
 export default function ConsultoraPanel() {
   const [username, setUsername] = useState("");
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      try {
-        const payload = JSON.parse(window.atob(token.split(".")[1]));
+    const load = async () => {
+      await ensureAccessToken();
+      const payload = getTokenPayload();
+      if (payload?.username) {
         setUsername(payload.username);
-      } catch (e) {}
-    }
+      }
+    };
+    void load();
   }, []);
 
   return (

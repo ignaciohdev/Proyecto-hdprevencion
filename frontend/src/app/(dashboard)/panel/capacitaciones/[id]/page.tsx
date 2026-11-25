@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
-import { getApiUrl } from "../../../../utils/api";
+import { authFetch, getApiUrl } from "../../../../utils/api";
 
 interface TemaCapacitacion {
   id: number;
@@ -57,14 +57,9 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
 
   const loadCapacitacion = async () => {
     setLoading(true);
-    const token = localStorage.getItem("access_token");
     try {
       // 1. Cargar capacitación
-      const res = await fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/`), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const res = await authFetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/`));
       if (!res.ok) throw new Error("No se pudo cargar la información de la capacitación.");
       const data = await res.json();
       setCapacitacion(data);
@@ -72,11 +67,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
       setObservaciones(data.observaciones || "");
 
       // 2. Cargar perfil para ver marca de agua / marca blanca
-      const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const resUser = await authFetch(getApiUrl("/api/usuarios/perfil/"));
       if (resUser.ok) {
         const userData = await resUser.json();
         setUserPlan(userData.suscripcion_activa);
@@ -104,12 +95,7 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
     if (!capacitacion || capacitacion.estado !== "PROGRAMADA") return;
 
     const interval = setInterval(() => {
-      const token = localStorage.getItem("access_token");
-      fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/`), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      })
+      authFetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/`))
         .then((res) => {
           if (res.ok) return res.json();
         })
@@ -148,14 +134,12 @@ export default function DetalleCapacitacionPage({ params }: { params: Promise<{ 
     }
 
     setSaving(true);
-    const token = localStorage.getItem("access_token");
 
     try {
-      const res = await fetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/finalizar/`), {
+      const res = await authFetch(getApiUrl(`/api/registro-capacitacion/${capacitacionId}/finalizar/`), {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify({
           asistentes: asistentesLocales,

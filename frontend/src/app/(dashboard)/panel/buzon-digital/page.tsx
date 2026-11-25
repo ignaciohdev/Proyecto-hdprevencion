@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, getApiUrl } from "../../../utils/api";
 
 interface SugerenciaLaboral {
   id: number;
@@ -79,11 +79,6 @@ interface DenunciaLeyKarin {
   accesos_auditoria?: AuditLog[];
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "-";
   return new Date(dateStr).toLocaleDateString("es-CL", {
@@ -139,10 +134,8 @@ export default function BuzonDigitalPage() {
     setLoading(true);
     setError(null);
     try {
-      const headers = { ...getAuthHeaders() };
-
       // 0. Fetch empresas para contexto de prevencionista
-      const resEmp = await fetch(getApiUrl("/api/empresas/"), { headers });
+      const resEmp = await authFetch(getApiUrl("/api/empresas/"));
       if (resEmp.ok) {
         const dataEmp = await resEmp.json();
         const empList = Array.isArray(dataEmp) ? dataEmp : dataEmp.results || [];
@@ -153,13 +146,13 @@ export default function BuzonDigitalPage() {
       }
 
       // 1. Fetch sugerencias laborales
-      const resSug = await fetch(getApiUrl("/api/sugerencias-laborales/"), { headers });
+      const resSug = await authFetch(getApiUrl("/api/sugerencias-laborales/"));
       if (resSug.ok) {
         const dataSug = await resSug.json();
         setSugerencias(Array.isArray(dataSug) ? dataSug : dataSug.results || []);
       } else {
         // Fallback al endpoint legacy si existiera
-        const resLegacy = await fetch(getApiUrl("/api/buzon/"), { headers });
+        const resLegacy = await authFetch(getApiUrl("/api/buzon/"));
         if (resLegacy.ok) {
           const dataLegacy = await resLegacy.json();
           setSugerencias(Array.isArray(dataLegacy) ? dataLegacy : dataLegacy.results || []);
@@ -167,7 +160,7 @@ export default function BuzonDigitalPage() {
       }
 
       // 2. Fetch denuncias Ley Karin
-      const resKarin = await fetch(getApiUrl("/api/denuncias-ley-karin/"), { headers });
+      const resKarin = await authFetch(getApiUrl("/api/denuncias-ley-karin/"));
       if (resKarin.ok) {
         const dataKarin = await resKarin.json();
         setDenuncias(Array.isArray(dataKarin) ? dataKarin : dataKarin.results || []);
@@ -182,9 +175,7 @@ export default function BuzonDigitalPage() {
   // Fetch Prevencionista Profile for QR URL
   const fetchUid = useCallback(async () => {
     try {
-      const res = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-        headers: getAuthHeaders(),
-      });
+      const res = await authFetch(getApiUrl("/api/usuarios/perfil/"));
       if (res.ok) {
         const data = await res.json();
         setUid(data.uuid ? String(data.uuid) : String(data.id));
@@ -203,9 +194,7 @@ export default function BuzonDigitalPage() {
   const handleSelectKarin = async (item: DenunciaLeyKarin) => {
     try {
       // Al consultar el detalle vía GET, el backend registra el AuditLogAccesoDenuncia inmutable
-      const res = await fetch(getApiUrl(`/api/denuncias-ley-karin/${item.id}/`), {
-        headers: getAuthHeaders(),
-      });
+      const res = await authFetch(getApiUrl(`/api/denuncias-ley-karin/${item.id}/`));
       if (res.ok) {
         const fullDetail = await res.json();
         setSelectedKarin(fullDetail);
@@ -222,13 +211,12 @@ export default function BuzonDigitalPage() {
     if (!selectedSug) return;
     setSaving(true);
     try {
-      const res = await fetch(
+      const res = await authFetch(
         getApiUrl(`/api/sugerencias-laborales/${selectedSug.id}/responder/`),
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...getAuthHeaders(),
           },
           body: JSON.stringify({
             respuesta: respuestaSug,
@@ -253,13 +241,12 @@ export default function BuzonDigitalPage() {
     if (!selectedKarin || !medidasTexto.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch(
+      const res = await authFetch(
         getApiUrl(`/api/denuncias-ley-karin/${selectedKarin.id}/registrar-medidas/`),
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...getAuthHeaders(),
           },
           body: JSON.stringify({ medidas_resguardo_detalle: medidasTexto }),
         }
@@ -283,13 +270,12 @@ export default function BuzonDigitalPage() {
     if (!selectedKarin) return;
     setSaving(true);
     try {
-      const res = await fetch(
+      const res = await authFetch(
         getApiUrl(`/api/denuncias-ley-karin/${selectedKarin.id}/derivar-dt/`),
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...getAuthHeaders(),
           },
           body: JSON.stringify({ folio_dt: folioDtTexto }),
         }
@@ -322,12 +308,10 @@ export default function BuzonDigitalPage() {
         formData.append("comprobante_anexo_67", archivoAnexo67);
       }
 
-      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-      const res = await fetch(
+      const res = await authFetch(
         getApiUrl(`/api/denuncias-ley-karin/${selectedKarin.id}/derivar-mutualidad/`),
         {
           method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
           body: formData,
         }
       );

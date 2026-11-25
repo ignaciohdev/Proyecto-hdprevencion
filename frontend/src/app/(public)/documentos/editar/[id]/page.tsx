@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { getApiUrl } from "../../../../utils/api";
+import { authFetch, getApiUrl } from "../../../../utils/api";
 
 interface FilaIPER {
   id: number;
@@ -60,7 +60,6 @@ function DocumentoEditorInner() {
   useEffect(() => {
     const fetchDocumento = async () => {
       setLoading(true);
-      const token = localStorage.getItem("access_token");
 
       if (isMock) {
         const tid = parseInt(templateTypeParam);
@@ -109,9 +108,7 @@ function DocumentoEditorInner() {
 
       try {
         // Verificar si el plan del usuario permite la edición en la nube
-        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resUser = await authFetch(getApiUrl("/api/usuarios/perfil/"));
         if (resUser.ok) {
           const dataUser = await resUser.json();
           if (dataUser.suscripcion_activa && !dataUser.suscripcion_activa.edicion_nube) {
@@ -121,9 +118,7 @@ function DocumentoEditorInner() {
           }
         }
 
-        const res = await fetch(getApiUrl(`/api/documentos-usuario/${docId}/`), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await authFetch(getApiUrl(`/api/documentos-usuario/${docId}/`));
         if (!res.ok) throw new Error("Error al obtener el documento.");
         const data = await res.json();
 
@@ -219,8 +214,6 @@ function DocumentoEditorInner() {
   };
 
   const guardarCambios = async () => {
-    const token = localStorage.getItem("access_token");
-
     let payloadData = {};
     if (templateId === 1 || docName.includes("IPER")) {
       payloadData = { filas: filasIPER };
@@ -236,11 +229,10 @@ function DocumentoEditorInner() {
       return true;
     }
 
-    const res = await fetch(getApiUrl(`/api/documentos-usuario/${docId}/`), {
+    const res = await authFetch(getApiUrl(`/api/documentos-usuario/${docId}/`), {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
         plantilla_maestra: templateId,
@@ -281,14 +273,9 @@ function DocumentoEditorInner() {
         return;
       }
 
-      const token = localStorage.getItem("access_token");
       const url = getApiUrl(`/api/documentos-usuario/${docId}/descargar-docx/`);
-      
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
+
+      const res = await authFetch(url);
       if (!res.ok) throw new Error("Error al descargar el archivo");
       
       const blob = await res.blob();

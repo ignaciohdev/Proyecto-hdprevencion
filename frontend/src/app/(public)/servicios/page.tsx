@@ -2,15 +2,17 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { getSessionUser } from "../../utils/api";
 
 export default function ServiciosRedirectPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const token = localStorage.getItem("access_token");
-    if (token) {
-      router.replace("/panel/servicios");
-    }
+    void getSessionUser().then((user) => {
+      if (user) {
+        router.replace("/panel/servicios");
+      }
+    });
   }, [router]);
 
   return (

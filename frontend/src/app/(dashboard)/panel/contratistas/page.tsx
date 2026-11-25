@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, getApiUrl } from "../../../utils/api";
 
 interface ContratistaResumen {
   id: number;
@@ -37,11 +37,6 @@ interface DashboardStats {
   documentos_por_vencer: number;
   documentos_vigentes: number;
   total_trabajadores: number;
-}
-
-function getAuthHeaders() {
-  const token = localStorage.getItem("access_token");
-  return { Authorization: token ? `Bearer ${token}` : "" };
 }
 
 function formatDate(dateStr: string) {
@@ -87,9 +82,7 @@ export default function ContratistasPage() {
     setLoading(true);
     try {
       // 0. Cargar empresas mandantes (D.S. N° 76)
-      const resEmp = await fetch(getApiUrl("/api/empresas/"), {
-        headers: getAuthHeaders()
-      });
+      const resEmp = await authFetch(getApiUrl("/api/empresas/"));
       if (resEmp.ok) {
         const dataEmp = await resEmp.json();
         setEmpresasMandantes(Array.isArray(dataEmp) ? dataEmp : dataEmp.results || []);
@@ -97,17 +90,13 @@ export default function ContratistasPage() {
 
       // 1. Obtener lista resumida de contratistas
       const query = filtroMandante !== "TODAS" ? `?empresa=${filtroMandante}` : "";
-      const resList = await fetch(getApiUrl(`/api/contratistas/${query}`), {
-        headers: getAuthHeaders()
-      });
+      const resList = await authFetch(getApiUrl(`/api/contratistas/${query}`));
       if (!resList.ok) throw new Error("Error al obtener la lista de contratistas.");
       const dataList = await resList.json();
       setContratistas(dataList);
 
       // 2. Obtener estadísticas del panel
-      const resStats = await fetch(getApiUrl("/api/contratistas/dashboard/"), {
-        headers: getAuthHeaders()
-      });
+      const resStats = await authFetch(getApiUrl("/api/contratistas/dashboard/"));
       if (!resStats.ok) throw new Error("Error al obtener estadísticas de contratistas.");
       const dataStats = await resStats.json();
       setStats(dataStats);
@@ -145,11 +134,10 @@ export default function ContratistasPage() {
         delete payload.centro_trabajo;
       }
 
-      const res = await fetch(getApiUrl("/api/contratistas/"), {
+      const res = await authFetch(getApiUrl("/api/contratistas/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...getAuthHeaders()
         },
         body: JSON.stringify(payload)
       });

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, getApiUrl } from "../../../utils/api";
 
 // ==========================================
 // INTERFACES Y MODELOS DE DATOS
@@ -147,13 +147,8 @@ export default function CapacitacionesDashboardPage() {
 
   const fetchCapacitaciones = async () => {
     setLoadingCapacitaciones(true);
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl("/api/registro-capacitacion/"), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const res = await authFetch(getApiUrl("/api/registro-capacitacion/"));
       if (!res.ok) throw new Error("Error al obtener el plan de capacitaciones.");
       const data = await res.json();
       setCapacitaciones(data);
@@ -167,13 +162,8 @@ export default function CapacitacionesDashboardPage() {
 
   const fetchTemasAcademia = async () => {
     setLoadingAcademia(true);
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl("/api/temas-capacitacion/"), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const res = await authFetch(getApiUrl("/api/temas-capacitacion/"));
       if (!res.ok) throw new Error("Error al cargar el catálogo de conferencias.");
       const data: TemaCapacitacion[] = await res.json();
       // Filtrar o priorizar las conferencias grabadas
@@ -189,13 +179,8 @@ export default function CapacitacionesDashboardPage() {
 
   const fetchSolicitudes = async () => {
     setLoadingSolicitudes(true);
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl("/api/solicitudes-capacitacion/"), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const res = await authFetch(getApiUrl("/api/solicitudes-capacitacion/"));
       if (!res.ok) return;
       const data = await res.json();
       setSolicitudes(Array.isArray(data) ? data : data.results || []);
@@ -351,8 +336,6 @@ Cumplimiento normativo auditado bajo la Ley N° 16.744, D.S. N° 44, Ley N° 21.
     setErrorSolicitud(null);
     setSolicitudExitosa(false);
 
-    const token = localStorage.getItem("access_token");
-
     const payload = {
       empresa: formSolicitud.empresa,
       rut_empresa: formSolicitud.rut_empresa,
@@ -371,11 +354,10 @@ Cumplimiento normativo auditado bajo la Ley N° 16.744, D.S. N° 44, Ley N° 21.
     };
 
     try {
-      const res = await fetch(getApiUrl("/api/solicitudes-capacitacion/"), {
+      const res = await authFetch(getApiUrl("/api/solicitudes-capacitacion/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify(payload),
       });

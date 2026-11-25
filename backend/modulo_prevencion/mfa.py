@@ -130,6 +130,21 @@ def consumir_codigo_respaldo(usuario, raw_code: str) -> bool:
     return False
 
 
+def verificar_segundo_factor_usuario(usuario, raw_code: str) -> bool:
+    """Valida código TOTP (con bloqueo anti-replay) o consume código de respaldo de un solo uso."""
+    code = (raw_code or '').strip()
+    if not code or not getattr(usuario, 'mfa_enabled', False):
+        return False
+    secret = getattr(usuario, 'mfa_secret', '')
+    if secret:
+        step = verificar_codigo_totp(secret, code, last_used_step=getattr(usuario, 'mfa_last_used_step', None))
+        if step is not None:
+            usuario.mfa_last_used_step = step
+            usuario.save(update_fields=['mfa_last_used_step'])
+            return True
+    return consumir_codigo_respaldo(usuario, code)
+
+
 def crear_challenge_mfa(user_id: int) -> str:
     """Firma un token temporal (5 min) que identifica al usuario pendiente de 2do factor."""
     signer = signing.TimestampSigner(salt=MFA_CHALLENGE_SALT)

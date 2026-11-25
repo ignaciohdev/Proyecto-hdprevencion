@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../../utils/api";
+import { authFetch, ensureAccessToken, getApiUrl } from "../../../utils/api";
 
 interface Servicio {
   id: number;
@@ -52,7 +52,7 @@ export default function PanelServiciosPage() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const token = localStorage.getItem("access_token");
+      const token = await ensureAccessToken();
       if (!token) {
         router.push("/ingreso");
         return;
@@ -60,9 +60,7 @@ export default function PanelServiciosPage() {
 
       try {
         // 1. Cargar perfil del usuario para validar suscripción de pago
-        const resUser = await fetch(getApiUrl("/api/usuarios/perfil/"), {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resUser = await authFetch(getApiUrl("/api/usuarios/perfil/"));
 
         if (!resUser.ok) throw new Error("No se pudo cargar el perfil del usuario.");
         const userData: UserProfile = await resUser.json();
@@ -78,9 +76,7 @@ export default function PanelServiciosPage() {
 
         // 2. Si el usuario cuenta con plan de pago, cargar los servicios
         if (isPaid) {
-          const resServicios = await fetch(getApiUrl("/api/servicios/"), {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          const resServicios = await authFetch(getApiUrl("/api/servicios/"));
 
           if (resServicios.ok) {
             const dataServicios: Servicio[] = await resServicios.json();
@@ -157,7 +153,6 @@ export default function PanelServiciosPage() {
     if (!selectedServicio) return;
 
     setEnviando(true);
-    const token = localStorage.getItem("access_token");
 
     try {
       const payload = {
@@ -174,11 +169,10 @@ export default function PanelServiciosPage() {
 ${formSolicitud.detalles}`,
       };
 
-      const res = await fetch(getApiUrl("/api/contacto/"), {
+      const res = await authFetch(getApiUrl("/api/contacto/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify(payload),
       });

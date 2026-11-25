@@ -2,7 +2,7 @@
 
 **Versión:** 1.0 · **Última actualización:** 25 de noviembre de 2026
 
-> Este documento da cumplimiento íntegro al **deber de información y transparencia del Artículo 14 ter** de la Ley N° 21.719 sobre Protección de los Datos Personales (`sources/ley-21719-texto.txt`), reemplazando el borrador actualmente publicado en `frontend/src/app/(public)/privacidad/page.tsx`.
+> Este documento da cumplimiento al **deber de información y transparencia del Artículo 14 ter** de la Ley N° 21.719 sobre Protección de los Datos Personales (`sources/ley-21719-texto.txt`). Su contenido normativo ya se encuentra publicado como versión 1.0 en `frontend/src/app/(public)/privacidad/page.tsx`; únicamente resta reemplazar los placeholders `[COMPLETAR: ...]` al concluirse la escritura societaria.
 
 ---
 
@@ -93,7 +93,7 @@ Declaramos que **no realizamos elaboración de perfiles ni adoptamos decisiones 
 ---
 
 ## 8. Medidas de seguridad (Art. 14 ter letra e; Arts. 14 quáter y 14 quinquies)
-Aplicamos medidas técnicas y organizativas acordes al riesgo de los datos tratados, incluyendo: transmisión cifrada mediante HTTPS/TLS y cabeceras HSTS; aislamiento lógico estricto multi-tenant entre empresas y consultoras; hashing criptográfico de contraseñas; cifrado autenticado a nivel de campo en base de datos para relatos confidenciales Ley Karin e investigaciones de accidentes; control de accesos basado en roles y registro de auditoría con IP de origen para apertura de expedientes confidenciales; y purga de cachés locales al cerrar sesión en terreno. *(En etapa previa a producción real se completará el cifrado integral de identificadores sensibles, autenticación multifactor para administradores, separación/rotación de llaves criptográficas y migración a bases de datos y almacenamiento persistente con respaldos cifrados.)*
+Aplicamos medidas técnicas y organizativas acordes al riesgo de los datos tratados, incluyendo: transmisión cifrada mediante HTTPS/TLS y cabeceras HSTS en frontend y backend; aislamiento lógico estricto multi-tenant entre empresas y consultoras (incluidos portales QR); hashing criptográfico de contraseñas con validación HIBP k-anonymity; sesiones mediante cookie `HttpOnly` sin persistencia de tokens en `localStorage`; autenticación multifactor MFA TOTP tanto en API/Panel como en administración; cifrado autenticado en reposo (`MultiFernet` con `FIELD_ENCRYPTION_KEY` obligatoria) e índice ciego HMAC-SHA256 para identidades Ley Karin, datos clínicos/causas de accidentes, nóminas de capacitación y firmas EPP; registro de auditoría transversal e inmutable append-only de mutaciones y lecturas sensibles (`AuditLogAccesoDenuncia` y `AuditLogEventoSeguridad`); bloqueo provisional transversal ARCO-POL y exclusión de rutas privadas/PII en el Service Worker con expiración automática offline. *(Previo a salir a producción real se completará la migración a bases de datos y Object Storage persistentes de pago con respaldos cifrados y KMS.)*
 
 ---
 

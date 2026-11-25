@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getApiUrl } from "../../../../utils/api";
+import { authFetch, getApiUrl } from "../../../../utils/api";
 
 interface TemaCapacitacion {
   id: number;
@@ -38,13 +38,8 @@ export default function NuevaCapacitacionPage() {
 
   const fetchTemas = async () => {
     setLoadingTemas(true);
-    const token = localStorage.getItem("access_token");
     try {
-      const res = await fetch(getApiUrl("/api/temas-capacitacion/"), {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-      });
+      const res = await authFetch(getApiUrl("/api/temas-capacitacion/"));
       if (!res.ok) throw new Error("Error al obtener los temas de capacitación.");
       const data = await res.json();
       setTemas(data);
@@ -66,7 +61,6 @@ export default function NuevaCapacitacionPage() {
     e.preventDefault();
     setSavingTema(true);
     setErrorTema(null);
-    const token = localStorage.getItem("access_token");
 
     const puntosClave = nuevoTema.contenido_clave_raw
       .split("\n")
@@ -82,11 +76,10 @@ export default function NuevaCapacitacionPage() {
     };
 
     try {
-      const res = await fetch(getApiUrl("/api/temas-capacitacion/"), {
+      const res = await authFetch(getApiUrl("/api/temas-capacitacion/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify(payload),
       });
@@ -119,7 +112,6 @@ export default function NuevaCapacitacionPage() {
     }
     setSaving(true);
     setError(null);
-    const token = localStorage.getItem("access_token");
 
     const payload = {
       tema: parseInt(selectedTemaId),
@@ -129,11 +121,10 @@ export default function NuevaCapacitacionPage() {
     };
 
     try {
-      const res = await fetch(getApiUrl("/api/registro-capacitacion/"), {
+      const res = await authFetch(getApiUrl("/api/registro-capacitacion/"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
         },
         body: JSON.stringify(payload),
       });
