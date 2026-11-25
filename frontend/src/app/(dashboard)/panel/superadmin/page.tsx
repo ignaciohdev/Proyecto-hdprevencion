@@ -31,14 +31,30 @@ export default function SuperadminPanel() {
             Este es tu panel de administración global. Tienes privilegios para auditar base de datos, configurar planes, suspender cuentas y monitorear la salud técnica del servidor.
           </p>
         </div>
-        <div className="mt-4 md:mt-0">
+        <div className="mt-4 md:mt-0 flex flex-wrap gap-2.5">
           <a
             href={getAdminUrl("")}
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all inline-block text-sm cursor-pointer"
+            className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-3 px-5 rounded-xl shadow-md transition-all inline-block text-sm cursor-pointer"
           >
             Abrir Django Admin 🛠️
+          </a>
+          <a
+            href={getAdminUrl("modulo_prevencion/solicitudderechoarco/")}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold py-3 px-4 rounded-xl transition-all inline-block text-xs cursor-pointer"
+          >
+            ⚖️ Solicitudes ARCO-POL
+          </a>
+          <a
+            href={getAdminUrl("modulo_prevencion/registrobrechaseguridad/")}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold py-3 px-4 rounded-xl transition-all inline-block text-xs cursor-pointer"
+          >
+            🛡️ Brechas Art. 14 sexies
           </a>
         </div>
       </div>

@@ -3881,6 +3881,8 @@ class SolicitudDerechoARCOConsultaView(generics.RetrieveAPIView):
     queryset = SolicitudDerechoARCO.objects.all()
     serializer_class = SolicitudDerechoARCOStatusSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle, ScopedRateThrottle]
+    throttle_scope = 'public_qr'
     lookup_field = 'uuid'
 
 

@@ -3279,6 +3279,132 @@ class Ley21719P1ConsentTestCase(APITestCase):
         )
 
 
+class Ley21719P1RetencionYOperacionTestCase(APITestCase):
+    """
+    Pruebas para operación ARCO-POL, registro de brechas y retención/purga automática
+    (P1.4 / Arts. 4–11, 14 sexies y 7 Ley N° 21.719).
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_admin_registra_arco_brechas_y_consentimiento(self):
+        from django.contrib import admin
+        from .models import RegistroBrechaSeguridad, RegistroConsentimiento, SolicitudDerechoARCO
+
+        self.assertIn(SolicitudDerechoARCO, admin.site._registry)
+        self.assertIn(RegistroBrechaSeguridad, admin.site._registry)
+        self.assertIn(RegistroConsentimiento, admin.site._registry)
+
+    def test_arco_bloqueo_y_seguimiento_por_uuid(self):
+        from .models import SolicitudDerechoARCO
+
+        res_create = self.client.post("/api/privacidad/solicitar-derecho/", {
+            "tipo_derecho": SolicitudDerechoARCO.TIPO_BLOQUEO,
+            "rut_titular": "12.345.678-5",
+            "nombre_titular": "Titular Bloqueo",
+            "email_titular": "bloqueo@empresa.cl",
+            "detalle_solicitud": "Solicito suspensión temporal de tratamiento.",
+        }, format="json")
+        self.assertEqual(res_create.status_code, 201)
+        uuid_sol = res_create.json()["uuid"]
+
+        res_status = self.client.get(f"/api/privacidad/consultar-derecho/{uuid_sol}/")
+        self.assertEqual(res_status.status_code, 200)
+        data = res_status.json()
+        self.assertEqual(data["estado"], SolicitudDerechoARCO.ESTADO_PENDIENTE)
+        self.assertTrue(data["bloqueo_provisional_activo"])
+        self.assertNotIn("rut_titular", data)
+        self.assertNotIn("email_titular", data)
+
+    def test_comando_purga_respeta_retencion_sst_y_bloqueos_arco(self):
+        from datetime import timedelta
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from .models import MensajeContacto, SolicitudCapacitacion, SolicitudDerechoARCO
+
+        ahora = timezone.now()
+        hace_400d = ahora - timedelta(days=400)
+        hace_120d = ahora - timedelta(days=120)
+        hace_2000d = ahora - timedelta(days=2000)
+
+        # Rechaza bajar el mínimo legal de 5 años (1825 días) en SST
+        with self.assertRaises(CommandError):
+            call_command("purgar_datos_vencidos", dias_sst=365)
+
+        # 1. Mensaje vencido (> 12m) vs reciente vs protegido por bloqueo ARCO
+        m_vencido = MensajeContacto.objects.create(nombre="Old", email="old@test.cl", asunto="A", mensaje="M")
+        MensajeContacto.objects.filter(id=m_vencido.id).update(fecha_creacion=hace_400d)
+
+        m_bloqueado = MensajeContacto.objects.create(nombre="Lock", email="lock@test.cl", asunto="A", mensaje="M")
+        MensajeContacto.objects.filter(id=m_bloqueado.id).update(fecha_creacion=hace_400d)
+        SolicitudDerechoARCO.objects.create(
+            tipo_derecho=SolicitudDerechoARCO.TIPO_BLOQUEO,
+            rut_titular="14.444.555-6",
+            nombre_titular="Lock",
+            email_titular="lock@test.cl",
+            detalle_solicitud="Bloqueo provisional",
+            bloqueo_provisional_activo=True,
+        )
+
+        m_reciente = MensajeContacto.objects.create(nombre="New", email="new@test.cl", asunto="A", mensaje="M")
+
+        # 2. Cotizaciones > 12m: pendiente se purga, finalizada se conserva
+        s_vencida = SolicitudCapacitacion.objects.create(
+            empresa="Emp Antigua", rut_empresa="76.111.111-1",
+            contacto_nombre="C1", contacto_email="c1@test.cl", contacto_telefono="+5691",
+            region_comuna="Santiago", estado=SolicitudCapacitacion.ESTADO_PENDIENTE,
+        )
+        SolicitudCapacitacion.objects.filter(id=s_vencida.id).update(fecha_creacion=hace_400d)
+
+        s_finalizada = SolicitudCapacitacion.objects.create(
+            empresa="Emp Ejecutada", rut_empresa="76.222.222-2",
+            contacto_nombre="C2", contacto_email="c2@test.cl", contacto_telefono="+5692",
+            region_comuna="Santiago", estado=SolicitudCapacitacion.ESTADO_FINALIZADO,
+        )
+        SolicitudCapacitacion.objects.filter(id=s_finalizada.id).update(fecha_creacion=hace_400d)
+
+        # 3. Cuenta desactivada > 90 días sin SST vs Trabajador desvinculado > 5 años
+        u_inactivo = Usuario.objects.create_user(
+            username="inactivo_antiguo", email="inact@test.cl",
+            password="PasswordFuerte123!", is_active=False,
+        )
+        Usuario.objects.filter(id=u_inactivo.id).update(date_joined=hace_120d)
+
+        owner_sst = Usuario.objects.create_user(username="sst_owner", email="sst@test.cl", password="PasswordFuerte123!")
+        emp_sst = Empresa.objects.create(prevencionista=owner_sst, razon_social="SST SpA", rut="76.888.999-K")
+        trab_antiguo = Trabajador.objects.create(
+            empresa=emp_sst, rut="13.222.333-4",
+            nombres="Juan", apellidos="Antiguo", estado=Trabajador.ESTADO_DESVINCULADO,
+        )
+        Trabajador.objects.filter(id=trab_antiguo.id).update(fecha_creacion=hace_2000d)
+
+        # Dry-run no modifica nada
+        call_command("purgar_datos_vencidos", dry_run=True, incluir_sst=True)
+        self.assertTrue(MensajeContacto.objects.filter(id=m_vencido.id).exists())
+
+        # Ejecución real
+        call_command("purgar_datos_vencidos", incluir_sst=True)
+
+        self.assertFalse(MensajeContacto.objects.filter(id=m_vencido.id).exists())
+        self.assertTrue(MensajeContacto.objects.filter(id=m_bloqueado.id).exists())
+        self.assertTrue(MensajeContacto.objects.filter(id=m_reciente.id).exists())
+
+        self.assertFalse(SolicitudCapacitacion.objects.filter(id=s_vencida.id).exists())
+        self.assertTrue(SolicitudCapacitacion.objects.filter(id=s_finalizada.id).exists())
+
+        u_inactivo.refresh_from_db()
+        self.assertTrue(u_inactivo.username.startswith("anon_user_"))
+
+        trab_antiguo.refresh_from_db()
+        self.assertEqual(trab_antiguo.nombres, "Titular Anonimizado")
+        self.assertTrue(trab_antiguo.rut.startswith("ANON-"))
+
+
+
 
 
 

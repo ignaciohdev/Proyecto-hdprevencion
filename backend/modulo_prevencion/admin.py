@@ -1,6 +1,7 @@
 from typing import Any
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from .models import (
@@ -11,7 +12,7 @@ from .models import (
     SugerenciaConsulta, SolicitudCapacitacion,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo,
-    RegistroConsentimiento
+    RegistroConsentimiento, SolicitudDerechoARCO, RegistroBrechaSeguridad
 )
 
 @admin.register(Usuario)
@@ -464,5 +465,79 @@ class RegistroConsentimientoAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(SolicitudDerechoARCO)
+class SolicitudDerechoARCOAdmin(admin.ModelAdmin):
+    """Gestión operativa de derechos del titular ARCO-POL y bloqueo provisional (Arts. 4–11 Ley 21.719)."""
+    list_display = (
+        'uuid', 'tipo_derecho', 'rut_titular', 'nombre_titular',
+        'estado_badge', 'bloqueo_provisional_activo', 'fecha_solicitud', 'fecha_limite_30d'
+    )
+    list_filter = ('tipo_derecho', 'estado', 'bloqueo_provisional_activo')
+    search_fields = ('uuid', 'rut_titular', 'nombre_titular', 'email_titular')
+    date_hierarchy = 'fecha_solicitud'
+    readonly_fields = ('uuid', 'fecha_solicitud', 'fecha_limite_30d')
+    actions = ('activar_bloqueo_provisional', 'marcar_resuelta')
+
+    @admin.display(description="Estado")
+    def estado_badge(self, obj):
+        colors = {
+            SolicitudDerechoARCO.ESTADO_PENDIENTE: ('#fef3c7', '#92400e'),
+            SolicitudDerechoARCO.ESTADO_EN_TRAMITE: ('#dbeafe', '#1e40af'),
+            SolicitudDerechoARCO.ESTADO_RESUELTA: ('#d1fae5', '#065f46'),
+            SolicitudDerechoARCO.ESTADO_RECHAZADA: ('#fee2e2', '#991b1b'),
+        }
+        bg, text = colors.get(obj.estado, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-weight:bold;">{obj.get_estado_display()}</span>'
+        )
+
+    @admin.action(description="Activar bloqueo temporal provisional (Art. 11)")
+    def activar_bloqueo_provisional(self, request, queryset):
+        queryset.update(bloqueo_provisional_activo=True)
+
+    @admin.action(description="Marcar solicitudes seleccionadas como Resueltas")
+    def marcar_resuelta(self, request, queryset):
+        queryset.update(
+            estado=SolicitudDerechoARCO.ESTADO_RESUELTA,
+            bloqueo_provisional_activo=False,
+            fecha_resolucion=timezone.now(),
+        )
+
+    def save_model(self, request, obj, form, change):
+        if obj.estado in (SolicitudDerechoARCO.ESTADO_RESUELTA, SolicitudDerechoARCO.ESTADO_RECHAZADA):
+            if not obj.fecha_resolucion:
+                obj.fecha_resolucion = timezone.now()
+            if 'bloqueo_provisional_activo' not in getattr(form, 'changed_data', []):
+                obj.bloqueo_provisional_activo = False
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(RegistroBrechaSeguridad)
+class RegistroBrechaSeguridadAdmin(admin.ModelAdmin):
+    """Registro operativo y trazabilidad de vulneraciones de seguridad (Art. 14 sexies Ley 21.719)."""
+    list_display = (
+        'codigo_incidente', 'tipo_brecha', 'severidad_badge',
+        'datos_sensibles_afectados', 'notificado_agencia', 'notificado_titulares', 'fecha_deteccion'
+    )
+    list_filter = ('tipo_brecha', 'severidad', 'datos_sensibles_afectados', 'notificado_agencia', 'notificado_titulares')
+    search_fields = ('codigo_incidente', 'descripcion_incidente', 'responsable_analisis', 'folio_notificacion_agencia')
+    date_hierarchy = 'fecha_deteccion'
+    readonly_fields = ('fecha_deteccion',)
+
+    @admin.display(description="Severidad")
+    def severidad_badge(self, obj):
+        colors = {
+            RegistroBrechaSeguridad.SEVERIDAD_BAJA: ('#d1fae5', '#065f46'),
+            RegistroBrechaSeguridad.SEVERIDAD_MEDIA: ('#fef3c7', '#92400e'),
+            RegistroBrechaSeguridad.SEVERIDAD_ALTA: ('#ffedd5', '#9a3412'),
+            RegistroBrechaSeguridad.SEVERIDAD_CRITICA: ('#fee2e2', '#991b1b'),
+        }
+        bg, text = colors.get(obj.severidad, ('#f3f4f6', '#374151'))
+        return mark_safe(
+            f'<span style="background-color:{bg};color:{text};padding:3px 8px;border-radius:4px;font-weight:bold;">{obj.severidad}</span>'
+        )
+
 
 

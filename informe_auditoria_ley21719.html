@@ -345,11 +345,11 @@
                 </div>
                 <div class="meta-item">
                     <h4>Fecha & Hora</h4>
-                    <p>25 de November de 2026 a las 05:12:31</p>
+                    <p>25 de November de 2026 a las 05:25:46</p>
                 </div>
                 <div class="meta-item">
                     <h4>Duración del Test</h4>
-                    <p>2.91 segundos</p>
+                    <p>2.73 segundos</p>
                 </div>
                 <div class="meta-item">
                     <h4>Dictamen Final</h4>
@@ -466,7 +466,7 @@
                 <tr>
                     <td><strong>Inspección SQL Directa en Tabla DenunciaLeyKarin</strong></td>
                     <td><code>SELECT descripcion_circunstanciada FROM base_datos_cruda</code></td>
-                    <td><span class="ev-result">ALMACENADO EN DISCO: enc:v1:gAAAAABrBm49iyLERbae3D4P6BD1... (Texto plano indetectable)</span></td>
+                    <td><span class="ev-result">ALMACENADO EN DISCO: enc:v1:gAAAAABrBnFYbw9NhMArzw8Znz8Y... (Texto plano indetectable)</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
@@ -555,7 +555,7 @@
                         </div>
                     </div>
                     <ul class="details-list">
-                        <li>Canal público ARCO operativo: Ticket emitido (69783dcb-8fee-4d2b-9fa1-de44e05fe989) con flag de bloqueo cautelar activado automáticamente.</li><li>Consulta pública de ticket por UUID: expone solo estado/plazos sin filtrar RUT ni correo.</li><li>Protección Portabilidad Anónima: Petición sin sesión bloqueada con HTTP 401.</li><li>Aislamiento Portabilidad Multi-Tenant: Usuario de otro tenant recibió 0 fichas de empresa ajena.</li><li>Exportación estructurada autenticada: Endpoint /api/privacidad/portabilidad/ entregó JSON interoperable al responsable autorizado.</li>
+                        <li>Canal público ARCO operativo: Ticket emitido (d1e3f2d1-abcc-40ea-bd7c-ee83dae98b7c) con flag de bloqueo cautelar activado automáticamente.</li><li>Consulta pública de ticket por UUID: expone solo estado/plazos sin filtrar RUT ni correo.</li><li>Protección Portabilidad Anónima: Petición sin sesión bloqueada con HTTP 401.</li><li>Aislamiento Portabilidad Multi-Tenant: Usuario de otro tenant recibió 0 fichas de empresa ajena.</li><li>Exportación estructurada autenticada: Endpoint /api/privacidad/portabilidad/ entregó JSON interoperable al responsable autorizado.</li>
                     </ul>
                     <table class="evidence-table">
                         <thead>
@@ -571,13 +571,13 @@
                 <tr>
                     <td><strong>Ingreso Público de Solicitud de Bloqueo de Datos</strong></td>
                     <td><code>POST /api/privacidad/solicitar-derecho/ (Anónimo)</code></td>
-                    <td><span class="ev-result">HTTP 201 Created - Ticket UUID: 69783dcb-8fee-4d2b-9fa1-de44e05fe989 | Bloqueo Cautelar: ACTIVO</span></td>
+                    <td><span class="ev-result">HTTP 201 Created - Ticket UUID: d1e3f2d1-abcc-40ea-bd7c-ee83dae98b7c | Bloqueo Cautelar: ACTIVO</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
                 <tr>
                     <td><strong>Privacidad en Seguimiento Público de Ticket ARCO</strong></td>
-                    <td><code>GET /api/privacidad/consultar-derecho/69783dcb-8fee-4d2b-9fa1-de44e05fe989/ (Anónimo)</code></td>
+                    <td><code>GET /api/privacidad/consultar-derecho/d1e3f2d1-abcc-40ea-bd7c-ee83dae98b7c/ (Anónimo)</code></td>
                     <td><span class="ev-result">HTTP 200 OK - Sin exposición de RUT, correo ni detalle</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
@@ -632,7 +632,7 @@
                         </div>
                     </div>
                     <ul class="details-list">
-                        <li>Inmutabilidad de auditoría: Acceso registrado automáticamente con IP 190.161.45.12 y marca temporal 2026-11-25 05:12:31.294751+00:00.</li>
+                        <li>Inmutabilidad de auditoría: Acceso registrado automáticamente con IP 190.161.45.12 y marca temporal 2026-11-25 05:25:46.085248+00:00.</li>
                     </ul>
                     <table class="evidence-table">
                         <thead>
@@ -648,7 +648,7 @@
                 <tr>
                     <td><strong>Registro de Auditoría de Acceso a Denuncia Ley Karin</strong></td>
                     <td><code>GET /api/denuncias-ley-karin/2/ desde IP 190.161.45.12</code></td>
-                    <td><span class="ev-result">LOG GENERADO: Usuario auditor_user_5954a8 - IP 190.161.45.12 - Acción: APERTURA_EXPEDIENTE</span></td>
+                    <td><span class="ev-result">LOG GENERADO: Usuario auditor_user_e03183 - IP 190.161.45.12 - Acción: APERTURA_EXPEDIENTE</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
