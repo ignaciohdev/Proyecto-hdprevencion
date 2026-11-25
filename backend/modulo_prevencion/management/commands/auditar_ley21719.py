@@ -518,10 +518,39 @@ class Command(BaseCommand):
                         "estado": "FAIL"
                     })
 
-                # Test 4.2: Portabilidad de Datos (Art. 9 Ley 21.719)
+                # Test 4.1b: Verificar que la consulta pública por UUID no filtre PII del titular
+                if res_arco.status_code == 201 and res_arco.json().get('uuid'):
+                    uuid_ticket = res_arco.json().get('uuid')
+                    res_consulta = client.get(f"/api/privacidad/consultar-derecho/{uuid_ticket}/")
+                    if res_consulta.status_code == 200:
+                        consulta_data = res_consulta.json()
+                        filtra_pii = any(k in consulta_data for k in ('rut_titular', 'email_titular', 'telefono_titular', 'detalle_solicitud'))
+                        if not filtra_pii:
+                            details.append("Consulta pública de ticket por UUID: expone solo estado/plazos sin filtrar RUT ni correo.")
+                            evidence.append({
+                                "test": "Privacidad en Seguimiento Público de Ticket ARCO",
+                                "intento": f"GET /api/privacidad/consultar-derecho/{uuid_ticket}/ (Anónimo)",
+                                "resultado": "HTTP 200 OK - Sin exposición de RUT, correo ni detalle",
+                                "estado": "PASS"
+                            })
+                        else:
+                            status = "FAILED"
+                            details.append("FALLA: La consulta pública por UUID expone PII del titular.")
+
+                # Test 4.2: Portabilidad de Datos (Art. 9 Ley 21.719) — Bloqueo anónimo + aislamiento multi-tenant + export autenticado
                 u_id = uuid.uuid4().hex[:6]
+                user_owner = Usuario.objects.create_user(
+                    username=f"port_owner_{u_id}",
+                    email=f"owner_{u_id}@test.cl",
+                    password="Password123!"
+                )
+                user_ajeno = Usuario.objects.create_user(
+                    username=f"port_ajeno_{u_id}",
+                    email=f"ajeno_{u_id}@test.cl",
+                    password="Password123!"
+                )
                 empresa_p = Empresa.objects.create(
-                    prevencionista=Usuario.objects.first(),
+                    prevencionista=user_owner,
                     razon_social=f"Empresa Portabilidad {u_id}",
                     rut="76.123.456-4"
                 )
@@ -533,21 +562,64 @@ class Command(BaseCommand):
                     cargo="Auditor de Calidad"
                 )
 
+                # 4.2a: Anónimo debe ser rechazado (401/403)
+                client.force_authenticate(user=None)
+                res_port_anon = client.get("/api/privacidad/portabilidad/?rut=16.123.456-7")
+                if res_port_anon.status_code in [401, 403]:
+                    details.append(f"Protección Portabilidad Anónima: Petición sin sesión bloqueada con HTTP {res_port_anon.status_code}.")
+                    evidence.append({
+                        "test": "Bloqueo de Portabilidad Sin Autenticación",
+                        "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Anónimo)",
+                        "resultado": f"HTTP {res_port_anon.status_code} - ACCESO BLOQUEADO (Cero extracción anónima)",
+                        "estado": "PASS"
+                    })
+                else:
+                    status = "FAILED"
+                    details.append(f"FALLA: Portabilidad permitió consulta anónima con HTTP {res_port_anon.status_code}.")
+                    evidence.append({
+                        "test": "Bloqueo de Portabilidad Sin Autenticación",
+                        "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Anónimo)",
+                        "resultado": f"HTTP {res_port_anon.status_code} - FUGA ANÓNIMA DE DATOS",
+                        "estado": "FAIL"
+                    })
+
+                # 4.2b: Usuario de otro tenant no debe ver fichas de empresa ajena
+                client.force_authenticate(user=user_ajeno)
+                res_port_cross = client.get("/api/privacidad/portabilidad/?rut=16.123.456-7")
+                cross_fichas = res_port_cross.json().get('fichas_laborales', []) if res_port_cross.status_code == 200 else []
+                if res_port_cross.status_code == 200 and len(cross_fichas) == 0:
+                    details.append("Aislamiento Portabilidad Multi-Tenant: Usuario de otro tenant recibió 0 fichas de empresa ajena.")
+                    evidence.append({
+                        "test": "Aislamiento Cross-Tenant en Portabilidad",
+                        "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Otro Tenant)",
+                        "resultado": "HTTP 200 OK - 0 registros ajenos filtrados",
+                        "estado": "PASS"
+                    })
+                else:
+                    status = "FAILED"
+                    details.append("FALLA: Usuario ajeno obtuvo datos de otro tenant en Portabilidad.")
+
+                # 4.2c: Owner autenticado obtiene JSON interoperable completo
+                client.force_authenticate(user=user_owner)
                 res_port = client.get("/api/privacidad/portabilidad/?rut=16.123.456-7")
                 if res_port.status_code == 200:
                     port_json = res_port.json()
-                    formato_valido = "estandar_interoperabilidad" in port_json and "fichas_laborales" in port_json
+                    formato_valido = (
+                        "estandar_interoperabilidad" in port_json
+                        and "fichas_laborales" in port_json
+                        and len(port_json.get('fichas_laborales', [])) == 1
+                    )
                     if formato_valido:
-                        details.append("Exportación estructurada: Endpoint /api/privacidad/portabilidad/ entregó formato abierto interoperable JSON.")
+                        details.append("Exportación estructurada autenticada: Endpoint /api/privacidad/portabilidad/ entregó JSON interoperable al responsable autorizado.")
                         evidence.append({
-                            "test": "Descarga de Datos en Formato Portabilidad (JSON)",
-                            "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7",
-                            "resultado": f"HTTP 200 OK - Estándar: '{port_json.get('estandar_interoperabilidad')}' ({len(port_json.get('fichas_laborales', []))} fichas)",
+                            "test": "Descarga Autenticada en Formato Portabilidad (JSON)",
+                            "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Owner JWT)",
+                            "resultado": f"HTTP 200 OK - Estándar: '{port_json.get('estandar_interoperabilidad')}' ({len(port_json.get('fichas_laborales', []))} ficha)",
                             "estado": "PASS"
                         })
                     else:
                         status = "FAILED"
-                        details.append("FALLA: La respuesta de portabilidad no cumple con el estándar de interoperabilidad exigido por el Art. 9.")
+                        details.append("FALLA: La respuesta de portabilidad no cumple con el estándar o cobertura esperada.")
                         evidence.append({
                             "test": "Validación de Estándar Interoperable de Portabilidad",
                             "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7",
@@ -562,7 +634,7 @@ class Command(BaseCommand):
                         msg_p = f"FALLA: El endpoint de Portabilidad respondió con código HTTP {res_port.status_code}."
                     details.append(msg_p)
                     evidence.append({
-                        "test": "Descarga de Datos en Formato Portabilidad (JSON)",
+                        "test": "Descarga Autenticada en Formato Portabilidad (JSON)",
                         "intento": "GET /api/privacidad/portabilidad/?rut=16.123.456-7",
                         "resultado": f"HTTP {res_port.status_code} - ENDPOINT INEXISTENTE O INOPERATIVO",
                         "estado": "FAIL"

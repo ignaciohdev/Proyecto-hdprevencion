@@ -52,7 +52,7 @@ from .serializers import (
     EntregaEPPSerializer,
     RequisitoLegalBaseSerializer, MatrizLegalSerializer, ItemMatrizLegalSerializer,
     MatrizRiesgoMiperSerializer, ItemMatrizRiesgoSerializer,
-    SolicitudDerechoARCOSerializer
+    SolicitudDerechoARCOSerializer, SolicitudDerechoARCOStatusSerializer
 )
 from .seeder_requisitos import asegurar_requisitos_base
 
@@ -3435,65 +3435,227 @@ class SolicitudDerechoARCOCreateView(generics.CreateAPIView):
 
 class SolicitudDerechoARCOConsultaView(generics.RetrieveAPIView):
     """
-    Permite consultar el estado de tramitación y respuesta de una solicitud ARCO por UUID.
+    Permite consultar el estado de tramitación y plazos de una solicitud ARCO por UUID
+    sin exponer datos identificatorios sensibles en el endpoint público.
     """
     queryset = SolicitudDerechoARCO.objects.all()
-    serializer_class = SolicitudDerechoARCOSerializer
+    serializer_class = SolicitudDerechoARCOStatusSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = 'uuid'
 
 
 class PortabilidadDatosView(APIView):
     """
-    Endpoint estructurado para el Derecho a la Portabilidad (Art. 9 Ley N° 21.719).
-    Entrega los datos personales vinculados a un RUT en formato JSON interoperable.
+    Endpoint autenticado y aislado por tenant para el Derecho a la Portabilidad (Art. 9 Ley N° 21.719).
+    - Sin `?rut=`: exporta todos los datos personales propios de la cuenta autenticada (Responsable).
+    - Con `?rut=`: exporta los registros del trabajador pertenecientes únicamente al grupo/tenant
+      del usuario autenticado (Encargado Art. 15 bis), impidiendo acceso anónimo o cross-tenant.
     """
-    permission_classes = [permissions.AllowAny]
-    throttle_classes = [AnonRateThrottle]
+    permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request):
-        rut = request.query_params.get('rut')
-        if not rut:
-            return Response(
-                {"error": "Debe especificar el parámetro rut."},
-                status=status.HTTP_400_BAD_REQUEST
+    def _exportar_cuenta_propia(self, user: Any) -> dict[str, Any]:
+        suscripciones = list(
+            Suscripcion.objects.filter(usuario=user).select_related('plan').values(
+                'plan__nombre', 'plan__codigo', 'estado', 'fecha_inicio', 'fecha_vencimiento'
             )
-        
-        # Recopilar datos asociados al RUT
-        trabajadores = Trabajador.objects.filter(rut__iexact=rut.strip()).select_related('empresa')
+        )
+        documentos = [
+            {
+                "plantilla": d.plantilla_maestra.titulo if d.plantilla_maestra else None,
+                "fecha_ultimo_guardado": d.fecha_ultimo_guardado.isoformat() if d.fecha_ultimo_guardado else None,
+                "datos_guardados": d.datos_guardados,
+            }
+            for d in DocumentoUsuario.objects.filter(usuario=user).select_related('plantilla_maestra')
+        ]
+        email = (user.email or '').strip()
+        contactos = (
+            list(MensajeContacto.objects.filter(email__iexact=email).values('asunto', 'mensaje', 'fecha_creacion'))
+            if email else []
+        )
+        solicitudes_cap = (
+            list(SolicitudCapacitacion.objects.filter(contacto_email__iexact=email).values(
+                'empresa', 'rut_empresa', 'contacto_cargo', 'contacto_telefono', 'fecha_creacion'
+            ))
+            if email else []
+        )
+        solicitudes_arco = (
+            list(SolicitudDerechoARCO.objects.filter(email_titular__iexact=email).values(
+                'uuid', 'tipo_derecho', 'estado', 'fecha_solicitud', 'fecha_limite_30d'
+            ))
+            if email else []
+        )
+        return {
+            "perfil": {
+                "uuid": str(user.uuid),
+                "username": user.username,
+                "email": user.email,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "tipo_usuario": user.tipo_usuario,
+                "date_joined": user.date_joined.isoformat() if user.date_joined else None,
+            },
+            "suscripciones": [
+                {
+                    **s,
+                    "fecha_inicio": s["fecha_inicio"].isoformat() if s["fecha_inicio"] else None,
+                    "fecha_vencimiento": s["fecha_vencimiento"].isoformat() if s["fecha_vencimiento"] else None,
+                }
+                for s in suscripciones
+            ],
+            "documentos_guardados": documentos,
+            "consultas_contacto": [
+                {**c, "fecha_creacion": c["fecha_creacion"].isoformat() if c["fecha_creacion"] else None}
+                for c in contactos
+            ],
+            "solicitudes_capacitacion": [
+                {**sc, "fecha_creacion": sc["fecha_creacion"].isoformat() if sc["fecha_creacion"] else None}
+                for sc in solicitudes_cap
+            ],
+            "solicitudes_arco": [
+                {
+                    **sa,
+                    "uuid": str(sa["uuid"]),
+                    "fecha_solicitud": sa["fecha_solicitud"].isoformat() if sa["fecha_solicitud"] else None,
+                    "fecha_limite_30d": sa["fecha_limite_30d"].isoformat() if sa["fecha_limite_30d"] else None,
+                }
+                for sa in solicitudes_arco
+            ],
+        }
+
+    def _exportar_trabajador_tenant(self, usuarios_grupo: list[Any], rut: str) -> dict[str, Any]:
+        rut_norm = rut.strip()
+        rut_lower = rut_norm.lower()
+
+        trabajadores = Trabajador.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo, rut__iexact=rut_norm
+        ).select_related('empresa', 'centro_trabajo')
         datos_trabajador = [
             {
                 "empresa": t.empresa.razon_social,
+                "centro_trabajo": t.centro_trabajo.nombre if t.centro_trabajo else None,
                 "nombres": t.nombres,
                 "apellidos": t.apellidos,
                 "rut": t.rut,
                 "cargo": t.cargo,
+                "correo": t.correo,
+                "telefono": t.telefono,
                 "fecha_ingreso": t.fecha_ingreso.isoformat() if t.fecha_ingreso else None,
-                "estado": t.estado
+                "estado": t.estado,
             }
             for t in trabajadores
         ]
 
-        # Entregas de EPP
-        entregas = EntregaEPP.objects.filter(trabajador__rut__iexact=rut.strip()).select_related('empresa')
+        entregas = EntregaEPP.objects.filter(
+            Q(empresa__prevencionista__in=usuarios_grupo) | Q(trabajador__empresa__prevencionista__in=usuarios_grupo),
+            trabajador__rut__iexact=rut_norm
+        ).select_related('empresa', 'trabajador__empresa')
         datos_epp = [
             {
                 "empresa": e.empresa.razon_social if e.empresa else None,
                 "fecha_hora_entrega": e.fecha_hora_entrega.isoformat() if e.fecha_hora_entrega else None,
                 "items_epp": e.items_epp,
-                "entrega_riohs": e.entrega_riohs
+                "entrega_riohs": e.entrega_riohs,
             }
             for e in entregas
         ]
 
-        # Exportación estructurada conforme a estándares abiertos
-        payload = {
+        accidentes = InvestigacionAccidente.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo, rut_afectado__iexact=rut_norm
+        ).select_related('empresa')
+        datos_accidentes = [
+            {
+                "empresa": a.empresa.razon_social if a.empresa else None,
+                "fecha_hora_evento": a.fecha_hora_evento.isoformat() if a.fecha_hora_evento else None,
+                "tipo_evento": a.tipo_evento,
+                "lugar_evento": a.lugar_evento,
+                "descripcion_evento": a.descripcion_evento,
+                "tipo_lesion": a.tipo_lesion,
+                "parte_cuerpo_afectada": a.parte_cuerpo_afectada,
+                "dias_perdidos": a.dias_perdidos,
+                "alta_medica": a.alta_medica,
+                "diat_presentada": a.diat_presentada,
+                "diat_folio": a.diat_folio,
+            }
+            for a in accidentes
+        ]
+
+        capacitaciones_qs = RegistroCapacitacion.objects.filter(
+            empresa__prevencionista__in=usuarios_grupo
+        ).select_related('empresa', 'tema')
+        datos_capacitaciones = []
+        for cap in capacitaciones_qs:
+            if not isinstance(cap.asistentes, list):
+                continue
+            for item in cap.asistentes:
+                if isinstance(item, dict) and str(item.get('rut', '')).strip().lower() == rut_lower:
+                    datos_capacitaciones.append({
+                        "empresa": cap.empresa.razon_social if cap.empresa else None,
+                        "tema": cap.tema.titulo if cap.tema else None,
+                        "estado": cap.estado,
+                        "fecha_realizacion": cap.fecha_realizacion.isoformat() if cap.fecha_realizacion else None,
+                        "nombre": item.get('nombre'),
+                        "rut": item.get('rut'),
+                        "cargo": item.get('cargo'),
+                    })
+
+        cphs_qs = MiembroCPHS.objects.filter(
+            comite__empresa__prevencionista__in=usuarios_grupo, rut__iexact=rut_norm
+        ).select_related('comite__empresa')
+        datos_cphs = [
+            {
+                "empresa": m.comite.empresa.razon_social,
+                "cargo": m.cargo,
+                "estamento": m.estamento,
+                "tipo_representacion": m.tipo_representacion,
+                "activo": m.activo,
+                "fecha_designacion": m.fecha_designacion.isoformat() if m.fecha_designacion else None,
+            }
+            for m in cphs_qs
+        ]
+
+        sub_qs = TrabajadorSubcontratado.objects.filter(
+            contratista__usuario__in=usuarios_grupo, rut__iexact=rut_norm
+        ).select_related('contratista')
+        datos_subcontratacion = [
+            {
+                "contratista": s.contratista.razon_social,
+                "nombre_completo": s.nombre_completo,
+                "rut": s.rut,
+                "cargo": s.cargo,
+                "fecha_ingreso_obra": s.fecha_ingreso_obra.isoformat() if s.fecha_ingreso_obra else None,
+                "fecha_egreso_obra": s.fecha_egreso_obra.isoformat() if s.fecha_egreso_obra else None,
+                "activo": s.activo,
+            }
+            for s in sub_qs
+        ]
+
+        return {
+            "rut_titular": rut_norm,
+            "fichas_laborales": datos_trabajador,
+            "registros_epp": datos_epp,
+            "investigaciones_accidentes": datos_accidentes,
+            "capacitaciones": datos_capacitaciones,
+            "comites_paritarios": datos_cphs,
+            "subcontratacion": datos_subcontratacion,
+            "nota_reserva_legal": (
+                "Eventuales denuncias bajo Ley N° 21.643 (Ley Karin) están sujetas a reserva legal "
+                "(Art. 211-B Código del Trabajo) y requieren verificación directa con el Responsable."
+            ),
+        }
+
+    def get(self, request):
+        rut = (request.query_params.get('rut') or '').strip()
+        payload: dict[str, Any] = {
             "estandar_interoperabilidad": "Ley N° 21.719 Art. 9 (Portabilidad)",
             "fecha_exportacion": timezone.now().isoformat(),
-            "rut_titular": rut,
-            "fichas_laborales": datos_trabajador,
-            "registros_epp": datos_epp
         }
+        if rut:
+            usuarios_grupo = get_usuarios_grupo(request.user)
+            payload["ambito"] = "trabajador_tenant"
+            payload.update(self._exportar_trabajador_tenant(usuarios_grupo, rut))
+        else:
+            payload["ambito"] = "cuenta_usuario"
+            payload.update(self._exportar_cuenta_propia(request.user))
 
         return Response(payload, status=status.HTTP_200_OK)
 

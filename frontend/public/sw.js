@@ -1,15 +1,15 @@
 // Service Worker - HD Prevención PWA Offline-First para Faenas Industriales
-// Conforme a estándares modernos de Service Workers y Next.js 16 (App Router)
+// Conforme a estándares modernos de Service Workers, Next.js 16 (App Router) y Ley N° 21.719
 
 const CACHE_NAME_PREFIX = "hdprevencion";
-const CACHE_VERSION = "v1.1";
+const CACHE_VERSION = "v1.2";
 const STATIC_CACHE = `${CACHE_NAME_PREFIX}-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `${CACHE_NAME_PREFIX}-dynamic-${CACHE_VERSION}`;
 const API_CACHE = `${CACHE_NAME_PREFIX}-api-${CACHE_VERSION}`;
 
+// Solo assets públicos estáticos; nunca precachear rutas privadas (/panel)
 const PRECACHE_ASSETS = [
   "/",
-  "/panel",
   "/offline.html",
   "/manifest.json",
   "/logo_dark.png",
@@ -17,7 +17,60 @@ const PRECACHE_ASSETS = [
   "/favicon.ico",
 ];
 
-// 1. INSTALACIÓN: Precachear assets críticos y activar inmediatamente
+// Prefijos explícitos de datos personales/sensibles o contexto multi-tenant (nunca cachear)
+const RUTAS_DATOS_PERSONALES = [
+  "/api/auth",
+  "/api/usuarios",
+  "/api/documentos-usuario",
+  "/api/contacto",
+  "/api/solicitudes-capacitacion",
+  "/api/reportes-riesgo",
+  "/api/inspecciones",
+  "/api/accidentes",
+  "/api/registro-capacitacion",
+  "/api/buzon",
+  "/api/contratistas",
+  "/api/documentos-contratista",
+  "/api/trabajadores-subcontratados",
+  "/api/empresas",
+  "/api/centros-trabajo",
+  "/api/trabajadores",
+  "/api/sugerencias-laborales",
+  "/api/denuncias-ley-karin",
+  "/api/comites-paritarios",
+  "/api/miembros-cphs",
+  "/api/actas-cphs",
+  "/api/entregas-epp",
+  "/api/matrices-legales",
+  "/api/items-matriz-legal",
+  "/api/matrices-riesgo-miper",
+  "/api/items-matriz-riesgo",
+  "/api/privacidad",
+  "/api/dashboard",
+  "/api/publico",
+];
+
+// Allowlist de catálogos exclusivamente públicos y libres de PII elegibles para fallback offline
+const RUTAS_CATALOGO_PUBLICO = [
+  "/api/noticias",
+  "/api/servicios",
+  "/api/planes",
+  "/api/plantillas-maestras",
+  "/api/plantillas-inspeccion",
+  "/api/temas-capacitacion",
+  "/api/requisitos-legales-base",
+  "/api/clima",
+];
+
+// Rutas HTML autenticadas o con formularios personales que no deben almacenarse en DYNAMIC_CACHE
+const RUTAS_NAVEGACION_PRIVADAS = [
+  "/panel",
+  "/ingreso",
+  "/registro",
+  "/derechos-arco",
+];
+
+// 1. INSTALACIÓN: Precachear assets públicos críticos y activar inmediatamente
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
@@ -31,7 +84,7 @@ self.addEventListener("install", (event) => {
   );
 });
 
-// 2. ACTIVACIÓN: Limpieza de versiones obsoletas y toma de control inmediata
+// 2. ACTIVACIÓN: Limpieza de versiones obsoletas (incluida v1.1) y toma de control inmediata
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
@@ -55,46 +108,34 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// 3. FETCH: Estrategias de caché según el tipo de recurso
+// 3. FETCH: Estrategias de caché con privacidad por defecto (Art. 14 quáter Ley 21.719)
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Ignorar peticiones que no sean HTTP/HTTPS (e.g. extensiones chrome, esquemas raros)
   if (!url.protocol.startsWith("http")) return;
 
-  // A) Solicitudes de mutación (POST, PUT, PATCH, DELETE):
-  // Se delegan directamente a la red. El outbox en IndexedDB gestiona los fallos offline.
+  // A) Mutaciones (POST, PUT, PATCH, DELETE): directo a red
   if (request.method !== "GET") {
     return;
   }
 
   // B) Consultas a API de Lectura (GET /api/...):
-  // Rutas con datos personales o sensibles que nunca deben persistir en caché compartida (Ley 21.719 A-4)
-  const RUTAS_DATOS_PERSONALES = [
-    "/api/denuncias",
-    "/api/trabajadores",
-    "/api/accidentes",
-    "/api/investigaciones-accidentes",
-    "/api/reportes-riesgo",
-    "/api/usuarios",
-    "/api/auth",
-    "/api/epp",
-    "/api/capacitaciones/registro",
-  ];
-
   if (url.pathname.startsWith("/api/")) {
     const esRutaSensible = RUTAS_DATOS_PERSONALES.some((ruta) =>
       url.pathname.startsWith(ruta)
     );
+    const esCatalogoPublico = RUTAS_CATALOGO_PUBLICO.some((ruta) =>
+      url.pathname.startsWith(ruta)
+    );
 
-    // Si la ruta contiene datos sensibles o personales, pasa directo a la red sin almacenar en caché
-    if (esRutaSensible) {
+    // Política privacy-by-default: toda ruta sensible o fuera de allowlist va directo a red sin caché
+    if (esRutaSensible || !esCatalogoPublico) {
       event.respondWith(fetch(request));
       return;
     }
 
-    // Estrategia Network-First con fallback a caché de API offline para catálogos y datos no sensibles
+    // Catálogos públicos no personales: Network-First con fallback a API_CACHE
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
@@ -132,9 +173,30 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // C) Peticiones de navegación HTML (rutas de la app):
-  // Estrategia Network-First con fallback a caché o a la página offline de contingencia
+  // C) Peticiones de navegación HTML:
+  // Nunca almacenar en caché rutas privadas (/panel/*, auth, ARCO)
   if (request.mode === "navigate") {
+    const esNavegacionPrivada = RUTAS_NAVEGACION_PRIVADAS.some((ruta) =>
+      url.pathname.startsWith(ruta)
+    );
+
+    if (esNavegacionPrivada) {
+      event.respondWith(
+        fetch(request).catch(async () => {
+          const offlinePage = await caches.match("/offline.html");
+          if (offlinePage) {
+            return offlinePage;
+          }
+          return new Response("Operando en Modo Faena Offline (Sin conexión)", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
+        })
+      );
+      return;
+    }
+
+    // Rutas públicas HTML: Network-First con fallback a caché o página offline
     event.respondWith(
       fetch(request)
         .then((networkResponse) => {
@@ -165,7 +227,6 @@ self.addEventListener("fetch", (event) => {
   }
 
   // D) Recursos estáticos (Imágenes, scripts, CSS, fuentes):
-  // Estrategia Stale-While-Revalidate / Cache-First
   const isStaticAsset =
     url.pathname.startsWith("/_next/static/") ||
     url.pathname.match(/\.(png|jpg|jpeg|svg|webp|ico|woff2|woff|ttf|css|js)$/i);
@@ -191,8 +252,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // E) Resto de solicitudes: Network con fallback a cache
-  event.respondWith(
-    fetch(request).catch(() => caches.match(request))
-  );
+  // E) Resto de solicitudes: Network directo sin caché
+  event.respondWith(fetch(request));
 });

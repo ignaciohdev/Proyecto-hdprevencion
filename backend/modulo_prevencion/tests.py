@@ -2525,6 +2525,111 @@ class MatrizRiesgoMiperTestCase(APITestCase):
         self.assertEqual(created.trabajador_sensible, "Adulto mayor / Hipertenso")
 
 
+class Ley21719P0SecurityTestCase(APITestCase):
+    """
+    Pruebas automatizadas de remediaciones P0 Ley N° 21.719:
+    - P0.1: Cierre anónimo y multi-tenant de PortabilidadDatosView + minimización en consulta ARCO.
+    - P0.2: Desacoplamiento y rotación con MultiFernet en FIELD_ENCRYPTION_KEY.
+    """
+    client: Any
+
+    def setUp(self):
+        self.owner = Usuario.objects.create_user(
+            username="p0_owner",
+            email="p0_owner@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        self.other = Usuario.objects.create_user(
+            username="p0_other",
+            email="p0_other@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            tipo_usuario=Usuario.TIPO_INDIVIDUAL,
+        )
+        self.empresa = Empresa.objects.create(
+            prevencionista=self.owner,
+            razon_social="Empresa Protegida SpA",
+            rut="76.543.210-K",
+        )
+        self.trabajador = Trabajador.objects.create(
+            empresa=self.empresa,
+            rut="15.111.222-3",
+            nombres="María",
+            apellidos="Segura",
+            cargo="Supervisora",
+        )
+
+    def test_portabilidad_rechaza_anonimos_y_aisla_tenants(self):
+        # 1. Anónimo rechazado (401)
+        res_anon = self.client.get("/api/privacidad/portabilidad/?rut=15.111.222-3")
+        self.assertEqual(res_anon.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # 2. Otro usuario autenticado recibe 0 fichas del tenant propietario
+        self.client.force_authenticate(user=self.other)
+        res_cross = self.client.get("/api/privacidad/portabilidad/?rut=15.111.222-3")
+        self.assertEqual(res_cross.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_cross.json()["fichas_laborales"], [])
+
+        # 3. Propietario autenticado accede al trabajador y también a su propia cuenta sin ?rut=
+        self.client.force_authenticate(user=self.owner)
+        res_owner_trab = self.client.get("/api/privacidad/portabilidad/?rut=15.111.222-3")
+        self.assertEqual(res_owner_trab.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_owner_trab.json()["fichas_laborales"]), 1)
+
+        res_owner_self = self.client.get("/api/privacidad/portabilidad/")
+        self.assertEqual(res_owner_self.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_owner_self.json()["ambito"], "cuenta_usuario")
+        self.assertEqual(res_owner_self.json()["perfil"]["email"], "p0_owner@hdprevencion.cl")
+
+    def test_consulta_arco_por_uuid_no_filtra_pii(self):
+        res_post = self.client.post(
+            "/api/privacidad/solicitar-derecho/",
+            {
+                "tipo_derecho": "BLOQUEO",
+                "rut_titular": "15.111.222-3",
+                "nombre_titular": "María Segura",
+                "email_titular": "maria@ejemplo.cl",
+                "detalle_solicitud": "Detalle privado de prueba",
+            },
+            format="json",
+        )
+        self.assertEqual(res_post.status_code, status.HTTP_201_CREATED)
+        ticket_uuid = res_post.json()["uuid"]
+
+        res_get = self.client.get(f"/api/privacidad/consultar-derecho/{ticket_uuid}/")
+        self.assertEqual(res_get.status_code, status.HTTP_200_OK)
+        data = res_get.json()
+        self.assertIn("estado", data)
+        self.assertTrue(data["bloqueo_provisional_activo"])
+        for sensitive_key in ("rut_titular", "nombre_titular", "email_titular", "telefono_titular", "detalle_solicitud", "respuesta_formal"):
+            self.assertNotIn(sensitive_key, data)
+
+    def test_crypto_multifernet_y_rotacion_independiente_de_secret_key(self):
+        from cryptography.fernet import Fernet
+        from django.test import override_settings
+        from modulo_prevencion.crypto import cifrar_texto, descifrar_texto, rotar_texto_cifrado
+
+        key_1 = Fernet.generate_key().decode("utf-8")
+        key_2 = Fernet.generate_key().decode("utf-8")
+
+        with override_settings(FIELD_ENCRYPTION_KEY=key_1, FIELD_ENCRYPTION_OLD_KEYS=[]):
+            token_v1 = cifrar_texto("Relato ultra confidencial")
+            self.assertTrue(token_v1.startswith("enc:v1:"))
+            # Cambiar SECRET_KEY NO rompe el descifrado mientras FIELD_ENCRYPTION_KEY sea la misma
+            with override_settings(SECRET_KEY="otra_secret_key_totalmente_distinta"):
+                self.assertEqual(descifrar_texto(token_v1), "Relato ultra confidencial")
+
+        # Rotación a key_2 manteniendo key_1 en FIELD_ENCRYPTION_OLD_KEYS
+        with override_settings(FIELD_ENCRYPTION_KEY=key_2, FIELD_ENCRYPTION_OLD_KEYS=[key_1]):
+            self.assertEqual(descifrar_texto(token_v1), "Relato ultra confidencial")
+            token_rotado = rotar_texto_cifrado(token_v1)
+            self.assertNotEqual(token_rotado, token_v1)
+
+        # Con key_2 solamente (sin key_1), token_rotado sigue descifrándose
+        with override_settings(FIELD_ENCRYPTION_KEY=key_2, FIELD_ENCRYPTION_OLD_KEYS=[]):
+            self.assertEqual(descifrar_texto(token_rotado), "Relato ultra confidencial")
+
+
 
 
 

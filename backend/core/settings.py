@@ -30,6 +30,12 @@ if not SECRET_KEY:
         "no está configurada. La aplicación no puede iniciar sin una clave secreta válida."
     )
 
+# Clave criptográfica independiente para cifrado de campos sensibles en reposo (Ley 21.719 P0.2)
+FIELD_ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', '').strip() or None
+FIELD_ENCRYPTION_OLD_KEYS = [
+    k.strip() for k in os.environ.get('FIELD_ENCRYPTION_OLD_KEYS', '').split(',') if k.strip()
+]
+
 # SECURITY WARNING: don't run with debug turned on in production!
 # Seguridad Ley 21.719 (M-4): Por defecto DEBUG es False salvo declaración explícita en desarrollo.
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() in ('true', '1') and 'RENDER' not in os.environ

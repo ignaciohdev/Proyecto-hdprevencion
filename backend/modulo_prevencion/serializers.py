@@ -1001,7 +1001,7 @@ class MatrizRiesgoMiperSerializer(serializers.ModelSerializer):
 
 class SolicitudDerechoARCOSerializer(serializers.ModelSerializer):
     """
-    Serializer público para el ingreso y seguimiento de solicitudes ARCO-POL (Ley N° 21.719).
+    Serializer para el ingreso y gestión interna de solicitudes ARCO-POL (Ley N° 21.719).
     """
     tipo_derecho_display = serializers.CharField(source='get_tipo_derecho_display', read_only=True)
     estado_display = serializers.CharField(source='get_estado_display', read_only=True)
@@ -1019,6 +1019,24 @@ class SolicitudDerechoARCOSerializer(serializers.ModelSerializer):
             'uuid', 'estado', 'fecha_solicitud', 'fecha_limite_30d',
             'bloqueo_provisional_activo', 'respuesta_formal', 'fecha_resolucion'
         )
+
+
+class SolicitudDerechoARCOStatusSerializer(serializers.ModelSerializer):
+    """
+    Serializer mínimo para consulta pública por UUID sin exponer PII ni contenido sensible.
+    """
+    tipo_derecho_display = serializers.CharField(source='get_tipo_derecho_display', read_only=True)
+    estado_display = serializers.CharField(source='get_estado_display', read_only=True)
+
+    class Meta:
+        model = SolicitudDerechoARCO
+        fields = (
+            'uuid', 'tipo_derecho', 'tipo_derecho_display',
+            'estado', 'estado_display',
+            'fecha_solicitud', 'fecha_limite_30d',
+            'bloqueo_provisional_activo', 'fecha_resolucion'
+        )
+        read_only_fields = fields
 
 
 

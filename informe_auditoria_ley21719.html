@@ -86,33 +86,42 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: rgba(16, 185, 129, 0.1);
-            border: 1px solid rgba(16, 185, 129, 0.3);
             border-radius: 12px;
             padding: 24px 30px;
             margin-bottom: 30px;
+            transition: all 0.3s ease;
+        }
+        .score-banner-pass {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        .score-banner-warn {
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+        }
+        .score-banner-fail {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.4);
         }
         .score-text h2 {
             font-size: 1.5rem;
-            color: var(--success);
             font-weight: 700;
         }
         .score-text p {
             color: var(--text-muted);
             font-size: 0.95rem;
+            margin-top: 4px;
         }
         .score-circle {
             font-size: 2.8rem;
             font-weight: 900;
-            color: var(--success);
-            background: rgba(16, 185, 129, 0.2);
             width: 100px;
             height: 100px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 3px solid var(--success);
+            flex-shrink: 0;
         }
         .card {
             background-color: var(--card-bg);
@@ -152,6 +161,7 @@
             font-size: 0.8rem;
             font-weight: 700;
             letter-spacing: 0.05em;
+            display: inline-block;
         }
         .badge-pass {
             background-color: rgba(16, 185, 129, 0.2);
@@ -162,6 +172,43 @@
             background-color: rgba(239, 68, 68, 0.2);
             color: var(--danger);
             border: 1px solid rgba(239, 68, 68, 0.4);
+        }
+        .badge-critic {
+            background-color: rgba(239, 68, 68, 0.25);
+            color: #f87171;
+            border: 1px solid #ef4444;
+        }
+        .badge-high {
+            background-color: rgba(249, 115, 22, 0.25);
+            color: #fb923c;
+            border: 1px solid #f97316;
+        }
+        .badge-medium {
+            background-color: rgba(234, 179, 8, 0.25);
+            color: #fde047;
+            border: 1px solid #eab308;
+        }
+        .risk-box {
+            background: rgba(15, 23, 42, 0.6);
+            border-left: 4px solid var(--accent);
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin-bottom: 20px;
+        }
+        .risk-item {
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+        }
+        .risk-item:last-child {
+            margin-bottom: 0;
+        }
+        .risk-label {
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-right: 8px;
+        }
+        .risk-val {
+            color: #f1f5f9;
         }
         .suite-body {
             padding: 24px;
@@ -178,10 +225,10 @@
             color: #cbd5e1;
         }
         .details-list li::before {
-            content: "✓";
+            content: "•";
             position: absolute;
-            left: 0;
-            color: var(--success);
+            left: 8px;
+            color: var(--accent);
             font-weight: bold;
         }
         .evidence-table {
@@ -269,7 +316,9 @@
             body { background: white; color: black; padding: 0; }
             .card { border: 1px solid #ccc; box-shadow: none; break-inside: avoid; }
             .btn, .actions-bar { display: none; }
-            .score-banner { border: 1px solid #10b981; }
+            .score-banner-pass { border: 1px solid #10b981; }
+            .score-banner-fail { border: 1px solid #ef4444; }
+            .score-banner-warn { border: 1px solid #f59e0b; }
         }
     </style>
 </head>
@@ -296,25 +345,25 @@
                 </div>
                 <div class="meta-item">
                     <h4>Fecha & Hora</h4>
-                    <p>16 de November de 2026 a las 20:41:46</p>
+                    <p>25 de November de 2026 a las 04:20:25</p>
                 </div>
                 <div class="meta-item">
                     <h4>Duración del Test</h4>
-                    <p>1.74 segundos</p>
+                    <p>2.54 segundos</p>
                 </div>
                 <div class="meta-item">
                     <h4>Dictamen Final</h4>
-                    <p style="color: var(--success);">APROBADO SIN RESERVAS</p>
+                    <p style="color: var(--success); font-weight: 800;">APROBADO SIN RESERVAS</p>
                 </div>
             </div>
         </div>
 
-        <div class="score-banner">
+        <div class="score-banner score-banner-pass">
             <div class="score-text">
-                <h2>100% CONFORMIDAD NORMATIVA Y TÉCNICA</h2>
-                <p>Todas las pruebas de infiltración horizontal, extracción de base de datos y canal de derechos resultaron exitosas sin vulnerabilidades detectadas.</p>
+                <h2 style="color: var(--success);">100% CONFORMIDAD NORMATIVA Y TÉCNICA</h2>
+                <p>Todas las pruebas de infiltración horizontal, criptografía en reposo y canales de derechos resultaron exitosas sin vulnerabilidades detectadas.</p>
             </div>
-            <div class="score-circle">
+            <div class="score-circle" style="color: var(--success); border: 3px solid var(--success); background: rgba(16, 185, 129, 0.2);">
                 100%
             </div>
         </div>
@@ -324,13 +373,26 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #1</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #1</span>
+                            <span class="badge badge-critic">GRAVEDAD: CRÍTICA</span>
+                        </div>
                         <h3 class="suite-title">Suite 1: Aislamiento Multi-Tenant & Fuga de Datos Horizontal</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Arts. 13 (Confidencialidad) y 14 (Seguridad) Ley N° 21.719</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Infracción Gravísima (Arts. 14 quinquies, 16 y 35) - Multa hasta 20.000 UTM (~$1.300M CLP)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Exposición en texto plano en disco de relatos de acoso sexual/laboral (Ley Karin) o expedientes de accidentes.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
                         <li>Aislamiento de lectura: Petición a /api/trabajadores/4/ bloqueada con HTTP 404 (Datos invisibles para Tenant A).</li><li>Protección contra escalamiento: Intento de inyección de cuenta padre fue sanitizado automáticamente a INDIVIDUAL.</li>
                     </ul>
@@ -367,13 +429,26 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #2</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #2</span>
+                            <span class="badge badge-critic">GRAVEDAD: CRÍTICA</span>
+                        </div>
                         <h3 class="suite-title">Suite 2: Criptografía en Reposo en Base de Datos (AES-128-CBC + HMAC)</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Art. 14 (Medidas de Seguridad Criptográfica) Ley N° 21.719</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Infracción Gravísima (Arts. 14 quinquies, 16 y 35) - Multa hasta 20.000 UTM (~$1.300M CLP)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Exposición en texto plano en disco de relatos de acoso sexual/laboral (Ley Karin) o expedientes de accidentes.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
                         <li>Lectura SQL física: Campo almacenado en disco con prefijo 'enc:v1:gAAAAAB...' (Total 319 caracteres cifrados).</li><li>Cero texto plano en base de datos: La consulta directa a la tabla no expone nombres ni testimonios.</li><li>Descifrado en tiempo de ejecución: El modelo descifra transparente y congruentemente para usuarios autorizados.</li>
                     </ul>
@@ -391,7 +466,7 @@
                 <tr>
                     <td><strong>Inspección SQL Directa en Tabla DenunciaLeyKarin</strong></td>
                     <td><code>SELECT descripcion_circunstanciada FROM base_datos_cruda</code></td>
-                    <td><span class="ev-result">ALMACENADO EN DISCO: enc:v1:gAAAAABq-2qKLHXNmQEWAsy4WiEF... (Texto plano indetectable)</span></td>
+                    <td><span class="ev-result">ALMACENADO EN DISCO: enc:v1:gAAAAABrBmIIBuJGgNN0Vm9bPgnX... (Texto plano indetectable)</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
@@ -410,13 +485,26 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #3</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #3</span>
+                            <span class="badge badge-high">GRAVEDAD: ALTA</span>
+                        </div>
                         <h3 class="suite-title">Suite 3: Resguardo de Retención Legal de 5 Años vs. Supresión Arbitraria</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Art. 12 (Conservación Legal) y Circular SUSESO 3336 / Ley 16.744</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Art. 12 Ley 21.719 en concordancia con Circular SUSESO 3336 y Ley 16.744 (Deber legal de conservación 5 años)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Destrucción ilícita de expedientes de accidentes o denuncias laborales en curso, exponiendo a sanciones laborales, civiles y de la SUSESO.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
                         <li>Bloqueo preventivo de borrado: DELETE /api/empresas/2/ rechazado con HTTP 400 (Violación de plazo 5 años detectada).</li>
                     </ul>
@@ -446,15 +534,28 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #4</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #4</span>
+                            <span class="badge badge-high">GRAVEDAD: ALTA</span>
+                        </div>
                         <h3 class="suite-title">Suite 4: Canal de Derechos ARCO-POL y Portabilidad de Datos</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Arts. 4 al 11 (Acceso, Supresión, Oposición, Portabilidad, Bloqueo) Ley N° 21.719</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Infracción Grave (Arts. 4 al 11 y Art. 34) - Multas de hasta 10.000 UTM (~$650M CLP)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Ausencia de canal formal para que los titulares soliciten bloqueo cautelar, supresión o portabilidad estructurada de sus datos.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
-                        <li>Canal público ARCO operativo: Ticket emitido (b8518a60-503f-4198-a5be-9e6ed878d8af) con flag de bloqueo cautelar activado automáticamente.</li><li>Exportación estructurada: Endpoint /api/privacidad/portabilidad/ entregó formato abierto interoperable JSON.</li>
+                        <li>Canal público ARCO operativo: Ticket emitido (bec8c917-0e90-48b3-b425-13b9ddeaee12) con flag de bloqueo cautelar activado automáticamente.</li><li>Consulta pública de ticket por UUID: expone solo estado/plazos sin filtrar RUT ni correo.</li><li>Protección Portabilidad Anónima: Petición sin sesión bloqueada con HTTP 401.</li><li>Aislamiento Portabilidad Multi-Tenant: Usuario de otro tenant recibió 0 fichas de empresa ajena.</li><li>Exportación estructurada autenticada: Endpoint /api/privacidad/portabilidad/ entregó JSON interoperable al responsable autorizado.</li>
                     </ul>
                     <table class="evidence-table">
                         <thead>
@@ -470,14 +571,35 @@
                 <tr>
                     <td><strong>Ingreso Público de Solicitud de Bloqueo de Datos</strong></td>
                     <td><code>POST /api/privacidad/solicitar-derecho/ (Anónimo)</code></td>
-                    <td><span class="ev-result">HTTP 201 Created - Ticket UUID: b8518a60-503f-4198-a5be-9e6ed878d8af | Bloqueo Cautelar: ACTIVO</span></td>
+                    <td><span class="ev-result">HTTP 201 Created - Ticket UUID: bec8c917-0e90-48b3-b425-13b9ddeaee12 | Bloqueo Cautelar: ACTIVO</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
                 <tr>
-                    <td><strong>Descarga de Datos en Formato Portabilidad (JSON)</strong></td>
-                    <td><code>GET /api/privacidad/portabilidad/?rut=16.123.456-7</code></td>
-                    <td><span class="ev-result">HTTP 200 OK - Estándar: 'Ley N° 21.719 Art. 9 (Portabilidad)' (1 fichas)</span></td>
+                    <td><strong>Privacidad en Seguimiento Público de Ticket ARCO</strong></td>
+                    <td><code>GET /api/privacidad/consultar-derecho/bec8c917-0e90-48b3-b425-13b9ddeaee12/ (Anónimo)</code></td>
+                    <td><span class="ev-result">HTTP 200 OK - Sin exposición de RUT, correo ni detalle</span></td>
+                    <td><span class="status-pass">PASS</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Bloqueo de Portabilidad Sin Autenticación</strong></td>
+                    <td><code>GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Anónimo)</code></td>
+                    <td><span class="ev-result">HTTP 401 - ACCESO BLOQUEADO (Cero extracción anónima)</span></td>
+                    <td><span class="status-pass">PASS</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Aislamiento Cross-Tenant en Portabilidad</strong></td>
+                    <td><code>GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Otro Tenant)</code></td>
+                    <td><span class="ev-result">HTTP 200 OK - 0 registros ajenos filtrados</span></td>
+                    <td><span class="status-pass">PASS</span></td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Descarga Autenticada en Formato Portabilidad (JSON)</strong></td>
+                    <td><code>GET /api/privacidad/portabilidad/?rut=16.123.456-7 (Owner JWT)</code></td>
+                    <td><span class="ev-result">HTTP 200 OK - Estándar: 'Ley N° 21.719 Art. 9 (Portabilidad)' (1 ficha)</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
@@ -489,15 +611,28 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #5</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #5</span>
+                            <span class="badge badge-high">GRAVEDAD: ALTA</span>
+                        </div>
                         <h3 class="suite-title">Suite 5: Trazabilidad, Auditoría e Inmutabilidad de Accesos</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Art. 14 bis (Principio de Responsabilidad y Registro de Operaciones)</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Art. 14 bis (Principio de Responsabilidad y Registro Inmutable de Operaciones)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Incapacidad de auditar accesos indebidos a datos confidenciales o responder a requerimientos de la Agencia ante denuncias.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
-                        <li>Inmutabilidad de auditoría: Acceso registrado automáticamente con IP 190.161.45.12 y marca temporal 2026-11-16 20:41:46.618689+00:00.</li>
+                        <li>Inmutabilidad de auditoría: Acceso registrado automáticamente con IP 190.161.45.12 y marca temporal 2026-11-25 04:20:25.730810+00:00.</li>
                     </ul>
                     <table class="evidence-table">
                         <thead>
@@ -513,7 +648,7 @@
                 <tr>
                     <td><strong>Registro de Auditoría de Acceso a Denuncia Ley Karin</strong></td>
                     <td><code>GET /api/denuncias-ley-karin/2/ desde IP 190.161.45.12</code></td>
-                    <td><span class="ev-result">LOG GENERADO: Usuario auditor_user_71c6f4 - IP 190.161.45.12 - Acción: APERTURA_EXPEDIENTE</span></td>
+                    <td><span class="ev-result">LOG GENERADO: Usuario auditor_user_cbc52b - IP 190.161.45.12 - Acción: APERTURA_EXPEDIENTE</span></td>
                     <td><span class="status-pass">PASS</span></td>
                 </tr>
                 
@@ -525,13 +660,26 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #6</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #6</span>
+                            <span class="badge badge-medium">GRAVEDAD: MEDIA</span>
+                        </div>
                         <h3 class="suite-title">Suite 6: Mitigación de Superficie de Ataque y Blindaje de Endpoints</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Art. 14 (Seguridad por Defecto y Confidencialidad Técnica)</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Art. 14 (Seguridad por Defecto y Medidas Técnicas Preventivas)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Exposición de rutas administrativas a ataques de fuerza bruta y filtración de nóminas a usuarios anónimos.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
                         <li>Ruta administrativa por defecto (/admin/): OFUSCADA (Devuelve HTTP 404 - No disponible).</li><li>Panel seguro activo en ruta protegida: /sst-control-panel/ (HTTP 302).</li>
                     </ul>
@@ -568,13 +716,26 @@
             <div class="card suite-card">
                 <div class="suite-header">
                     <div>
-                        <span class="suite-num">Prueba #7</span>
+                        <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                            <span class="suite-num">Prueba #7</span>
+                            <span class="badge badge-high">GRAVEDAD: ALTA</span>
+                        </div>
                         <h3 class="suite-title">Suite 7: Cabeceras de Seguridad HTTP y Transporte Seguro</h3>
                         <p class="suite-law">Fundamento Jurídico: <strong>Art. 14 (Seguridad en Comunicaciones y Protección de Sesiones)</strong></p>
                     </div>
-                    <span class="badge badge-pass">APROBADO (0 FUGAS)</span>
+                    <span class="badge badge-pass">✓ CUMPLE ESTÁNDAR (0 FUGAS)</span>
                 </div>
                 <div class="suite-body">
+                    <div class="risk-box">
+                        <div class="risk-item">
+                            <span class="risk-label">Sanción Legal Aplicable:</span>
+                            <span class="risk-val">Art. 14 (Seguridad de las Comunicaciones y Confidencialidad)</span>
+                        </div>
+                        <div class="risk-item">
+                            <span class="risk-label">Impacto de la Falla:</span>
+                            <span class="risk-val">Susceptibilidad a ataques XSS, secuestro de cookies de sesión (sin HttpOnly) y robo de credenciales en tránsito.</span>
+                        </div>
+                    </div>
                     <ul class="details-list">
                         <li>Flags de sesión: SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SECURE=False, CSRF_COOKIE_SECURE=False.</li><li>Trazabilidad horaria oficial: TIME_ZONE configurado congruentemente a 'America/Santiago'.</li><li>Frontend Hardening: Cabeceras de seguridad HSTS, SAMEORIGIN, nosniff y Referrer-Policy integradas en Next.js.</li>
                     </ul>
