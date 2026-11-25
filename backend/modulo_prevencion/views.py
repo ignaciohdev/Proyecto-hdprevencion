@@ -33,7 +33,7 @@ from .models import (
     EntregaEPP,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo,
-    SolicitudDerechoARCO,
+    SolicitudDerechoARCO, RegistroConsentimiento,
     validar_rut_chileno
 )
 from .serializers import (
@@ -66,6 +66,7 @@ from .mfa import (
     crear_challenge_mfa,
     verificar_challenge_mfa,
 )
+from .consentimiento import registrar_consentimiento
 
 Usuario: Any = get_user_model()
 
@@ -283,7 +284,28 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        acepta_marketing = bool(serializer.validated_data.get('acepta_marketing', False))
         user = serializer.save()
+
+        registrar_consentimiento(
+            request,
+            usuario=user,
+            identificador_titular=user.email,
+            flujo=RegistroConsentimiento.FLUJO_REGISTRO_CUENTA,
+            otorgado=True,
+            categorias=['cuenta_saas', 'terminos_y_privacidad'],
+            texto_aceptado="Politica de Privacidad y Terminos de Servicio HD Prevencion v1.0",
+        )
+        if acepta_marketing:
+            registrar_consentimiento(
+                request,
+                usuario=user,
+                identificador_titular=user.email,
+                flujo=RegistroConsentimiento.FLUJO_MARKETING_NOVEDADES,
+                otorgado=True,
+                categorias=['novedades_sst'],
+                texto_aceptado="Suscripcion opt-in actualizaciones normativas SST y novedades v1.0",
+            )
         
         # Generar tokens JWT para iniciar sesión automáticamente
         refresh = RefreshToken.for_user(user)
@@ -834,9 +856,19 @@ class MensajeContactoViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         if self.request.user and self.request.user.is_authenticated:
-            serializer.save(usuario=self.request.user)
+            instance = serializer.save(usuario=self.request.user)
         else:
-            serializer.save()
+            instance = serializer.save()
+
+        registrar_consentimiento(
+            self.request,
+            usuario=self.request.user if self.request.user and self.request.user.is_authenticated else None,
+            identificador_titular=instance.email,
+            flujo=RegistroConsentimiento.FLUJO_CONTACTO,
+            otorgado=True,
+            categorias=['consulta_contacto'],
+            texto_aceptado="Autorizacion tratamiento de datos de contacto y asesoria v1.0",
+        )
 
 
 class AccesoServiciosPermission(permissions.BasePermission):
@@ -1111,6 +1143,29 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
         return Response({
             'detail': 'MFA TOTP desactivado.',
+            'user': self.get_serializer(usuario).data,
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='consentimiento-comunicaciones')
+    def consentimiento_comunicaciones(self, request):
+        """
+        Permite otorgar o revocar en 1 clic el consentimiento opcional para
+        novedades normativas SST (fila append-only en RegistroConsentimiento, Art. 12).
+        """
+        usuario: Any = self.request.user
+        otorgado = bool(request.data.get('otorgado', False))
+        registrar_consentimiento(
+            request,
+            usuario=usuario,
+            identificador_titular=usuario.email or usuario.username,
+            flujo=RegistroConsentimiento.FLUJO_MARKETING_NOVEDADES,
+            otorgado=otorgado,
+            categorias=['novedades_sst'],
+            texto_aceptado="Preferencia de comunicaciones normativas SST y novedades v1.0",
+        )
+        return Response({
+            'otorgado': otorgado,
+            'detail': 'Preferencia de comunicaciones actualizada correctamente.',
             'user': self.get_serializer(usuario).data,
         }, status=status.HTTP_200_OK)
 
@@ -2083,6 +2138,17 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
             )
 
         # Flujo A: Sugerencia Laboral Abierta
+        es_anonimo = bool(data.get('es_anonimo', data.get('anonimo', True)))
+        if not es_anonimo and not bool(data.get('acepta_privacidad')):
+            return Response(
+                {
+                    "acepta_privacidad": [
+                        "Debes autorizar el tratamiento de tus datos identificatorios opcionales o enviar el aporte de forma anónima."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         empresa_id = data.get('empresa')
         empresa = None
         if empresa_id:
@@ -2103,7 +2169,7 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
                 empresa=empresa,
                 mensaje=data.get('mensaje', ''),
                 tipo=tipo_sug,
-                es_anonimo=data.get('es_anonimo', data.get('anonimo', True)),
+                es_anonimo=es_anonimo,
                 nombre_remitente=data.get('nombre_remitente'),
                 contacto_remitente=data.get('contacto_remitente')
             )
@@ -2114,6 +2180,17 @@ class SugerenciaConsultaPublicaCreateView(generics.CreateAPIView):
             legacy_serializer.is_valid(raise_exception=True)
             sc = legacy_serializer.save(usuario=prevencionista)
             ret_uuid = str(sc.uuid)
+
+        if not es_anonimo:
+            identificador = (data.get('contacto_remitente') or data.get('nombre_remitente') or 'trabajador-identificado').strip()
+            registrar_consentimiento(
+                request,
+                identificador_titular=identificador,
+                flujo=RegistroConsentimiento.FLUJO_SUGERENCIA_IDENTIFICADA,
+                otorgado=True,
+                categorias=['sugerencia_identificada'],
+                texto_aceptado="Consentimiento voluntario identificacion en buzon laboral v1.0",
+            )
 
         return Response(
             {
@@ -2416,9 +2493,19 @@ class SolicitudCapacitacionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         if self.request.user and self.request.user.is_authenticated:
-            serializer.save(usuario=self.request.user)
+            instance = serializer.save(usuario=self.request.user)
         else:
-            serializer.save()
+            instance = serializer.save()
+
+        registrar_consentimiento(
+            self.request,
+            usuario=self.request.user if self.request.user and self.request.user.is_authenticated else None,
+            identificador_titular=instance.contacto_email,
+            flujo=RegistroConsentimiento.FLUJO_COTIZACION_CAPACITACION,
+            otorgado=True,
+            categorias=['cotizacion_capacitacion'],
+            texto_aceptado="Autorizacion tratamiento de datos para cotizacion de capacitacion v1.0",
+        )
 
 
 

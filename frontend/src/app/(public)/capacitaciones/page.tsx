@@ -144,6 +144,8 @@ export default function CapacitacionesPublicPage() {
     mensaje_adicional: "",
   });
 
+  const [aceptaPrivacidad, setAceptaPrivacidad] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,6 +161,10 @@ export default function CapacitacionesPublicPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!aceptaPrivacidad) {
+      setError("Debes autorizar el tratamiento de tus datos de contacto conforme a nuestra Política de Privacidad.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setSuccess(false);
@@ -173,18 +179,21 @@ export default function CapacitacionesPublicPage() {
           ...formData,
           cantidad_trabajadores: Number(formData.cantidad_trabajadores) || 10,
           fecha_tentativa: formData.fecha_tentativa || null,
+          acepta_privacidad: aceptaPrivacidad,
         }),
       });
 
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(
+          errorData.acepta_privacidad?.[0] ||
           errorData.detail ||
             "No pudimos procesar tu solicitud. Por favor verifica los datos ingresados."
         );
       }
 
       setSuccess(true);
+      setAceptaPrivacidad(false);
       setFormData({
         empresa: "",
         rut_empresa: "",
@@ -595,6 +604,29 @@ export default function CapacitacionesPublicPage() {
                   placeholder="Indica horarios requeridos, turnos rotativos, si necesitas certificados impresos o temas adicionales a incorporar..."
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl p-3 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
                 />
+              </div>
+
+              {/* Consentimiento opt-in y aviso corto (Art. 12 y 14 ter Ley 21.719) */}
+              <div className="space-y-2.5 bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
+                <label className="flex items-start gap-2.5 cursor-pointer text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={aceptaPrivacidad}
+                    onChange={(e) => setAceptaPrivacidad(e.target.checked)}
+                    required
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-orange-600 focus:ring-orange-500 shrink-0"
+                  />
+                  <span>
+                    Autorizo el tratamiento de mis datos de contacto para gestionar y responder esta cotización de capacitación conforme a la{" "}
+                    <a href="/privacidad" target="_blank" className="text-orange-600 underline font-semibold">
+                      Política de Privacidad
+                    </a>. <span className="text-rose-500">*</span>
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed pl-6">
+                  HD Prevención tratará tus datos exclusivamente para preparar y responder tu cotización, conservándolos hasta por 12 meses. Ejerce tus derechos ARCO-POL en{" "}
+                  <a href="/derechos-arco" className="text-orange-600 underline font-semibold">/derechos-arco</a>.
+                </p>
               </div>
 
               <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800">

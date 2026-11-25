@@ -20,7 +20,7 @@ from .models import (
     EntregaEPP,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
     MatrizRiesgoMiper, ItemMatrizRiesgo,
-    SolicitudDerechoARCO
+    SolicitudDerechoARCO, RegistroConsentimiento
 )
 
 Usuario = get_user_model()
@@ -40,6 +40,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
     mfa_obligatorio = serializers.BooleanField(read_only=True)
     mfa_setup_required = serializers.SerializerMethodField()
     mfa_backup_codes_remaining = serializers.SerializerMethodField()
+    marketing_novedades = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
@@ -47,7 +48,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
             'id', 'uuid', 'username', 'email', 'tipo_usuario', 'cuenta_padre',
             'suscripcion_activa', 'contador_descargas', 'foto_perfil',
             'mfa_enabled', 'mfa_obligatorio', 'mfa_setup_required',
-            'mfa_enrolled_at', 'mfa_backup_codes_remaining'
+            'mfa_enrolled_at', 'mfa_backup_codes_remaining', 'marketing_novedades'
         )
         read_only_fields = (
             'id', 'uuid', 'tipo_usuario', 'cuenta_padre',
@@ -60,6 +61,13 @@ class UsuarioSerializer(serializers.ModelSerializer):
     def get_mfa_backup_codes_remaining(self, obj):
         hashes = getattr(obj, 'mfa_backup_codes_hashes', None) or []
         return len(hashes)
+
+    def get_marketing_novedades(self, obj):
+        ultimo = RegistroConsentimiento.objects.filter(
+            usuario=obj,
+            flujo=RegistroConsentimiento.FLUJO_MARKETING_NOVEDADES
+        ).order_by('-fecha_evento').first()
+        return bool(ultimo.otorgado) if ultimo else False
 
     def get_suscripcion_activa(self, obj):
         owner = obj.cuenta_padre if obj.cuenta_padre else obj
@@ -91,6 +99,26 @@ class UsuarioSerializer(serializers.ModelSerializer):
         }
 
 
+class ConsentimientoObligatorioMixin(serializers.Serializer):
+    """
+    Exige aceptación explícita (checkbox opt-in no premarcado) en creación
+    y remueve el campo transitorio antes de instanciar el modelo (Art. 12 Ley 21.719).
+    """
+    acepta_privacidad = serializers.BooleanField(write_only=True, required=False, default=False)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if self.instance is None and not attrs.get('acepta_privacidad'):
+            raise ValidationError({
+                "acepta_privacidad": "Debes autorizar expresamente el tratamiento de tus datos conforme a la Política de Privacidad (Art. 12 Ley N° 21.719)."
+            })
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('acepta_privacidad', None)
+        return super().create(validated_data)
+
+
 class RegisterSerializer(serializers.ModelSerializer):
     """
     Serializer que maneja el registro seguro de nuevos usuarios,
@@ -106,10 +134,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         required=True, 
         style={'input_type': 'password'}
     )
+    acepta_privacidad = serializers.BooleanField(write_only=True, required=False, default=False)
+    acepta_marketing = serializers.BooleanField(write_only=True, required=False, default=False)
     
     class Meta:
         model = Usuario
-        fields = ('username', 'email', 'password', 'password_confirm')
+        fields = ('username', 'email', 'password', 'password_confirm', 'acepta_privacidad', 'acepta_marketing')
         extra_kwargs = {
             'email': {'required': True}
         }
@@ -119,7 +149,13 @@ class RegisterSerializer(serializers.ModelSerializer):
         if attrs['password'] != attrs['password_confirm']:
             raise ValidationError({"password": "Las contraseñas ingresadas no coinciden."})
 
-        # 2. Validar fortaleza mínima según AUTH_PASSWORD_VALIDATORS de Django (Ley 21.719 / P1)
+        # 2. Validar aceptación de Política de Privacidad y Términos (no premarcado)
+        if not attrs.get('acepta_privacidad'):
+            raise ValidationError({
+                "acepta_privacidad": "Debes leer la Política de Privacidad y aceptar los Términos y Condiciones del Servicio para crear tu cuenta."
+            })
+
+        # 3. Validar fortaleza mínima según AUTH_PASSWORD_VALIDATORS de Django (Ley 21.719 / P1)
         temp_user = Usuario(
             username=attrs.get('username', ''),
             email=attrs.get('email', ''),
@@ -129,7 +165,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         except DjangoValidationError as exc:
             raise ValidationError({"password": list(exc.messages)})
 
-        # 3. Validar correo electrónico único (Django por defecto valida username, pero no email como unique)
+        # 4. Validar correo electrónico único (Django por defecto valida username, pero no email como unique)
         email = attrs.get('email')
         if Usuario.objects.filter(email=email).exists():
             raise ValidationError({"email": "Ya existe un usuario registrado con este correo electrónico."})
@@ -139,6 +175,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         # Remover campos temporales del diccionario de validación
         validated_data.pop('password_confirm')
+        validated_data.pop('acepta_privacidad', None)
+        validated_data.pop('acepta_marketing', None)
         password = validated_data.pop('password')
         
         # Blindaje Ley 21.719 (C-1): todo nuevo registro es INDIVIDUAL e independiente por defecto
@@ -216,7 +254,7 @@ class NoticiaSerializer(serializers.ModelSerializer):
         }
 
 
-class MensajeContactoSerializer(serializers.ModelSerializer):
+class MensajeContactoSerializer(ConsentimientoObligatorioMixin, serializers.ModelSerializer):
     class Meta:
         model = MensajeContacto
         fields = '__all__'
@@ -488,7 +526,7 @@ class ContratistaResumenSerializer(serializers.ModelSerializer):
         return obj.documentos.count()
 
 
-class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
+class SolicitudCapacitacionSerializer(ConsentimientoObligatorioMixin, serializers.ModelSerializer):
     """
     Serializador para solicitudes de capacitaciones externas y relatorías presenciales/online.
     """
@@ -509,7 +547,8 @@ class SolicitudCapacitacionSerializer(serializers.ModelSerializer):
             'modalidad', 'modalidad_display',
             'region_comuna', 'cantidad_trabajadores', 'fecha_tentativa',
             'mensaje_adicional', 'estado', 'estado_display',
-            'notas_internas', 'fecha_creacion', 'fecha_actualizacion'
+            'notas_internas', 'fecha_creacion', 'fecha_actualizacion',
+            'acepta_privacidad'
         )
         read_only_fields = ('id', 'fecha_creacion', 'fecha_actualizacion')
         extra_kwargs = {

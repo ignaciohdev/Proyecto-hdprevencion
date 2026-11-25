@@ -198,6 +198,7 @@ class Command(BaseCommand):
                     "email": f"hacker_{u_id}@attack.cl",
                     "password": "PasswordHacker123!",
                     "password_confirm": "PasswordHacker123!",
+                    "acepta_privacidad": True,
                     "cuenta_padre": user_b.id,  # Intento de colgarse de cuenta B
                     "tipo_usuario": "CORPORATIVO"
                 }, format="json")

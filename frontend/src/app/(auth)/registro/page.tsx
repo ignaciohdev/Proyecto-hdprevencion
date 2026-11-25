@@ -12,6 +12,8 @@ export default function Registro() {
     password: "",
     password_confirm: "",
   });
+  const [aceptaPrivacidad, setAceptaPrivacidad] = useState(false);
+  const [aceptaMarketing, setAceptaMarketing] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,12 +39,20 @@ export default function Registro() {
       return;
     }
 
+    if (!aceptaPrivacidad) {
+      setError("Debes leer la Política de Privacidad y aceptar los Términos y Condiciones del Servicio para crear tu cuenta.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         username: formData.username,
         email: formData.email,
         password: formData.password,
         password_confirm: formData.password_confirm,
+        acepta_privacidad: aceptaPrivacidad,
+        acepta_marketing: aceptaMarketing,
       };
 
       const response = await fetch(getApiUrl("/api/auth/register/"), {
@@ -182,6 +192,43 @@ export default function Registro() {
             </div>
           </div>
 
+          {/* Consentimientos explícitos (no premarcados - Art. 12 y 14 ter Ley 21.719) */}
+          <div className="space-y-2.5 pt-1 text-xs text-slate-600 dark:text-slate-300">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={aceptaPrivacidad}
+                onChange={(e) => setAceptaPrivacidad(e.target.checked)}
+                required
+                className="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-orange-600 focus:ring-orange-500 shrink-0"
+              />
+              <span>
+                He leído la{" "}
+                <a href="/privacidad" target="_blank" className="text-orange-600 hover:underline font-semibold">
+                  Política de Privacidad
+                </a>{" "}
+                y acepto los{" "}
+                <a href="/terminos" target="_blank" className="text-orange-600 hover:underline font-semibold">
+                  Términos y Condiciones del Servicio
+                </a>{" "}
+                para la creación y uso de mi cuenta. <span className="text-rose-500">*</span>
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={aceptaMarketing}
+                onChange={(e) => setAceptaMarketing(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-orange-600 focus:ring-orange-500 shrink-0"
+              />
+              <span className="text-slate-500 dark:text-slate-400">
+                Quiero recibir actualizaciones normativas SST y novedades de HD Prevención por correo electrónico.{" "}
+                <em>(Opcional; puedes revocarlo en cualquier momento desde Mi Perfil.)</em>
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
             disabled={loading}
@@ -189,6 +236,12 @@ export default function Registro() {
           >
             {loading ? "Registrando..." : "Registrarse"}
           </button>
+
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+            🔒 <strong>Aviso de Privacidad (Art. 14 ter Ley N° 21.719):</strong> Tus datos (usuario, correo y credenciales) son tratados por <strong>HD Prevención</strong> (Responsable) para crear y administrar tu cuenta. Puedes ejercer tus derechos ARCO-POL en{" "}
+            <a href="/derechos-arco" className="text-orange-600 underline font-semibold">/derechos-arco</a> o escribiendo a{" "}
+            <span className="font-mono">privacidad@hdprevencion.cl</span>.
+          </p>
         </form>
 
         {/* Footer del card */}

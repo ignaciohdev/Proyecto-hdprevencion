@@ -10,7 +10,8 @@ from .models import (
     TemaCapacitacion, RegistroCapacitacion,
     SugerenciaConsulta, SolicitudCapacitacion,
     RequisitoLegalBase, MatrizLegal, ItemMatrizLegal,
-    MatrizRiesgoMiper, ItemMatrizRiesgo
+    MatrizRiesgoMiper, ItemMatrizRiesgo,
+    RegistroConsentimiento
 )
 
 @admin.register(Usuario)
@@ -441,5 +442,27 @@ class ItemMatrizRiesgoAdmin(admin.ModelAdmin):
         return mark_safe(
             f'<span style="background-color:{bg};color:{text};padding:2px 6px;border-radius:4px;font-weight:bold;">{obj.magnitud_residual} ({obj.clasificacion_residual})</span>'
         )
+
+
+@admin.register(RegistroConsentimiento)
+class RegistroConsentimientoAdmin(admin.ModelAdmin):
+    """Registro append-only de prueba de consentimiento (Art. 12 inciso final Ley 21.719)."""
+    list_display = ('fecha_evento', 'flujo', 'identificador_titular', 'otorgado', 'version_politica', 'ip_origen')
+    list_filter = ('flujo', 'otorgado', 'version_politica')
+    search_fields = ('identificador_titular', 'hash_politica', 'ip_origen')
+    date_hierarchy = 'fecha_evento'
+    readonly_fields = (
+        'usuario', 'identificador_titular', 'flujo', 'version_politica',
+        'hash_politica', 'otorgado', 'categorias', 'ip_origen', 'user_agent', 'fecha_evento'
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 

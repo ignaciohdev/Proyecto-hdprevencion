@@ -13,6 +13,8 @@ function ContactoPageInner() {
     mensaje: "",
   });
 
+  const [aceptaPrivacidad, setAceptaPrivacidad] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,25 +52,43 @@ function ContactoPageInner() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!aceptaPrivacidad) {
+      setError("Debes autorizar el tratamiento de tus datos de contacto conforme a la Política de Privacidad.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setSuccess(false);
 
     const token = localStorage.getItem("access_token");
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
 
     try {
       const res = await fetch(getApiUrl("/api/contacto/"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: token ? `Bearer ${token}` : "",
-        },
-        body: JSON.stringify(formData),
+        headers,
+        body: JSON.stringify({
+          ...formData,
+          acepta_privacidad: aceptaPrivacidad,
+        }),
       });
 
-      if (!res.ok) throw new Error("Ocurrió un error al enviar el mensaje.");
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          errData.acepta_privacidad?.[0] ||
+          errData.detail ||
+          "Ocurrió un error al enviar el mensaje."
+        );
+      }
 
       setSuccess(true);
+      setAceptaPrivacidad(false);
       setFormData((prev) => ({
         ...prev,
         asunto: "",
@@ -174,6 +194,29 @@ function ContactoPageInner() {
                   className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all resize-none"
                   placeholder="Escribe aquí tu pregunta detallada..."
                 />
+              </div>
+
+              {/* Consentimiento opt-in y aviso corto (Art. 12 y 14 ter Ley 21.719) */}
+              <div className="space-y-2.5 bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs">
+                <label className="flex items-start gap-2.5 cursor-pointer text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={aceptaPrivacidad}
+                    onChange={(e) => setAceptaPrivacidad(e.target.checked)}
+                    required
+                    className="mt-0.5 w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-orange-600 focus:ring-orange-500 shrink-0"
+                  />
+                  <span>
+                    Autorizo el tratamiento de mis datos de contacto para gestionar y responder esta solicitud conforme a la{" "}
+                    <a href="/privacidad" target="_blank" className="text-orange-600 underline font-semibold">
+                      Política de Privacidad
+                    </a>. <span className="text-rose-500">*</span>
+                  </span>
+                </label>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed pl-6">
+                  HD Prevención tratará tus datos exclusivamente para responder tu consulta, conservándolos hasta por 12 meses. Ejerce tus derechos en{" "}
+                  <a href="/derechos-arco" className="text-orange-600 underline font-semibold">/derechos-arco</a>.
+                </p>
               </div>
 
               <button

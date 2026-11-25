@@ -676,8 +676,10 @@ export default function Home() {
 
           <div className="pt-8 border-t border-slate-900 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
             <p>&copy; {new Date().getFullYear()} HD Prevención SpA. Todos los derechos reservados. Desarrollado para la normativa chilena.</p>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-4">
               <Link href="/privacidad" className="hover:text-orange-400 transition-colors">Privacidad</Link>
+              <span>•</span>
+              <Link href="/derechos-arco" className="hover:text-orange-400 transition-colors">Derechos ARCO-POL</Link>
               <span>•</span>
               <Link href="/terminos" className="hover:text-orange-400 transition-colors">Términos del Servicio</Link>
               <span>•</span>

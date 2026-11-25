@@ -3519,6 +3519,93 @@ class RegistroBrechaSeguridad(models.Model):
         return f"{self.codigo_incidente} - {self.get_tipo_brecha_display()} ({self.severidad})"
 
 
+class RegistroConsentimiento(models.Model):
+    """
+    Registro probatorio append-only del otorgamiento y revocación de consentimiento
+    y aceptación informada (Carga de la prueba — Art. 12 inciso final Ley N° 21.719).
+    """
+    FLUJO_REGISTRO_CUENTA = 'registro_cuenta'
+    FLUJO_MARKETING_NOVEDADES = 'marketing_novedades'
+    FLUJO_COTIZACION_CAPACITACION = 'cotizacion_capacitacion'
+    FLUJO_CONTACTO = 'contacto'
+    FLUJO_SUGERENCIA_IDENTIFICADA = 'sugerencia_identificada'
+
+    FLUJOS_CHOICES = [
+        (FLUJO_REGISTRO_CUENTA, 'Registro de Cuenta y Aceptación Contractual'),
+        (FLUJO_MARKETING_NOVEDADES, 'Comunicaciones Normativas SST y Novedades'),
+        (FLUJO_COTIZACION_CAPACITACION, 'Solicitud de Cotización / Capacitación'),
+        (FLUJO_CONTACTO, 'Formulario de Contacto Comercial/Soporte'),
+        (FLUJO_SUGERENCIA_IDENTIFICADA, 'Sugerencia Voluntaria con Identificación Opcional'),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='consentimientos',
+        verbose_name="Usuario Asociado"
+    )
+    identificador_titular = models.CharField(
+        max_length=255,
+        db_index=True,
+        verbose_name="Email o Identificador del Titular"
+    )
+    flujo = models.CharField(
+        max_length=50,
+        choices=FLUJOS_CHOICES,
+        db_index=True,
+        verbose_name="Flujo de Captura"
+    )
+    version_politica = models.CharField(
+        max_length=20,
+        default='1.0',
+        verbose_name="Versión de Política de Privacidad"
+    )
+    hash_politica = models.CharField(
+        max_length=64,
+        verbose_name="Hash SHA-256 del Texto Informado"
+    )
+    otorgado = models.BooleanField(
+        default=True,
+        verbose_name="Consentimiento Otorgado (False = Revocado)"
+    )
+    categorias = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Categorías y Finalidades"
+    )
+    ip_origen = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        verbose_name="IP de Origen"
+    )
+    user_agent = models.CharField(
+        max_length=300,
+        blank=True,
+        default='',
+        verbose_name="User-Agent"
+    )
+    fecha_evento = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+        verbose_name="Fecha y Hora del Evento"
+    )
+
+    class Meta:
+        verbose_name = "Registro Probatorio de Consentimiento (Art. 12)"
+        verbose_name_plural = "Registros Probatorios de Consentimiento (Art. 12)"
+        ordering = ['-fecha_evento']
+        indexes = [
+            models.Index(fields=['identificador_titular', 'flujo']),
+        ]
+
+    def __str__(self):
+        estado = "Otorgado" if self.otorgado else "Revocado"
+        return f"{self.identificador_titular} · {self.flujo} ({estado})"
+
+
+
 
 
 

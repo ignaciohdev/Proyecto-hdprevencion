@@ -35,6 +35,7 @@ function BuzonPublicoContent() {
   const [esAnonimo, setEsAnonimo] = useState(true);
   const [nombreRemitente, setNombreRemitente] = useState('');
   const [contactoRemitente, setContactoRemitente] = useState('');
+  const [aceptaPrivacidadSug, setAceptaPrivacidadSug] = useState(false);
 
   // Formulario Denuncia Ley Karin
   const [tipoAfectacion, setTipoAfectacion] = useState<'ACOSO_LABORAL' | 'ACOSO_SEXUAL' | 'VIOLENCIA_EXTERNA'>('ACOSO_LABORAL');
@@ -130,6 +131,11 @@ function BuzonPublicoContent() {
           setFormState('error');
           return;
         }
+        if (!esAnonimo && !aceptaPrivacidadSug) {
+          setErrorMsg('Debes autorizar el tratamiento de tus datos de contacto opcionales o enviar de forma anónima.');
+          setFormState('error');
+          return;
+        }
 
         payload = {
           tipo_canal: 'SUGERENCIA',
@@ -139,6 +145,7 @@ function BuzonPublicoContent() {
           es_anonimo: esAnonimo,
           nombre_remitente: esAnonimo ? null : nombreRemitente.trim() || null,
           contacto_remitente: esAnonimo ? null : contactoRemitente.trim() || null,
+          ...(esAnonimo ? {} : { acepta_privacidad: aceptaPrivacidadSug }),
         };
       }
 
@@ -507,29 +514,46 @@ function BuzonPublicoContent() {
                 </label>
 
                 {!esAnonimo && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
-                    <div>
-                      <label className="text-xs text-slate-400 block mb-1">Tu Nombre</label>
-                      <input
-                        type="text"
-                        value={nombreRemitente}
-                        onChange={e => setNombreRemitente(e.target.value)}
-                        placeholder="Nombre completo"
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
-                      />
+                  <div className="space-y-3 pt-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Tu Nombre</label>
+                        <input
+                          type="text"
+                          value={nombreRemitente}
+                          onChange={e => setNombreRemitente(e.target.value)}
+                          placeholder="Nombre completo"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">
+                          Contacto (Email o Teléfono)
+                        </label>
+                        <input
+                          type="text"
+                          value={contactoRemitente}
+                          onChange={e => setContactoRemitente(e.target.value)}
+                          placeholder="Para recibir respuesta"
+                          className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs text-slate-400 block mb-1">
-                        Contacto (Email o Teléfono)
-                      </label>
+                    <label className="flex items-start gap-2.5 text-xs text-slate-300 cursor-pointer pt-1">
                       <input
-                        type="text"
-                        value={contactoRemitente}
-                        onChange={e => setContactoRemitente(e.target.value)}
-                        placeholder="Para recibir respuesta"
-                        className="w-full bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                        type="checkbox"
+                        checked={aceptaPrivacidadSug}
+                        onChange={e => setAceptaPrivacidadSug(e.target.checked)}
+                        required
+                        className="mt-0.5 w-4 h-4 rounded border-slate-700 text-amber-600 focus:ring-0 shrink-0"
                       />
-                    </div>
+                      <span>
+                        Autorizo voluntariamente que mis datos identificatorios opcionales sean tratados por cuenta de mi empleador para hacer seguimiento y responder este aporte, conforme a la{" "}
+                        <a href="/privacidad" target="_blank" className="text-orange-400 underline font-semibold">
+                          Política de Privacidad
+                        </a>.
+                      </span>
+                    </label>
                   </div>
                 )}
               </div>
@@ -544,13 +568,23 @@ function BuzonPublicoContent() {
 
           {/* Aviso de Privacidad y Tratamiento de Datos (Art. 14 ter Ley 21.719) */}
           <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-[11px] text-slate-400 space-y-1">
+            {canal === 'DENUNCIA_KARIN' ? (
+              <p>
+                🔒 <strong>Aviso de Protección de Datos Sensibles (Ley N° 21.719 y Ley N° 21.643):</strong> HD Prevención opera como Encargado del tratamiento por cuenta de tu empleador (Responsable). Los datos ingresados son obligatorios por mandato de la Ley Karin para activar medidas de resguardo y tramitar la denuncia ante la Dirección del Trabajo y/o mutualidad, conservándose al menos 5 años bajo confidencialidad y cifrado.
+              </p>
+            ) : (
+              <p>
+                🔒 <strong>Aviso de Protección de Datos (Ley N° 21.719):</strong> Los datos recopilados serán tratados por cuenta de tu empleador únicamente para gestionar sugerencias de mejora y prevención laboral (conservación mínima legal: 5 años cuando corresponda registro SST).
+              </p>
+            )}
             <p>
-              🔒 <strong>Aviso de Protección de Datos (Ley N° 21.719):</strong> Los datos recopilados serán tratados exclusivamente para la tramitación de esta {canal === 'DENUNCIA_KARIN' ? 'denuncia Ley Karin bajo estricta reserva legal (Ley 21.643 y D.S. 44)' : 'sugerencia o consulta laboral'}.
-            </p>
-            <p>
-              Puedes revisar las finalidades, plazos de conservación y procedimiento para ejercer tus derechos de acceso, rectificación y supresión en nuestra{" "}
+              Revisa nuestras finalidades, transferencias internacionales y canal ARCO-POL en la{" "}
               <a href="/privacidad" target="_blank" className="text-orange-400 underline font-semibold">
                 Política de Privacidad
+              </a>{" "}
+              o en{" "}
+              <a href="/derechos-arco" target="_blank" className="text-orange-400 underline font-semibold">
+                /derechos-arco
               </a>.
             </p>
           </div>

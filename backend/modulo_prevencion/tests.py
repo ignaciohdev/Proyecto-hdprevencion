@@ -2534,6 +2534,7 @@ class Ley21719P0SecurityTestCase(APITestCase):
     client: Any
 
     def setUp(self):
+        cache.clear()
         self.owner = Usuario.objects.create_user(
             username="p0_owner",
             email="p0_owner@hdprevencion.cl",
@@ -2643,6 +2644,7 @@ class Ley21719P1SecurityTestCase(APITestCase):
     def setUp(self):
         from .models import Contratista, DocumentoContratista, TrabajadorSubcontratado, SugerenciaConsulta
 
+        cache.clear()
         self.owner = Usuario.objects.create_user(
             username="p1_owner",
             email="p1_owner@hdprevencion.cl",
@@ -2754,16 +2756,18 @@ class Ley21719P1SecurityTestCase(APITestCase):
             "email": "debil@hdprevencion.cl",
             "password": "123",
             "password_confirm": "123",
+            "acepta_privacidad": True,
         })
         self.assertEqual(res_reg_debil.status_code, 400)
         self.assertIn("password", res_reg_debil.json())
 
-        # 2. Registro acepta contraseña robusta
+        # 2. Registro acepta contraseña robusta y consentimiento explícito
         res_reg_ok = self.client.post("/api/auth/register/", {
             "username": "nuevo_robusto",
             "email": "robusto@hdprevencion.cl",
             "password": "ClaveSegura#2026!",
             "password_confirm": "ClaveSegura#2026!",
+            "acepta_privacidad": True,
         })
         self.assertEqual(res_reg_ok.status_code, 201)
 
@@ -2806,6 +2810,7 @@ class Ley21719P1SecurityTestCase(APITestCase):
             "email": "carlos@empresa.cl",
             "asunto": "Cotización SaaS",
             "mensaje": "Necesito asesoría en Ley 21.719",
+            "acepta_privacidad": True,
         })
         self.assertEqual(res_post.status_code, 201)
 
@@ -2923,6 +2928,7 @@ class Ley21719P1MFATestCase(APITestCase):
     """
 
     def setUp(self):
+        cache.clear()
         self.corp_user = Usuario.objects.create_user(
             username="mfa_corp",
             email="mfa_corp@hdprevencion.cl",
@@ -3082,6 +3088,196 @@ class Ley21719P1MFATestCase(APITestCase):
         )
         self.assertEqual(res_disable.status_code, 200)
         self.assertFalse(res_disable.json()["user"]["mfa_enabled"])
+
+
+class Ley21719P1ConsentTestCase(APITestCase):
+    """
+    Pruebas de integración para el registro probatorio append-only de consentimientos
+    y avisos de privacidad (P1.3 / Art. 12 y 14 ter Ley N° 21.719).
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_registro_exige_consentimiento_y_permite_revocar_marketing(self):
+        from .models import RegistroConsentimiento
+
+        # 1. Registro sin acepta_privacidad -> 400
+        res_sin_check = self.client.post("/api/auth/register/", {
+            "username": "consent_fail",
+            "email": "consent_fail@hdprevencion.cl",
+            "password": "ClaveSegura#2026!",
+            "password_confirm": "ClaveSegura#2026!",
+        })
+        self.assertEqual(res_sin_check.status_code, 400)
+        self.assertIn("acepta_privacidad", res_sin_check.json())
+
+        # 2. Registro válido con marketing opt-in
+        res_ok = self.client.post("/api/auth/register/", {
+            "username": "consent_ok",
+            "email": "consent_ok@hdprevencion.cl",
+            "password": "ClaveSegura#2026!",
+            "password_confirm": "ClaveSegura#2026!",
+            "acepta_privacidad": True,
+            "acepta_marketing": True,
+        }, HTTP_USER_AGENT="PyTestBrowser/1.0")
+        self.assertEqual(res_ok.status_code, 201)
+        self.assertTrue(res_ok.json()["user"]["marketing_novedades"])
+
+        eventos_cta = RegistroConsentimiento.objects.filter(
+            identificador_titular="consent_ok@hdprevencion.cl",
+            flujo=RegistroConsentimiento.FLUJO_REGISTRO_CUENTA,
+        )
+        self.assertEqual(eventos_cta.count(), 1)
+        self.assertEqual(eventos_cta.first().version_politica, "1.0")
+        self.assertEqual(len(eventos_cta.first().hash_politica), 64)
+        self.assertIn("PyTestBrowser/1.0", eventos_cta.first().user_agent)
+
+        # 3. Revocar consentimiento de novedades crea una nueva fila append-only
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {res_ok.json()['tokens']['access']}"}
+        res_revocar = self.client.post(
+            "/api/usuarios/consentimiento-comunicaciones/",
+            {"otorgado": False},
+            format="json",
+            **headers,
+        )
+        self.assertEqual(res_revocar.status_code, 200)
+        self.assertFalse(res_revocar.json()["user"]["marketing_novedades"])
+
+        historial_mkt = RegistroConsentimiento.objects.filter(
+            identificador_titular="consent_ok@hdprevencion.cl",
+            flujo=RegistroConsentimiento.FLUJO_MARKETING_NOVEDADES,
+        ).order_by("fecha_evento")
+        self.assertEqual(historial_mkt.count(), 2)
+        self.assertEqual([ev.otorgado for ev in historial_mkt], [True, False])
+
+    def test_contacto_y_cotizacion_capacitacion_exigen_optin(self):
+        from .models import RegistroConsentimiento
+
+        # Contacto sin opt-in -> 400
+        res_c_fail = self.client.post("/api/contacto/", {
+            "nombre": "Visitante",
+            "email": "vis@empresa.cl",
+            "asunto": "Duda",
+            "mensaje": "Texto",
+        })
+        self.assertEqual(res_c_fail.status_code, 400)
+        self.assertIn("acepta_privacidad", res_c_fail.json())
+
+        # Contacto con opt-in -> 201 + evidencia
+        res_c_ok = self.client.post("/api/contacto/", {
+            "nombre": "Visitante",
+            "email": "vis@empresa.cl",
+            "asunto": "Duda",
+            "mensaje": "Texto",
+            "acepta_privacidad": True,
+        })
+        self.assertEqual(res_c_ok.status_code, 201)
+        self.assertTrue(
+            RegistroConsentimiento.objects.filter(
+                identificador_titular="vis@empresa.cl",
+                flujo=RegistroConsentimiento.FLUJO_CONTACTO,
+                otorgado=True,
+            ).exists()
+        )
+
+        # Solicitud de capacitación sin opt-in -> 400
+        cap_payload = {
+            "empresa": "Minera Sur SpA",
+            "rut_empresa": "76.555.444-3",
+            "contacto_nombre": "Ana Jefe SST",
+            "contacto_email": "ana@minerasur.cl",
+            "contacto_telefono": "+56911112222",
+            "tipo_capacitacion": "LEY_KARIN",
+            "modalidad": "PRESENCIAL",
+            "region_comuna": "Antofagasta",
+            "cantidad_trabajadores": 25,
+        }
+        self.assertEqual(self.client.post("/api/solicitudes-capacitacion/", cap_payload).status_code, 400)
+
+        # Con opt-in -> 201 + evidencia
+        cap_payload["acepta_privacidad"] = True
+        res_cap_ok = self.client.post("/api/solicitudes-capacitacion/", cap_payload)
+        self.assertEqual(res_cap_ok.status_code, 201)
+        self.assertTrue(
+            RegistroConsentimiento.objects.filter(
+                identificador_titular="ana@minerasur.cl",
+                flujo=RegistroConsentimiento.FLUJO_COTIZACION_CAPACITACION,
+                otorgado=True,
+            ).exists()
+        )
+
+        # PATCH administrativo interno sobre la solicitud no exige re-enviar acepta_privacidad
+        staff = Usuario.objects.create_user(
+            username="cap_staff",
+            email="cap_staff@hdprevencion.cl",
+            password="PasswordFuerte123!",
+            is_staff=True,
+        )
+        token_staff = self.client.post("/api/auth/login/", {"username": "cap_staff", "password": "PasswordFuerte123!"}).json()["access"]
+        res_patch = self.client.patch(
+            f"/api/solicitudes-capacitacion/{res_cap_ok.json()['id']}/",
+            {"notas_internas": "Cotización enviada por correo"},
+            HTTP_AUTHORIZATION=f"Bearer {token_staff}",
+        )
+        self.assertEqual(res_patch.status_code, 200)
+
+    def test_buzon_sugerencia_anonima_vs_identificada(self):
+        from .models import RegistroConsentimiento
+
+        owner = Usuario.objects.create_user(
+            username="buzon_owner",
+            email="buzon_owner@hdprevencion.cl",
+            password="PasswordFuerte123!",
+        )
+        emp = Empresa.objects.create(
+            prevencionista=owner,
+            razon_social="Empresa Buzón SpA",
+            rut="76.333.444-5",
+        )
+
+        # Anónima no requiere consentimiento
+        res_anon = self.client.post(f"/api/publico/{owner.uuid}/buzon/", {
+            "tipo_canal": "SUGERENCIA",
+            "empresa": emp.id,
+            "mensaje": "Sugerencia anónima de mejora",
+            "es_anonimo": True,
+        }, format="json")
+        self.assertEqual(res_anon.status_code, 201)
+
+        # Identificada sin acepta_privacidad -> 400
+        res_ident_fail = self.client.post(f"/api/publico/{owner.uuid}/buzon/", {
+            "tipo_canal": "SUGERENCIA",
+            "empresa": emp.id,
+            "mensaje": "Sugerencia con mis datos",
+            "es_anonimo": False,
+            "nombre_remitente": "Pedro Trabajador",
+            "contacto_remitente": "pedro@empresa.cl",
+        }, format="json")
+        self.assertEqual(res_ident_fail.status_code, 400)
+
+        # Identificada con acepta_privacidad=True -> 201 + evidencia
+        res_ident_ok = self.client.post(f"/api/publico/{owner.uuid}/buzon/", {
+            "tipo_canal": "SUGERENCIA",
+            "empresa": emp.id,
+            "mensaje": "Sugerencia con mis datos",
+            "es_anonimo": False,
+            "nombre_remitente": "Pedro Trabajador",
+            "contacto_remitente": "pedro@empresa.cl",
+            "acepta_privacidad": True,
+        }, format="json")
+        self.assertEqual(res_ident_ok.status_code, 201)
+        self.assertTrue(
+            RegistroConsentimiento.objects.filter(
+                identificador_titular="pedro@empresa.cl",
+                flujo=RegistroConsentimiento.FLUJO_SUGERENCIA_IDENTIFICADA,
+                otorgado=True,
+            ).exists()
+        )
+
 
 
 

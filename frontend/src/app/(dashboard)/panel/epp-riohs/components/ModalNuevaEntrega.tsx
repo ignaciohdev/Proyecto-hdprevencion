@@ -449,6 +449,18 @@ export function ModalNuevaEntrega({
             <SignatureCanvas onSignatureChange={(sig) => setFirmaDigital(sig)} />
           </div>
 
+          {/* Aviso Informativo Ley 21.719 (Art. 14 ter y Art. 13 b - deber legal SST sin consentimiento) */}
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+            🔒 <strong>Aviso de Privacidad (Ley N° 21.719):</strong> HD Prevención trata el nombre, RUT, firma manuscrita digitalizada e IP de registro del trabajador como Encargado por cuenta del empleador (Responsable), con la única finalidad de acreditar el cumplimiento de la normativa SST (D.S. N° 44, D.S. N° 594 y Art. 68 Ley N° 16.744). Conservación legal mínima: 5 años. Revisa la{" "}
+            <a href="/privacidad" target="_blank" className="text-orange-600 dark:text-orange-400 underline font-semibold">
+              Política de Privacidad
+            </a>{" "}
+            y el canal de derechos en{" "}
+            <a href="/derechos-arco" target="_blank" className="text-orange-600 dark:text-orange-400 underline font-semibold">
+              /derechos-arco
+            </a>.
+          </div>
+
           {/* Footer Botones */}
           <div className="pt-4 flex items-center justify-between border-t border-slate-100 dark:border-slate-800">
             <p className="text-[11px] text-slate-400 italic">

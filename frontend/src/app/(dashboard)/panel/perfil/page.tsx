@@ -43,6 +43,11 @@ export default function PerfilPanel() {
   const [mfaError, setMfaError] = useState<string | null>(null);
   const [mfaMessage, setMfaMessage] = useState<string | null>(null);
 
+  // Preferencias de comunicaciones SST (Art. 12 Ley 21.719)
+  const [marketingNovedades, setMarketingNovedades] = useState(false);
+  const [marketingLoading, setMarketingLoading] = useState(false);
+  const [marketingMsg, setMarketingMsg] = useState<string | null>(null);
+
   // Cargar perfil inicial
   const loadUserData = async () => {
     const token = localStorage.getItem("access_token");
@@ -63,6 +68,7 @@ export default function PerfilPanel() {
         setMfaObligatorio(Boolean(data.mfa_obligatorio));
         setMfaEnrolledAt(data.mfa_enrolled_at || null);
         setMfaBackupRemaining(Number(data.mfa_backup_codes_remaining || 0));
+        setMarketingNovedades(Boolean(data.marketing_novedades));
         setForm({
           username: data.username,
           email: data.email,
@@ -367,6 +373,29 @@ export default function PerfilPanel() {
     link.download = "hdprevencion-codigos-respaldo-mfa.txt";
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleToggleMarketing = async (nuevoEstado: boolean) => {
+    setMarketingLoading(true);
+    setMarketingMsg(null);
+    try {
+      const res = await authFetch("/api/usuarios/consentimiento-comunicaciones/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ otorgado: nuevoEstado }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMarketingNovedades(Boolean(data.otorgado));
+        setMarketingMsg(
+          data.otorgado
+            ? "Consentimiento registrado para novedades normativas SST."
+            : "Consentimiento revocado gratuitamente. No enviaremos novedades promocionales."
+        );
+      }
+    } finally {
+      setMarketingLoading(false);
+    }
   };
 
   // Iniciales fallback
@@ -814,6 +843,47 @@ export default function PerfilPanel() {
             </div>
           </form>
         )}
+      </section>
+
+      {/* Preferencias de Privacidad y Comunicaciones (Art. 12 Ley 21.719) */}
+      <section className="bg-white dark:bg-slate-950 p-6 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="font-bold text-slate-900 dark:text-white">
+              Privacidad y Comunicaciones Normativas (Ley N° 21.719)
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Administra o revoca gratuitamente tu consentimiento opcional para recibir novedades SST y consulta tus derechos ARCO-POL.
+            </p>
+          </div>
+          <label className="inline-flex items-center gap-2.5 cursor-pointer shrink-0 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2.5 rounded-xl">
+            <input
+              type="checkbox"
+              checked={marketingNovedades}
+              disabled={marketingLoading}
+              onChange={(e) => handleToggleMarketing(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 dark:border-slate-700 text-orange-600 focus:ring-orange-500"
+            />
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+              {marketingLoading ? "Guardando..." : "Recibir novedades SST"}
+            </span>
+          </label>
+        </div>
+
+        {marketingMsg && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+            {marketingMsg}
+          </p>
+        )}
+
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-900 flex flex-wrap gap-4 text-xs">
+          <a href="/privacidad" target="_blank" className="text-orange-600 hover:underline font-semibold">
+            Ver Política de Privacidad (v1.0)
+          </a>
+          <a href="/derechos-arco" target="_blank" className="text-orange-600 hover:underline font-semibold">
+            Ejercer Derechos ARCO-POL (/derechos-arco)
+          </a>
+        </div>
       </section>
 
     </div>
